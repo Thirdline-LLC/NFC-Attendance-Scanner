@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { EnrollmentCandidate } from '@/scanner/use-attendance-session';
 
 type EnrollmentFormProps = {
@@ -19,10 +19,22 @@ export function EnrollmentForm({
   onSave,
   onCancel,
 }: EnrollmentFormProps) {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [gradYear, setGradYear] = useState('');
-  const [email, setEmail] = useState('');
+  const isEditing = Boolean(candidate.person);
+  const [firstName, setFirstName] = useState(candidate.person?.firstName ?? '');
+  const [lastName, setLastName] = useState(candidate.person?.lastName ?? '');
+  const [gradYear, setGradYear] = useState(
+    candidate.person?.gradYear ? String(candidate.person.gradYear) : '',
+  );
+  const [email, setEmail] = useState(candidate.person?.email ?? '');
+
+  useEffect(() => {
+    setFirstName(candidate.person?.firstName ?? '');
+    setLastName(candidate.person?.lastName ?? '');
+    setGradYear(
+      candidate.person?.gradYear ? String(candidate.person.gradYear) : '',
+    );
+    setEmail(candidate.person?.email ?? '');
+  }, [candidate.person]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -43,7 +55,7 @@ export function EnrollmentForm({
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[hsl(var(--primary))]">
-            New local enrollment
+            {isEditing ? 'Edit local enrollment' : 'New local enrollment'}
           </p>
           <p className="mt-2 font-mono text-sm font-bold tracking-[0.16em] text-[hsl(var(--foreground))]">
             Card ••••{candidate.uid.slice(-4)}
@@ -105,7 +117,11 @@ export function EnrollmentForm({
         disabled={isSaving}
         className="mt-5 w-full rounded-xl bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] transition hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
       >
-        {isSaving ? 'Saving locally…' : 'Save enrollment'}
+        {isSaving
+          ? 'Saving locally…'
+          : isEditing
+            ? 'Save changes'
+            : 'Save enrollment'}
       </button>
     </form>
   );

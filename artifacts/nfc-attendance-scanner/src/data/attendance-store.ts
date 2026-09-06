@@ -115,6 +115,18 @@ export async function addPerson(person: Omit<Person, 'id'>): Promise<Person> {
   return { ...person, id };
 }
 
+export async function updatePerson(
+  personId: number,
+  changes: Pick<Person, 'firstName' | 'lastName' | 'gradYear' | 'email'>,
+): Promise<Person> {
+  await personsTable.update(personId, changes);
+  const updatedPerson = await personsTable.get(personId);
+  if (!updatedPerson) {
+    throw new Error('The enrolled person could not be found after updating.');
+  }
+  return updatedPerson;
+}
+
 export async function listTapRecords(): Promise<TapRecord[]> {
   return tapsTable.orderBy('scannedAt').toArray();
 }

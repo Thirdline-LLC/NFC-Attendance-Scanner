@@ -9,6 +9,7 @@ import {
   listPersons,
   listSessionTapRecords,
   recordSessionTap,
+  updatePerson,
   type Person,
   type TapRecord,
 } from '@/data/attendance-store';
@@ -23,11 +24,14 @@ export type ScanFeedback =
   | 'unknown'
   | 'enrollment'
   | 'enrolled'
+  | 'editing'
+  | 'updated'
   | 'existing'
   | 'storage-error';
 
 export type EnrollmentCandidate = {
   uid: string;
+  person?: Person;
 };
 
 export type SessionMetrics = {
@@ -163,7 +167,8 @@ export function useAttendanceSession(mode: ScannerMode) {
         setLastScannedAt(new Date().toISOString());
         if (existing) {
           setLastPerson(existing);
-          announce('existing');
+          setEnrollmentCandidate({ uid, person: existing });
+          announce('editing');
           return;
         }
         setLastPerson(undefined);
@@ -244,21 +249,31 @@ export function useAttendanceSession(mode: ScannerMode) {
           return;
         }
 
-        const person = await addPerson({
-          cardUid: candidate.uid,
+        const changes = {
           firstName: details.firstName.trim(),
           lastName: details.lastName.trim(),
           gradYear: details.gradYear,
           email: details.email.trim(),
-          enrolledAt: new Date().toISOString(),
-        });
-        personsRef.current = [...personsRef.current, person];
+        };
+        const person =
+          candidate.person?.id !== undefined
+            ? await updatePerson(candidate.person.id, changes)
+            : await addPerson({
+                cardUid: candidate.uid,
+                ...changes,
+                enrolledAt: new Date().toISOString(),
+              });
+        personsRef.current = candidate.person
+          ? personsRef.current.map((item) =>
+              item.id === person.id ? person : item,
+            )
+          : [...personsRef.current, person];
         setPersons(personsRef.current);
         setLastPerson(person);
         setLastUid(candidate.uid);
         setEnrollmentCandidate(null);
         setStorageError(false);
-        announce('enrolled', 1800);
+        announce(candidate.person ? 'updated' : 'enrolled', 1800);
       } catch {
         setStorageError(true);
         announce('storage-error');
