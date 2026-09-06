@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "NFC Attendance Scanner"
+description = "A kiosk-style attendance scanner that accepts HID NFC reader input, stores valid scans locally in IndexedDB, and tracks unique check-ins for the current session."
+version = "1.0.0"
+id = "artifacts/nfc-attendance-scanner"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23205
+
+[services.development]
+run = "pnpm --filter @workspace/nfc-attendance-scanner run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/nfc-attendance-scanner", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/nfc-attendance-scanner/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23205"
+BASE_PATH = "/"

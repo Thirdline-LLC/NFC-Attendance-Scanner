@@ -1,28 +1,27 @@
-# [Project name]
+# NFC Attendance Scanner
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A frontend-only kiosk screen for recording HID NFC attendance scans locally in the browser.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/nfc-attendance-scanner run dev` — run the scanner preview
+- `pnpm --filter @workspace/nfc-attendance-scanner run typecheck` — typecheck the scanner
+- `pnpm --filter @workspace/nfc-attendance-scanner run build` — build the scanner for production
+
+The scanner has no backend, authentication, analytics, API routes, or database server. Scan records are stored in the browser with Dexie/IndexedDB.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- pnpm workspaces, TypeScript, React 18, Vite
+- Tailwind CSS, react-router-dom, Dexie.js
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/nfc-attendance-scanner/src/scanner/` — scanner input and session behavior
+- `artifacts/nfc-attendance-scanner/src/data/` — Dexie/IndexedDB persistence
+- `artifacts/nfc-attendance-scanner/src/ui/` — feedback and status presentation
+- `artifacts/nfc-attendance-scanner/src/app/` — router
+- `artifacts/nfc-attendance-scanner/src/lib/` — UID normalization and validation
 
 ## Architecture decisions
 

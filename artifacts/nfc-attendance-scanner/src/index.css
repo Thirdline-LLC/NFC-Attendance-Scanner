@@ -1,0 +1,167 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap');
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+}
+
+:root {
+  --background: 211 56% 12%;
+  --foreground: 43 57% 94%;
+  --border: 210 30% 26%;
+  --input: 210 30% 26%;
+  --ring: 42 92% 67%;
+  --card: 211 48% 16%;
+  --card-foreground: 43 57% 94%;
+  --primary: 42 92% 67%;
+  --primary-foreground: 211 56% 12%;
+  --secondary: 210 30% 22%;
+  --secondary-foreground: 43 57% 94%;
+  --muted: 210 25% 22%;
+  --muted-foreground: 210 18% 68%;
+  --accent: 161 55% 65%;
+  --accent-foreground: 211 56% 12%;
+  --destructive: 8 83% 70%;
+  --destructive-foreground: 211 56% 12%;
+  --app-font-sans: 'DM Sans', sans-serif;
+  --app-font-mono: 'Space Mono', monospace;
+  --radius: 1rem;
+}
+
+.dark {
+  --background: 211 56% 12%;
+  --foreground: 43 57% 94%;
+  --border: 210 30% 26%;
+  --input: 210 30% 26%;
+  --ring: 42 92% 67%;
+  --card: 211 48% 16%;
+  --card-foreground: 43 57% 94%;
+  --primary: 42 92% 67%;
+  --primary-foreground: 211 56% 12%;
+  --secondary: 210 30% 22%;
+  --secondary-foreground: 43 57% 94%;
+  --muted: 210 25% 22%;
+  --muted-foreground: 210 18% 68%;
+  --accent: 161 55% 65%;
+  --accent-foreground: 211 56% 12%;
+  --destructive: 8 83% 70%;
+  --destructive-foreground: 211 56% 12%;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    min-width: 320px;
+    background: hsl(var(--background));
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100dvh;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--app-font-sans);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+}
+
+@keyframes station-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes success-pulse {
+  0% { transform: scale(0.96); opacity: 0; }
+  45% { transform: scale(1.015); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes alert-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+@keyframes signal-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(0.92); }
+  50% { opacity: 0.75; transform: scale(1); }
+}
+
+.station-enter {
+  animation: station-enter 520ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.feedback-success {
+  animation: success-pulse 320ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.feedback-alert {
+  animation: alert-shake 300ms ease-out;
+}
+
+.signal-breathe {
+  animation: signal-breathe 2.8s ease-in-out infinite;
+}
+
+.focus-ring {
+  outline: 3px solid hsl(var(--primary) / 0.88);
+  outline-offset: 5px;
+}
+
+.scanner-input {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.grain::after {
+  content: '';
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+}
