@@ -242,7 +242,10 @@ export function useAttendanceSession(mode: ScannerMode) {
       setIsSaving(true);
       try {
         const existing = await findPersonByUid(candidate.uid);
-        if (existing) {
+        const isTheCandidateBeingEdited =
+          existing?.id !== undefined &&
+          existing.id === candidate.person?.id;
+        if (existing && !isTheCandidateBeingEdited) {
           setLastPerson(existing);
           setEnrollmentCandidate(null);
           announce('existing');
