@@ -7,8 +7,14 @@
 
 export const SCHOOL_EMAIL_DOMAIN = 'stjohnschs.org';
 
-const SCHOOL_EMAIL_PATTERN = new RegExp(
-  `^[a-z]{2,}[0-9]{2}@${SCHOOL_EMAIL_DOMAIN.replace(/\./g, '\\.')}$`,
+const ESCAPED_DOMAIN = SCHOOL_EMAIL_DOMAIN.replace(/\./g, '\\.');
+
+/** The exact shape `deriveStudentEmail` produces. */
+const SCHOOL_EMAIL_PATTERN = new RegExp(`^[a-z]{2,}[0-9]{2}@${ESCAPED_DOMAIN}$`);
+
+/** Any well-formed local part, in the school's domain. */
+const SCHOOL_DOMAIN_PATTERN = new RegExp(
+  `^[a-z0-9]+(?:[._+-][a-z0-9]+)*@${ESCAPED_DOMAIN}$`,
 );
 
 /**
@@ -68,4 +74,14 @@ export function deriveStudentEmail(
 /** True when `email` is a well-formed address in the school's domain. */
 export function isValidSchoolEmail(email: string): boolean {
   return SCHOOL_EMAIL_PATTERN.test(email.trim().toLowerCase());
+}
+
+/**
+ * True when `email` is a well-formed address in the school's domain, whatever
+ * its local part. Deliberately looser than `isValidSchoolEmail`: it admits the
+ * addresses the formula cannot produce but the school does issue — a legacy
+ * `jane.smith@`, or the `jsmith271@` given to the second Jane Smith of 2027.
+ */
+export function isSchoolDomainEmail(email: string): boolean {
+  return SCHOOL_DOMAIN_PATTERN.test(email.trim().toLowerCase());
 }

@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import type { EnrollmentCandidate } from '@/scanner/use-attendance-session';
 import {
   deriveStudentEmail,
+  isSchoolDomainEmail,
   isValidSchoolEmail,
   SCHOOL_EMAIL_DOMAIN,
 } from '@/lib/student-email';
@@ -20,6 +21,30 @@ type EnrollmentFormProps = {
   onCancel: () => void;
 };
 
+/**
+ * Seeds the email override when an enrolled student is opened for editing. A
+ * stored address that still matches what the person's name and graduation year
+ * derive was auto-filled, so it should keep following further edits; anything
+ * else was typed by hand and is preserved as an override.
+ */
+function initialEmailOverride(
+  person: EnrollmentCandidate['person'],
+): string | null {
+  if (!person?.email) return null;
+
+  try {
+    const derived = deriveStudentEmail(
+      person.firstName,
+      person.lastName,
+      person.gradYear,
+    );
+    return person.email.trim().toLowerCase() === derived ? null : person.email;
+  } catch {
+    // Unusable stored name or year — treat the address as hand-entered.
+    return person.email;
+  }
+}
+
 export function EnrollmentForm({
   candidate,
   isSaving,
@@ -36,7 +61,7 @@ export function EnrollmentForm({
   );
   // `null` means "follow the derived address"; a string is a manual override.
   const [emailOverride, setEmailOverride] = useState<string | null>(
-    candidate.person?.email ?? null,
+    initialEmailOverride(candidate.person),
   );
   const [submitError, setSubmitError] = useState('');
 
@@ -46,7 +71,7 @@ export function EnrollmentForm({
     setGradYear(
       candidate.person?.gradYear ? String(candidate.person.gradYear) : '',
     );
-    setEmailOverride(candidate.person?.email ?? null);
+    setEmailOverride(initialEmailOverride(candidate.person));
     setSubmitError('');
   }, [candidate.person]);
 
@@ -65,8 +90,12 @@ export function EnrollmentForm({
   const isEmailOverridden = emailOverride !== null;
   const email = emailOverride ?? derivedEmail;
   const canRegenerate = derivedEmail !== '' && email !== derivedEmail;
-  const showEmailWarning =
-    isEmailOverridden && email.trim() !== '' && !isValidSchoolEmail(email);
+  // Being in the school's domain is the rule submission enforces; matching the
+  // derivation formula exactly is only advisory, since the school does issue
+  // addresses the formula cannot produce (a second `jsmith271@`, say).
+  const isEmailAcceptable = email.trim() === '' || isSchoolDomainEmail(email);
+  const isEmailOffFormula =
+    email.trim() !== '' && isEmailAcceptable && !isValidSchoolEmail(email);
 
   const editEmail = (value: string) => {
     // Any keystroke in the field freezes the automatic proposal.
@@ -82,11 +111,11 @@ export function EnrollmentForm({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!isValidSchoolEmail(email)) {
+    if (!isSchoolDomainEmail(email)) {
       setSubmitError(
         email.trim() === ''
           ? `Enter a ${SCHOOL_EMAIL_DOMAIN} email address before saving.`
-          : `"${email.trim()}" is not a ${SCHOOL_EMAIL_DOMAIN} address in the standard format.`,
+          : `"${email.trim()}" is not a ${SCHOOL_EMAIL_DOMAIN} address.`,
       );
       return;
     }
@@ -194,14 +223,22 @@ export function EnrollmentForm({
             value={email}
             onChange={(event) => editEmail(event.target.value)}
             placeholder={`jsmith27@${SCHOOL_EMAIL_DOMAIN}`}
-            aria-invalid={showEmailWarning || submitError !== ''}
+            aria-invalid={!isEmailAcceptable || submitError !== ''}
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)] aria-[invalid=true]:border-[hsl(var(--destructive)/.6)]"
             data-testid="input-email"
           />
-          <span className="font-normal text-[10px] leading-snug opacity-70">
-            {showEmailWarning
-              ? `Not a ${SCHOOL_EMAIL_DOMAIN} address in the standard format.`
-              : 'Filled in from the name and graduation year. Edit to override.'}
+          <span
+            className={
+              isEmailAcceptable
+                ? 'font-normal text-[10px] leading-snug opacity-70'
+                : 'font-normal text-[10px] leading-snug text-[hsl(var(--destructive))]'
+            }
+          >
+            {!isEmailAcceptable
+              ? `Must be an address in the ${SCHOOL_EMAIL_DOMAIN} domain.`
+              : isEmailOffFormula
+                ? 'Not the standard [initial][last name][yy] format — it will be saved as typed.'
+                : 'Filled in from the name and graduation year. Edit to override.'}
           </span>
         </div>
       </div>

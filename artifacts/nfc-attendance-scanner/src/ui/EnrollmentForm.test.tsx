@@ -110,7 +110,7 @@ describe('EnrollmentForm manual override', () => {
     expect(email.value).toBe('jane.smith@stjohnschs.org');
   });
 
-  it('labels the field as edited and warns about an off-format address', async () => {
+  it('labels the field as edited and rejects an address outside the domain', async () => {
     const { user, firstName, lastName, gradYear, email } = renderForm();
 
     await user.type(firstName, 'Jane');
@@ -124,10 +124,52 @@ describe('EnrollmentForm manual override', () => {
     expect(screen.getByText('edited')).toBeTruthy();
     expect(email.getAttribute('aria-invalid')).toBe('true');
     expect(
+      screen.getByText('Must be an address in the stjohnschs.org domain.'),
+    ).toBeTruthy();
+  });
+
+  it('allows an in-domain address that the formula cannot produce', async () => {
+    const { user, firstName, lastName, gradYear, email } = renderForm();
+
+    await user.type(firstName, 'Jane');
+    await user.type(lastName, 'Smith');
+    await user.type(gradYear, '2027');
+
+    // The second Jane Smith of 2027 collides with the derived address.
+    await user.clear(email);
+    await user.type(email, 'jsmith271@stjohnschs.org');
+
+    expect(email.getAttribute('aria-invalid')).toBe('false');
+    expect(
       screen.getByText(
-        'Not a stjohnschs.org address in the standard format.',
+        'Not the standard [initial][last name][yy] format — it will be saved as typed.',
       ),
     ).toBeTruthy();
+  });
+
+  it('follows the name and year again when the stored address was auto-filled', async () => {
+    const { user, gradYear, email } = renderForm({
+      candidate: {
+        uid: '04A1B2C3',
+        person: {
+          id: 7,
+          cardUid: '04A1B2C3',
+          firstName: 'Jane',
+          lastName: 'Smith',
+          gradYear: 2027,
+          // Exactly what the formula produces, so it was never hand-entered.
+          email: 'jsmith27@stjohnschs.org',
+          enrolledAt: '2026-09-01T12:00:00.000Z',
+        },
+      },
+    });
+
+    expect(email.value).toBe('jsmith27@stjohnschs.org');
+
+    await user.clear(gradYear);
+    await user.type(gradYear, '2028');
+
+    expect(email.value).toBe('jsmith28@stjohnschs.org');
   });
 
   it('keeps a stored address when editing an existing enrollment', async () => {
@@ -281,8 +323,55 @@ describe('EnrollmentForm submission', () => {
 
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByRole('alert').textContent).toContain(
-      'is not a stjohnschs.org address in the standard format',
+      'is not a stjohnschs.org address',
     );
+  });
+
+  it('saves an in-domain address that is off the derivation formula', async () => {
+    const { user, firstName, lastName, gradYear, email, submit, onSave } =
+      renderForm();
+
+    await user.type(firstName, 'Jane');
+    await user.type(lastName, 'Smith');
+    await user.type(gradYear, '2027');
+    await user.clear(email);
+    await user.type(email, 'jsmith271@stjohnschs.org');
+    await user.click(submit);
+
+    expect(onSave).toHaveBeenCalledWith({
+      firstName: 'Jane',
+      lastName: 'Smith',
+      gradYear: 2027,
+      email: 'jsmith271@stjohnschs.org',
+    });
+  });
+
+  it('saves an existing legacy address unchanged while another field is fixed', async () => {
+    const { user, lastName, submit, onSave } = renderForm({
+      candidate: {
+        uid: '04A1B2C3',
+        person: {
+          id: 7,
+          cardUid: '04A1B2C3',
+          firstName: 'Jane',
+          lastName: 'Smiht',
+          gradYear: 2027,
+          email: 'jane.smith@stjohnschs.org',
+          enrolledAt: '2026-09-01T12:00:00.000Z',
+        },
+      },
+    });
+
+    await user.clear(lastName);
+    await user.type(lastName, 'Smith');
+    await user.click(submit);
+
+    expect(onSave).toHaveBeenCalledWith({
+      firstName: 'Jane',
+      lastName: 'Smith',
+      gradYear: 2027,
+      email: 'jane.smith@stjohnschs.org',
+    });
   });
 
   it('blocks submission of an empty address', async () => {

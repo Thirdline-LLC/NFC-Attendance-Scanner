@@ -94,7 +94,9 @@ describe('enrollment persistence', () => {
       firstName: 'Taylor',
       lastName: 'Morgan',
       gradYear: 2027,
-      email: 'jlee27@stjohnschs.org',
+      // The stored address was the derived one, so renaming the student
+      // re-derives it rather than leaving the previous name's address behind.
+      email: 'tmorgan27@stjohnschs.org',
     });
   });
 

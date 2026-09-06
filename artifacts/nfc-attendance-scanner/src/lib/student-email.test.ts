@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   deriveStudentEmail,
+  isSchoolDomainEmail,
   isValidSchoolEmail,
   normalizeGraduationYear,
   normalizeNamePart,
@@ -205,5 +206,42 @@ describe('isValidSchoolEmail', () => {
 describe('SCHOOL_EMAIL_DOMAIN', () => {
   it('is the institutional domain', () => {
     expect(SCHOOL_EMAIL_DOMAIN).toBe('stjohnschs.org');
+  });
+});
+
+describe('isSchoolDomainEmail', () => {
+  it('accepts any well-formed local part in the school domain', () => {
+    expect(isSchoolDomainEmail('jsmith27@stjohnschs.org')).toBe(true);
+    expect(isSchoolDomainEmail('jane.smith@stjohnschs.org')).toBe(true);
+    expect(isSchoolDomainEmail('jsmith271@stjohnschs.org')).toBe(true);
+    expect(isSchoolDomainEmail('j-smith+alerts@stjohnschs.org')).toBe(true);
+  });
+
+  it('accepts everything the formula produces', () => {
+    expect(isSchoolDomainEmail(deriveStudentEmail('Jane', 'Smith', 2027))).toBe(
+      true,
+    );
+    expect(isSchoolDomainEmail(deriveStudentEmail('Malcolm', 'X', 2027))).toBe(
+      true,
+    );
+  });
+
+  it('trims and lowercases before validating', () => {
+    expect(isSchoolDomainEmail('  Jane.Smith@StJohnsCHS.org  ')).toBe(true);
+  });
+
+  it('rejects addresses in another domain', () => {
+    expect(isSchoolDomainEmail('jsmith27@gmail.com')).toBe(false);
+    expect(isSchoolDomainEmail('jsmith27@sub.stjohnschs.org')).toBe(false);
+    expect(isSchoolDomainEmail('jsmith27@stjohnschs.org.evil.com')).toBe(false);
+  });
+
+  it('rejects a missing or malformed local part', () => {
+    expect(isSchoolDomainEmail('')).toBe(false);
+    expect(isSchoolDomainEmail('stjohnschs.org')).toBe(false);
+    expect(isSchoolDomainEmail('@stjohnschs.org')).toBe(false);
+    expect(isSchoolDomainEmail('jane smith@stjohnschs.org')).toBe(false);
+    expect(isSchoolDomainEmail('.jane@stjohnschs.org')).toBe(false);
+    expect(isSchoolDomainEmail('jane..smith@stjohnschs.org')).toBe(false);
   });
 });
