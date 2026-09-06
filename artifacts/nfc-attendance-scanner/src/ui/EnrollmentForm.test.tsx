@@ -529,3 +529,133 @@ describe('EnrollmentForm collision detection', () => {
   });
 });
 
+describe('EnrollmentForm conflict dialog', () => {
+  async function typeSecondJaneSmith(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText('First name'), 'Jane');
+    await user.type(screen.getByLabelText('Last name'), 'Smith');
+    await user.type(screen.getByLabelText('Graduation year'), '2027');
+  }
+
+  it('opens as soon as the derived address collides, naming the holder', async () => {
+    const { user } = renderForm({ roster: [janeSmith] });
+
+    expect(screen.queryByTestId('dialog-email-conflict')).toBeNull();
+    await typeSecondJaneSmith(user);
+
+    const dialog = screen.getByTestId('dialog-email-conflict');
+    expect(dialog.textContent).toContain('jsmith27@stjohnschs.org');
+    expect(dialog.textContent).toContain('Jane Smith, class of 2027');
+  });
+
+  it('stays shut when the address is free', async () => {
+    const { user } = renderForm({ roster: [janeSmith] });
+
+    await user.type(screen.getByLabelText('First name'), 'Ada');
+    await user.type(screen.getByLabelText('Last name'), 'Lovelace');
+    await user.type(screen.getByLabelText('Graduation year'), '2027');
+
+    expect(screen.queryByTestId('dialog-email-conflict')).toBeNull();
+  });
+
+  it('takes the address the student was actually issued', async () => {
+    const { user, email, submit, onSave } = renderForm({ roster: [janeSmith] });
+
+    await typeSecondJaneSmith(user);
+    await user.type(
+      screen.getByTestId('input-conflict-email'),
+      'janesmith27@stjohnschs.org',
+    );
+    await user.click(screen.getByTestId('button-conflict-save'));
+
+    expect(screen.queryByTestId('dialog-email-conflict')).toBeNull();
+    expect(screen.queryByTestId('text-email-collision')).toBeNull();
+    expect(email.value).toBe('janesmith27@stjohnschs.org');
+
+    await user.click(submit);
+    expect(onSave).toHaveBeenCalledWith({
+      firstName: 'Jane',
+      lastName: 'Smith',
+      gradYear: 2027,
+      email: 'janesmith27@stjohnschs.org',
+    });
+  });
+
+  it('falls back to the generated variant when nobody knows the address', async () => {
+    const { user, email } = renderForm({ roster: [janeSmith] });
+
+    await typeSecondJaneSmith(user);
+    await user.click(screen.getByTestId('button-conflict-suggested'));
+
+    expect(screen.queryByTestId('dialog-email-conflict')).toBeNull();
+    expect(email.value).toBe('jsmith271@stjohnschs.org');
+  });
+
+  it('refuses a replacement that is itself taken, and stays open', async () => {
+    const { user } = renderForm({
+      roster: [
+        janeSmith,
+        { ...janeSmith, id: 2, firstName: 'Jonah', email: 'jsmith26@stjohnschs.org' },
+      ],
+    });
+
+    await typeSecondJaneSmith(user);
+    await user.type(
+      screen.getByTestId('input-conflict-email'),
+      'jsmith26@stjohnschs.org',
+    );
+    await user.click(screen.getByTestId('button-conflict-save'));
+
+    expect(screen.getByTestId('dialog-email-conflict')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain(
+      'That one belongs to Jonah Smith',
+    );
+  });
+
+  it('refuses a replacement outside the school domain, and stays open', async () => {
+    const { user } = renderForm({ roster: [janeSmith] });
+
+    await typeSecondJaneSmith(user);
+    await user.type(
+      screen.getByTestId('input-conflict-email'),
+      'jane@gmail.com',
+    );
+    await user.click(screen.getByTestId('button-conflict-save'));
+
+    expect(screen.getByTestId('dialog-email-conflict')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain(
+      'is not a stjohnschs.org address',
+    );
+  });
+
+  it('can be waved off, leaving the inline warning and the block in place', async () => {
+    const { user, submit, onSave } = renderForm({ roster: [janeSmith] });
+
+    await typeSecondJaneSmith(user);
+    await user.click(screen.getByTestId('button-conflict-dismiss'));
+
+    expect(screen.queryByTestId('dialog-email-conflict')).toBeNull();
+    expect(screen.getByTestId('text-email-collision')).toBeTruthy();
+
+    await user.click(submit);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('raises itself again when a different address collides', async () => {
+    const { user } = renderForm({
+      roster: [
+        janeSmith,
+        { ...janeSmith, id: 2, firstName: 'Jonah', email: 'jsmith26@stjohnschs.org' },
+      ],
+    });
+
+    await typeSecondJaneSmith(user);
+    await user.click(screen.getByTestId('button-conflict-dismiss'));
+    expect(screen.queryByTestId('dialog-email-conflict')).toBeNull();
+
+    await user.clear(screen.getByLabelText('Graduation year'));
+    await user.type(screen.getByLabelText('Graduation year'), '2026');
+
+    expect(screen.getByTestId('dialog-email-conflict')).toBeTruthy();
+  });
+});
+

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { Person } from '@/data/attendance-store';
+import { EmailConflictDialog } from '@/ui/EmailConflictDialog';
 import type { EnrollmentCandidate } from '@/scanner/use-attendance-session';
 import {
   deriveStudentEmail,
@@ -70,6 +71,10 @@ export function EnrollmentForm({
     initialEmailOverride(candidate.person),
   );
   const [submitError, setSubmitError] = useState('');
+  // The colliding address whose dialog has been waved off, so it stays shut.
+  const [dismissedConflict, setDismissedConflict] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     setFirstName(candidate.person?.firstName ?? '');
@@ -79,6 +84,7 @@ export function EnrollmentForm({
     );
     setEmailOverride(initialEmailOverride(candidate.person));
     setSubmitError('');
+    setDismissedConflict(null);
   }, [candidate.person]);
 
   // Recomputed on every keystroke in the name and graduation-year fields, so
@@ -110,6 +116,11 @@ export function EnrollmentForm({
   const suggestedEmail = emailOwner
     ? nextAvailableEmail(email, roster, editedPersonId)
     : '';
+  // A 10px line under the field is easy to miss on a kiosk, so an unresolved
+  // collision is raised in front of the user the moment it appears.
+  const conflictKey = email.trim().toLowerCase();
+  const showConflictDialog =
+    emailOwner !== undefined && dismissedConflict !== conflictKey;
 
   const editEmail = (value: string) => {
     // Any keystroke in the field freezes the automatic proposal.
@@ -120,6 +131,12 @@ export function EnrollmentForm({
   const regenerateEmail = () => {
     setEmailOverride(null);
     setSubmitError('');
+  };
+
+  const resolveConflict = (value: string) => {
+    setEmailOverride(value);
+    setSubmitError('');
+    setDismissedConflict(null);
   };
 
   const useSuggestedEmail = () => {
@@ -164,6 +181,16 @@ export function EnrollmentForm({
       onSubmit={submit}
       data-testid="form-enrollment"
     >
+      {showConflictDialog && emailOwner ? (
+        <EmailConflictDialog
+          attemptedEmail={email.trim()}
+          owner={emailOwner}
+          suggestedEmail={suggestedEmail}
+          findOwner={(value) => findEmailOwner(value, roster, editedPersonId)}
+          onResolve={resolveConflict}
+          onDismiss={() => setDismissedConflict(conflictKey)}
+        />
+      ) : null}
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[hsl(var(--primary))]">
