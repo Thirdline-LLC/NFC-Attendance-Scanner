@@ -24,6 +24,7 @@ export function ScannerScreen() {
   const [rawInput, setRawInput] = useState('');
   const [hasFocus, setHasFocus] = useState(true);
   const [mode, setMode] = useState<ScannerMode>('checkin');
+  const [captureEnabled, setCaptureEnabled] = useState(true);
   const {
     count,
     feedback,
@@ -43,24 +44,31 @@ export function ScannerScreen() {
     endSession,
     startNewSession,
   } = useAttendanceSession(mode);
+  const captureEnabledRef = useRef(captureEnabled);
+  captureEnabledRef.current = captureEnabled;
 
   const focusScanner = useCallback(() => {
+    if (!captureEnabledRef.current) return;
     inputRef.current?.focus();
     setHasFocus(true);
   }, []);
 
   useEffect(() => {
+    setCaptureEnabled(!enrollmentCandidate && !sessionSummary);
+  }, [enrollmentCandidate, sessionSummary]);
+
+  useEffect(() => {
+    if (!captureEnabled) return;
     focusScanner();
     const handleWindowFocus = () => focusScanner();
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
-  }, [focusScanner]);
+  }, [captureEnabled, focusScanner]);
 
   const submitScan = useCallback(() => {
     if (!rawInput) return;
     void handleScan(rawInput);
     setRawInput('');
-    window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [rawInput, handleScan]);
 
   const handleExport = useCallback(() => {
@@ -75,26 +83,34 @@ export function ScannerScreen() {
       email: string;
     }) => {
       await enrollPerson(details);
-      window.setTimeout(() => inputRef.current?.focus(), 0);
+      window.setTimeout(() => {
+        if (captureEnabledRef.current) inputRef.current?.focus();
+      }, 0);
     },
     [enrollPerson],
   );
 
   const handleCancelEnrollment = useCallback(() => {
     cancelEnrollment();
-    window.setTimeout(() => inputRef.current?.focus(), 0);
+    window.setTimeout(() => {
+      if (captureEnabledRef.current) inputRef.current?.focus();
+    }, 0);
   }, [cancelEnrollment]);
 
   const handleStartNewSession = useCallback(async () => {
     await startNewSession();
-    window.setTimeout(() => inputRef.current?.focus(), 0);
+    window.setTimeout(() => {
+      if (captureEnabledRef.current) inputRef.current?.focus();
+    }, 0);
   }, [startNewSession]);
 
   return (
     <main
       className="grain relative min-h-[100dvh] overflow-hidden bg-[hsl(var(--background))]"
       onPointerDown={(event) => {
-        if (event.target === event.currentTarget) focusScanner();
+        if (captureEnabledRef.current && event.target === event.currentTarget) {
+          focusScanner();
+        }
       }}
       data-testid="scanner-station"
     >
@@ -196,7 +212,9 @@ export function ScannerScreen() {
           <section
             className={`station-enter rounded-[1.7rem] border bg-[hsl(var(--card)/.88)] p-2 shadow-[0_24px_70px_hsl(211_55%_5%/.28)] transition-[border-color,box-shadow] duration-300 ${hasFocus ? 'focus-ring border-[hsl(var(--primary)/.6)]' : 'border-[hsl(var(--border))]'}`}
             style={{ animationDelay: '160ms' }}
-            onClick={focusScanner}
+            onClick={() => {
+              if (captureEnabledRef.current) focusScanner();
+            }}
             data-testid="card-scanner-reader"
           >
             <div className="rounded-[1.35rem] border border-[hsl(var(--border)/.75)] px-5 py-6 sm:px-7 sm:py-8">

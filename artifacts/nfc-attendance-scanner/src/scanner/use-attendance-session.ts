@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addPerson,
   clearAttendanceSession,
+  countSessionAttendance,
+  createNewSessionId,
   findPersonByUid,
+  getOrCreateSessionId,
   listPersons,
-  listTapRecords,
-  recordTap,
+  listSessionTapRecords,
+  recordSessionTap,
   type Person,
   type TapRecord,
 } from '@/data/attendance-store';
@@ -39,37 +42,26 @@ export type SessionSummary = SessionMetrics & {
 };
 
 function calculateMetrics(taps: TapRecord[]): SessionMetrics {
-  const seenUids = new Set<string>();
   const unknownUids = new Set<string>();
-  let uniqueAttendance = 0;
-  let duplicateTaps = 0;
-
   for (const tap of taps) {
-    if (seenUids.has(tap.uid)) {
-      duplicateTaps += 1;
-    } else {
-      seenUids.add(tap.uid);
-      if (tap.personId !== null) {
-        uniqueAttendance += 1;
-      }
-    }
-
-    if (tap.personId === null) {
-      unknownUids.add(tap.uid);
-    }
+    if (tap.personId === null) unknownUids.add(tap.uid);
   }
 
   return {
-    uniqueAttendance,
+    uniqueAttendance: taps.filter((tap) => tap.counted).length,
     totalTaps: taps.length,
-    duplicateTaps,
+    duplicateTaps: taps.filter(
+      (tap) => tap.personId !== null && !tap.counted,
+    ).length,
     unknownCards: unknownUids.size,
   };
 }
 
 export function useAttendanceSession(mode: ScannerMode) {
+  const [sessionId, setSessionId] = useState(() => getOrCreateSessionId());
   const [persons, setPersons] = useState<Person[]>([]);
   const [taps, setTaps] = useState<TapRecord[]>([]);
+  const [attendanceCount, setAttendanceCount] = useState(0);
   const [feedback, setFeedback] = useState<ScanFeedback>('ready');
   const [lastUid, setLastUid] = useState('');
   const [lastPerson, setLastPerson] = useState<Person | undefined>();
@@ -85,6 +77,7 @@ export function useAttendanceSession(mode: ScannerMode) {
   const feedbackTimer = useRef<number | undefined>(undefined);
   const queue = useRef(Promise.resolve());
   const modeRef = useRef(mode);
+  const sessionIdRef = useRef(sessionId);
   const personsRef = useRef<Person[]>([]);
   const tapsRef = useRef<TapRecord[]>([]);
   const sessionSummaryRef = useRef<SessionSummary | null>(null);
@@ -93,6 +86,10 @@ export function useAttendanceSession(mode: ScannerMode) {
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   useEffect(() => {
     personsRef.current = persons;
@@ -112,13 +109,19 @@ export function useAttendanceSession(mode: ScannerMode) {
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([listPersons(), listTapRecords()])
-      .then(([savedPersons, savedTaps]) => {
+    const currentSessionId = sessionIdRef.current;
+    Promise.all([
+      listPersons(),
+      listSessionTapRecords(currentSessionId),
+      countSessionAttendance(currentSessionId),
+    ])
+      .then(([savedPersons, savedTaps, savedAttendanceCount]) => {
         if (!mounted) return;
         personsRef.current = savedPersons;
         tapsRef.current = savedTaps;
         setPersons(savedPersons);
         setTaps(savedTaps);
+        setAttendanceCount(savedAttendanceCount);
       })
       .catch(() => {
         if (mounted) setStorageError(true);
@@ -171,21 +174,36 @@ export function useAttendanceSession(mode: ScannerMode) {
 
       try {
         const person = personsRef.current.find((item) => item.cardUid === uid);
-        const isDuplicate = tapsRef.current.some((tap) => tap.uid === uid);
         const scannedAt = new Date().toISOString();
-        const savedTap = await recordTap({
+        const committed = await recordSessionTap({
+          sessionId: sessionIdRef.current,
           uid,
           scannedAt,
           personId: person?.id ?? null,
         });
 
-        tapsRef.current = [...tapsRef.current, savedTap];
+        tapsRef.current = [...tapsRef.current, committed.tap];
         setTaps(tapsRef.current);
+        setAttendanceCount(committed.attendanceCount);
         setLastUid(uid);
         setLastPerson(person);
         setLastScannedAt(scannedAt);
         setStorageError(false);
-        announce(person ? (isDuplicate ? 'duplicate' : 'valid') : 'unknown');
+        const nextFeedback = person
+          ? committed.priorCounted
+            ? 'duplicate'
+            : 'valid'
+          : 'unknown';
+        announce(nextFeedback);
+        if (import.meta.env.DEV) {
+          console.debug('[attendance scan]', {
+            uid,
+            sessionId: sessionIdRef.current,
+            priorCounted: committed.priorCounted,
+            counted: committed.tap.counted,
+            attendanceCount: committed.attendanceCount,
+          });
+        }
       } catch {
         setStorageError(true);
         announce('storage-error');
@@ -264,8 +282,12 @@ export function useAttendanceSession(mode: ScannerMode) {
     setIsSaving(true);
     try {
       await clearAttendanceSession();
+      const nextSessionId = createNewSessionId();
+      sessionIdRef.current = nextSessionId;
+      setSessionId(nextSessionId);
       tapsRef.current = [];
       setTaps([]);
+      setAttendanceCount(0);
       setEnrollmentCandidate(null);
       setSessionSummary(null);
       sessionSummaryRef.current = null;
@@ -303,7 +325,7 @@ export function useAttendanceSession(mode: ScannerMode) {
     enrollmentCandidate,
     sessionSummary,
     metrics,
-    count: metrics.uniqueAttendance,
+    count: attendanceCount,
     isLoading,
     isSaving,
     storageError,

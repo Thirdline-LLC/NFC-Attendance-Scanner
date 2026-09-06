@@ -1,0 +1,69 @@
+We have two confirmed bugs from real hardware testing. Fix them without changing the working HID scanner behavior.
+
+BUG 1: Enrollment form inputs immediately lose focus.
+
+Current behavior:
+- In Enroll mode, after scanning an unknown card, the enrollment form opens.
+- When I click First Name, Last Name, Grad Year, or Email, the hidden scanner input immediately steals focus back.
+- I have to hold the mouse button down to type.
+
+Required fix:
+- Aggressive scanner refocus must only run when the app is actively waiting for a card scan.
+- While an enrollment form is open, DO NOT refocus the hidden scanner input.
+- Normal form fields must behave like normal inputs: one click focuses them and they stay focused while typing.
+- After the enrollment form is successfully saved or cancelled, restore focus to the hidden scanner input automatically.
+- Do not disable or weaken scanner focus behavior in Check-in mode.
+
+Implement this with an explicit scannerEnabled / captureEnabled state rather than trying to detect individual input elements.
+
+BUG 2: Failed first check-in becomes a false duplicate.
+
+Observed behavior:
+- A student scans for the first time.
+- The app reports that the check-in failed and the visible attendance count does not increase.
+- Scanning the same card again then says "Already checked in".
+- This means the first scan was persisted as attendance even though the UI treated it as a failure.
+
+Required behavior:
+Every physical tap should still be logged, but a scan must only be considered "already checked in" if there is a previous scan for the SAME SESSION where counted === true.
+
+Fix the dedup logic so:
+- duplicate detection queries only scans with the same sessionId and counted === true
+- a failed/non-counted scan must NEVER cause the next scan to be classified as duplicate
+- the visible attendance counter must be derived from persisted counted === true scans for the current session, not from an in-memory Set
+- after every successful scan write, update/recompute the counter from IndexedDB
+- after page refresh, the counter must still show the correct number
+- if the scan record successfully commits with counted === true, the UI must not display a generic failure just because a later lookup/UI operation failed
+
+Please inspect the full scan transaction/order and make it atomic where appropriate.
+
+Desired sequence for a known first check-in:
+1. receive UID
+2. normalize/validate
+3. determine whether a counted scan already exists for current session
+4. persist scan with counted=true
+5. confirm database write succeeded
+6. recompute current unique attendance from IndexedDB
+7. return counted result to UI
+
+Desired sequence for duplicate:
+1. receive UID
+2. find prior counted=true scan for current session
+3. persist this new physical tap with counted=false
+4. return duplicate result
+5. attendance counter remains unchanged
+
+Also add temporary development diagnostics to the console for:
+- UID
+- sessionId
+- whether a prior counted scan was found
+- new scan counted value
+- attendance count after write
+
+Do NOT log student names, emails, or real UIDs in production. Gate these diagnostics behind development mode.
+
+After fixing both bugs:
+- run TypeScript/build checks
+- tell me exactly which files you changed
+- explain the root cause of each bug
+- do not add a backend or change the architecture.
