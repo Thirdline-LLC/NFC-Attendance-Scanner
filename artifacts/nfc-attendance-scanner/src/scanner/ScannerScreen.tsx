@@ -1,22 +1,48 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Database, LockKeyhole, Radio, RotateCcw, ShieldCheck } from 'lucide-react';
+import {
+  Database,
+  Download,
+  FileSpreadsheet,
+  LockKeyhole,
+  Radio,
+  RotateCcw,
+  ShieldCheck,
+  UserPlus,
+  UserRoundCheck,
+} from 'lucide-react';
+import { exportAttendanceWorkbook } from '@/lib/attendance-export';
+import {
+  useAttendanceSession,
+  type ScannerMode,
+} from '@/scanner/use-attendance-session';
+import { EnrollmentForm } from '@/ui/EnrollmentForm';
 import { FeedbackPanel } from '@/ui/FeedbackPanel';
-import { useScannerSession } from '@/scanner/use-scanner-session';
+import { SessionSummary } from '@/ui/SessionSummary';
 
 export function ScannerScreen() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [rawInput, setRawInput] = useState('');
   const [hasFocus, setHasFocus] = useState(true);
+  const [mode, setMode] = useState<ScannerMode>('checkin');
   const {
     count,
     feedback,
     lastUid,
+    lastPerson,
+    lastScannedAt,
+    enrollmentCandidate,
+    sessionSummary,
+    persons,
+    taps,
     isLoading,
     isSaving,
     storageError,
-    registerScan,
-    resetSession,
-  } = useScannerSession();
+    handleScan,
+    enrollPerson,
+    cancelEnrollment,
+    endSession,
+    startNewSession,
+  } = useAttendanceSession(mode);
 
   const focusScanner = useCallback(() => {
     inputRef.current?.focus();
@@ -32,10 +58,37 @@ export function ScannerScreen() {
 
   const submitScan = useCallback(() => {
     if (!rawInput) return;
-    void registerScan(rawInput);
+    void handleScan(rawInput);
     setRawInput('');
     window.setTimeout(() => inputRef.current?.focus(), 0);
-  }, [rawInput, registerScan]);
+  }, [rawInput, handleScan]);
+
+  const handleExport = useCallback(() => {
+    exportAttendanceWorkbook(taps, persons);
+  }, [persons, taps]);
+
+  const handleEnrollPerson = useCallback(
+    async (details: {
+      firstName: string;
+      lastName: string;
+      gradYear: number;
+      email: string;
+    }) => {
+      await enrollPerson(details);
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    },
+    [enrollPerson],
+  );
+
+  const handleCancelEnrollment = useCallback(() => {
+    cancelEnrollment();
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [cancelEnrollment]);
+
+  const handleStartNewSession = useCallback(async () => {
+    await startNewSession();
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [startNewSession]);
 
   return (
     <main
@@ -69,34 +122,64 @@ export function ScannerScreen() {
       />
 
       <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-[1440px] flex-col px-5 py-5 sm:px-8 sm:py-7 lg:px-12 lg:py-8">
-        <header className="station-enter flex items-center justify-between gap-4" data-testid="header-scanner">
+        <header className="station-enter flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" data-testid="header-scanner">
           <div className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-2xl border border-[hsl(var(--primary)/.5)] bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))]">
               <Radio aria-hidden="true" size={22} strokeWidth={2.2} />
             </div>
             <div>
-              <h1 className="font-display text-lg font-semibold tracking-[-0.025em] text-[hsl(var(--foreground))] sm:text-xl">Attendance Scanner</h1>
-              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.19em] text-[hsl(var(--muted-foreground))]">Front desk station</p>
+              <h1 className="font-display text-lg font-semibold tracking-[-0.025em] text-[hsl(var(--foreground))] sm:text-xl">
+                Attendance Scanner
+              </h1>
+              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.19em] text-[hsl(var(--muted-foreground))]">
+                Front desk station
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">
-            <span className="relative flex size-2">
-              <span className="signal-breathe absolute inline-flex size-full rounded-full bg-[hsl(var(--accent))]" />
-              <span className="relative inline-flex size-2 rounded-full bg-[hsl(var(--accent))]" />
-            </span>
-            Scanner active
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] p-1">
+              <ModeButton
+                active={mode === 'checkin'}
+                icon={<UserRoundCheck size={14} />}
+                label="Check-in"
+                onClick={() => {
+                  setMode('checkin');
+                  focusScanner();
+                }}
+              />
+              <ModeButton
+                active={mode === 'enroll'}
+                icon={<UserPlus size={14} />}
+                label="Enroll"
+                onClick={() => {
+                  setMode('enroll');
+                  focusScanner();
+                }}
+              />
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">
+              <span className="relative flex size-2">
+                <span className="signal-breathe absolute inline-flex size-full rounded-full bg-[hsl(var(--accent))]" />
+                <span className="relative inline-flex size-2 rounded-full bg-[hsl(var(--accent))]" />
+              </span>
+              Scanner active
+            </div>
           </div>
         </header>
 
-        <div className="my-auto grid gap-5 py-12 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.86fr)] lg:items-center lg:gap-14 lg:py-16">
+        <div className="my-auto grid gap-5 py-10 lg:grid-cols-[minmax(0,1fr)_minmax(390px,0.86fr)] lg:items-center lg:gap-14 lg:py-14">
           <section className="station-enter max-w-3xl" style={{ animationDelay: '80ms' }}>
             <p className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.24em] text-[hsl(var(--accent))]">
               <ShieldCheck aria-hidden="true" size={16} />
-              Today’s attendance
+              {mode === 'checkin' ? 'Today’s attendance' : 'Local enrollment'}
             </p>
             <div className="flex items-end gap-3 sm:gap-5">
               <p className="font-display text-[clamp(8rem,25vw,19rem)] font-semibold leading-[0.78] tracking-[-0.095em] text-[hsl(var(--foreground))]" data-testid="text-attendance-count">
-                {isLoading ? <span className="inline-block h-[0.72em] w-[1.15em] animate-pulse rounded-2xl bg-[hsl(var(--muted)/.8)]" /> : count}
+                {isLoading ? (
+                  <span className="inline-block h-[0.72em] w-[1.15em] animate-pulse rounded-2xl bg-[hsl(var(--muted)/.8)]" />
+                ) : (
+                  count
+                )}
               </p>
               <p className="mb-[0.15em] max-w-24 pb-1 text-sm font-medium leading-5 text-[hsl(var(--muted-foreground))] sm:mb-[0.2em] sm:text-base">
                 checked in
@@ -104,7 +187,9 @@ export function ScannerScreen() {
               </p>
             </div>
             <p className="mt-8 max-w-md text-base leading-7 text-[hsl(var(--muted-foreground))] sm:text-lg">
-              Keep this station open and let each tap do the work. Attendance stays on this device.
+              {mode === 'checkin'
+                ? 'Keep this station open and let each tap do the work. Attendance stays on this device.'
+                : 'Enroll cards locally once, then switch back to Check-in for attendance.'}
             </p>
           </section>
 
@@ -116,17 +201,35 @@ export function ScannerScreen() {
           >
             <div className="rounded-[1.35rem] border border-[hsl(var(--border)/.75)] px-5 py-6 sm:px-7 sm:py-8">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[hsl(var(--muted-foreground))]">Tap to check in</p>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[hsl(var(--muted-foreground))]">
+                  {mode === 'checkin' ? 'Tap to check in' : 'Tap to enroll'}
+                </p>
                 <div className="flex size-10 items-center justify-center rounded-xl bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))]">
                   <Radio aria-hidden="true" size={19} />
                 </div>
               </div>
-              <div className="relative my-8 flex min-h-36 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-[hsl(var(--primary)/.34)] bg-[hsl(var(--background)/.45)] sm:my-10 sm:min-h-44">
+              <div className="relative my-7 flex min-h-28 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-[hsl(var(--primary)/.34)] bg-[hsl(var(--background)/.45)] sm:my-8 sm:min-h-32">
                 <div className="absolute size-24 rounded-full border border-[hsl(var(--primary)/.22)] signal-breathe" />
                 <div className="absolute size-12 rounded-full border border-[hsl(var(--primary)/.38)]" />
                 <Radio className="relative text-[hsl(var(--primary))]" aria-hidden="true" size={31} strokeWidth={1.5} />
               </div>
-              <FeedbackPanel feedback={feedback} lastUid={lastUid} isSaving={isSaving} />
+              {enrollmentCandidate ? (
+                <EnrollmentForm
+                  candidate={enrollmentCandidate}
+                  isSaving={isSaving}
+                  onSave={handleEnrollPerson}
+                  onCancel={handleCancelEnrollment}
+                />
+              ) : (
+                <FeedbackPanel
+                  feedback={feedback}
+                  mode={mode}
+                  lastUid={lastUid}
+                  lastPerson={lastPerson}
+                  lastScannedAt={lastScannedAt}
+                  isSaving={isSaving}
+                />
+              )}
             </div>
           </section>
         </div>
@@ -139,23 +242,66 @@ export function ScannerScreen() {
             </span>
             <span className="flex items-center gap-2">
               <Database aria-hidden="true" size={14} />
-              Saved in this browser
+              {persons.length} enrolled locally
             </span>
             {storageError && <span className="text-[hsl(var(--destructive))]">Storage unavailable</span>}
           </div>
-          {import.meta.env.DEV && (
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => void resetSession()}
-              className="flex w-fit items-center gap-2 rounded-lg px-2 py-1.5 font-semibold text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-              data-testid="button-reset-session"
+              onClick={endSession}
+              className="flex w-fit items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-3 py-2 font-semibold text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+              data-testid="button-end-session"
             >
-              <RotateCcw aria-hidden="true" size={14} />
-              Reset Test Session
+              <Download aria-hidden="true" size={14} />
+              End Session
             </button>
-          )}
+            {import.meta.env.DEV && (
+              <button
+                type="button"
+                onClick={() => void startNewSession()}
+                className="flex w-fit items-center gap-2 rounded-lg px-2 py-1.5 font-semibold text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                data-testid="button-reset-session"
+              >
+                <RotateCcw aria-hidden="true" size={14} />
+                Reset Test Session
+              </button>
+            )}
+          </div>
         </footer>
       </div>
+
+      {sessionSummary && (
+        <SessionSummary
+          summary={sessionSummary}
+          onExport={handleExport}
+          onStartNewSession={() => void handleStartNewSession()}
+        />
+      )}
     </main>
+  );
+}
+
+function ModeButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${active ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'}`}
+      aria-pressed={active}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

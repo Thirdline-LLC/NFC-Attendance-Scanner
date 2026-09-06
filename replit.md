@@ -22,6 +22,7 @@ The scanner has no backend, authentication, analytics, API routes, or database s
 - `artifacts/nfc-attendance-scanner/src/ui/` — feedback and status presentation
 - `artifacts/nfc-attendance-scanner/src/app/` — router
 - `artifacts/nfc-attendance-scanner/src/lib/` — UID normalization and validation
+- `artifacts/nfc-attendance-scanner/src/lib/attendance-export.ts` — local `.xlsx` export formatting
 
 ## Architecture decisions
 
