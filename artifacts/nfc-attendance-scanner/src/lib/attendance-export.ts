@@ -36,16 +36,31 @@ export function formatMeetingDate(timestamp: string): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-export function deriveGrade(gradYear: number, timestamp = new Date().toISOString()): string {
+/**
+ * The graduation year of the senior class in session on `timestamp`. A school
+ * year rolls over in August, so anything from August onward belongs to the
+ * year that ends the following spring: August 2026 -> the class of 2027.
+ */
+export function currentSeniorGradYear(
+  timestamp = new Date().toISOString(),
+): number {
   const easternDate = new Intl.DateTimeFormat('en-US', {
     timeZone: EXPORT_TIME_ZONE,
     year: 'numeric',
     month: 'numeric',
   }).formatToParts(new Date(timestamp));
   const year = Number(easternDate.find((part) => part.type === 'year')?.value);
+  // Intl months are 1-indexed, so August is 8.
   const month = Number(easternDate.find((part) => part.type === 'month')?.value);
-  const schoolYear = month >= 7 ? year : year - 1;
-  const grade = 12 + schoolYear - gradYear;
+
+  return month >= 8 ? year + 1 : year;
+}
+
+export function deriveGrade(
+  gradYear: number,
+  timestamp = new Date().toISOString(),
+): string {
+  const grade = 12 - (gradYear - currentSeniorGradYear(timestamp));
 
   if (grade >= 9 && grade <= 12) return String(grade);
   if (grade > 12) return 'Alumni';

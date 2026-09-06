@@ -233,6 +233,7 @@ export function ScannerScreen() {
               </div>
               {enrollmentCandidate ? (
                 <EnrollmentForm
+                  key={enrollmentCandidate.uid}
                   candidate={enrollmentCandidate}
                   isSaving={isSaving}
                   onSave={handleEnrollPerson}

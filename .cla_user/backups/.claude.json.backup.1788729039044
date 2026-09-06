@@ -1,8 +1,7 @@
 {
   "numStartups": 3,
   "tipsHistory": {
-    "agents-view-multiclauding": 3,
-    "artifact-publish-plan": 3
+    "agents-view-multiclauding": 3
   },
   "cachedGrowthBookFeatures": {
     "tengu_plugin_binary_assets": false,
@@ -1193,7 +1192,6 @@
   },
   "hasSeenAutoModeEntryWarning": true,
   "tipLifetimeShownCounts": {
-    "agents-view-multiclauding": 1,
-    "artifact-publish-plan": 1
+    "agents-view-multiclauding": 1
   }
 }

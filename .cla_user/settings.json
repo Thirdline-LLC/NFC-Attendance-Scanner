@@ -1,5 +1,6 @@
 {
   "theme": "dark",
+  "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "inputNeededNotifEnabled": true
+  "tui": "fullscreen"
 }

@@ -1,5 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { EnrollmentCandidate } from '@/scanner/use-attendance-session';
+import {
+  deriveStudentEmail,
+  isValidSchoolEmail,
+} from '@/lib/student-email';
 
 type EnrollmentFormProps = {
   candidate: EnrollmentCandidate;
@@ -25,7 +29,10 @@ export function EnrollmentForm({
   const [gradYear, setGradYear] = useState(
     candidate.person?.gradYear ? String(candidate.person.gradYear) : '',
   );
-  const [email, setEmail] = useState(candidate.person?.email ?? '');
+  // `null` means "follow the derived address"; a string is a manual override.
+  const [emailOverride, setEmailOverride] = useState<string | null>(
+    candidate.person?.email ?? null,
+  );
 
   useEffect(() => {
     setFirstName(candidate.person?.firstName ?? '');
@@ -33,8 +40,22 @@ export function EnrollmentForm({
     setGradYear(
       candidate.person?.gradYear ? String(candidate.person.gradYear) : '',
     );
-    setEmail(candidate.person?.email ?? '');
+    setEmailOverride(candidate.person?.email ?? null);
   }, [candidate.person]);
+
+  const derivedEmail = useMemo(() => {
+    try {
+      return deriveStudentEmail(firstName, lastName, gradYear);
+    } catch {
+      // Incomplete or unusable input — nothing to suggest yet.
+      return '';
+    }
+  }, [firstName, lastName, gradYear]);
+
+  const email = emailOverride ?? derivedEmail;
+  const isOverridden = emailOverride !== null;
+  const showEmailWarning =
+    isOverridden && email.trim() !== '' && !isValidSchoolEmail(email);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -103,13 +124,35 @@ export function EnrollmentForm({
           />
         </label>
         <label className="grid gap-1.5 text-xs font-semibold text-[hsl(var(--muted-foreground))]">
-          Email <span className="font-normal opacity-70">optional</span>
+          <span className="flex items-center justify-between gap-2">
+            <span>
+              Email{' '}
+              <span className="font-normal opacity-70">
+                {isOverridden ? 'edited' : 'auto'}
+              </span>
+            </span>
+            {isOverridden && derivedEmail !== '' && email !== derivedEmail ? (
+              <button
+                type="button"
+                onClick={() => setEmailOverride(null)}
+                className="font-semibold text-[hsl(var(--primary))] underline-offset-4 hover:underline"
+              >
+                Reset
+              </button>
+            ) : null}
+          </span>
           <input
             type="email"
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(event) => setEmailOverride(event.target.value)}
+            placeholder="jsmith27@stjohnschs.org"
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)]"
           />
+          <span className="font-normal text-[10px] leading-snug opacity-70">
+            {showEmailWarning
+              ? 'Not a stjohnschs.org address in the standard format.'
+              : 'Filled in from the name and graduation year. Edit to override.'}
+          </span>
         </label>
       </div>
       <button

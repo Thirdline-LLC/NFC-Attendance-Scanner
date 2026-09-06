@@ -1,9 +1,5 @@
 {
   "numStartups": 3,
-  "tipsHistory": {
-    "agents-view-multiclauding": 3,
-    "artifact-publish-plan": 3
-  },
   "cachedGrowthBookFeatures": {
     "tengu_plugin_binary_assets": false,
     "tengu_plan_artifact": false,
@@ -1191,9 +1187,5 @@
   "announcementImpressions": {
     "fable-5-1-launch": 1
   },
-  "hasSeenAutoModeEntryWarning": true,
-  "tipLifetimeShownCounts": {
-    "agents-view-multiclauding": 1,
-    "artifact-publish-plan": 1
-  }
+  "hasSeenAutoModeEntryWarning": true
 }
