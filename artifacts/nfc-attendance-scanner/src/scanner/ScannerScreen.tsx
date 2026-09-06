@@ -236,6 +236,7 @@ export function ScannerScreen() {
                   key={enrollmentCandidate.uid}
                   candidate={enrollmentCandidate}
                   isSaving={isSaving}
+                  storageError={storageError}
                   onSave={handleEnrollPerson}
                   onCancel={handleCancelEnrollment}
                 />

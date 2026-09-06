@@ -2,7 +2,8 @@ import React from 'react';
 import Dexie from 'dexie';
 import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as attendanceStore from '@/data/attendance-store';
 import { addPerson, listPersons, type Person } from '@/data/attendance-store';
 import { EnrollmentForm } from '@/ui/EnrollmentForm';
 import { useAttendanceSession } from './use-attendance-session';
@@ -27,6 +28,7 @@ function renderEnrollmentForm(
     React.createElement(EnrollmentForm, {
       candidate,
       isSaving: false,
+      storageError: false,
       onSave,
       onCancel: () => undefined,
     }),
@@ -47,6 +49,7 @@ describe('enrollment persistence', () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   it('prefills and updates an existing card without duplicating its roster entry', async () => {
@@ -124,5 +127,115 @@ describe('enrollment persistence', () => {
       gradYear: 2028,
       email: 'achen28@stjohnschs.org',
     });
+  });
+
+  it('keeps a new enrollment available for retry after a storage failure', async () => {
+    const addPersonSpy = vi
+      .spyOn(attendanceStore, 'addPerson')
+      .mockRejectedValueOnce(new Error('storage unavailable'));
+    const { result } = renderHook(() => useAttendanceSession('enroll'));
+    await waitForReady(result);
+
+    await result.current.handleScan(newUid);
+    await waitFor(() => {
+      expect(result.current.enrollmentCandidate?.uid).toBe(newUid);
+    });
+
+    const user = userEvent.setup();
+    const form = render(
+      React.createElement(EnrollmentForm, {
+        candidate: result.current.enrollmentCandidate!,
+        isSaving: result.current.isSaving,
+        storageError: result.current.storageError,
+        onSave: result.current.enrollPerson,
+        onCancel: result.current.cancelEnrollment,
+      }),
+    );
+    await user.type(screen.getByLabelText('First name'), 'Avery');
+    await user.type(screen.getByLabelText('Last name'), 'Chen');
+    await user.type(screen.getByLabelText('Graduation year'), '2028');
+    await user.click(screen.getByRole('button', { name: 'Save enrollment' }));
+
+    await waitFor(() => {
+      expect(result.current.storageError).toBe(true);
+    });
+    form.rerender(
+      React.createElement(EnrollmentForm, {
+        candidate: result.current.enrollmentCandidate!,
+        isSaving: result.current.isSaving,
+        storageError: result.current.storageError,
+        onSave: result.current.enrollPerson,
+        onCancel: result.current.cancelEnrollment,
+      }),
+    );
+
+    expect(result.current.enrollmentCandidate?.uid).toBe(newUid);
+    expect((screen.getByLabelText('First name') as HTMLInputElement).value).toBe(
+      'Avery',
+    );
+    expect((screen.getByLabelText('Last name') as HTMLInputElement).value).toBe(
+      'Chen',
+    );
+    expect(
+      (screen.getByLabelText('Graduation year') as HTMLInputElement).value,
+    ).toBe('2028');
+    expect(screen.getByRole('alert').textContent).toContain('Could not save locally');
+    expect(await listPersons()).toHaveLength(0);
+    addPersonSpy.mockRestore();
+  });
+
+  it('keeps an edited enrollment available for retry after an update failure', async () => {
+    const savedPerson = await addPerson(existingPerson);
+    const updatePersonSpy = vi
+      .spyOn(attendanceStore, 'updatePerson')
+      .mockRejectedValueOnce(new Error('storage unavailable'));
+    const { result } = renderHook(() => useAttendanceSession('enroll'));
+    await waitForReady(result);
+
+    await result.current.handleScan(existingUid);
+    await waitFor(() => {
+      expect(result.current.enrollmentCandidate?.person?.id).toBe(savedPerson.id);
+    });
+
+    const user = userEvent.setup();
+    const form = render(
+      React.createElement(EnrollmentForm, {
+        candidate: result.current.enrollmentCandidate!,
+        isSaving: result.current.isSaving,
+        storageError: result.current.storageError,
+        onSave: result.current.enrollPerson,
+        onCancel: result.current.cancelEnrollment,
+      }),
+    );
+    await user.clear(screen.getByLabelText('First name'));
+    await user.type(screen.getByLabelText('First name'), 'Taylor');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(result.current.storageError).toBe(true);
+    });
+    form.rerender(
+      React.createElement(EnrollmentForm, {
+        candidate: result.current.enrollmentCandidate!,
+        isSaving: result.current.isSaving,
+        storageError: result.current.storageError,
+        onSave: result.current.enrollPerson,
+        onCancel: result.current.cancelEnrollment,
+      }),
+    );
+
+    expect(result.current.enrollmentCandidate?.person?.id).toBe(savedPerson.id);
+    expect((screen.getByLabelText('First name') as HTMLInputElement).value).toBe(
+      'Taylor',
+    );
+    expect(screen.getByRole('alert').textContent).toContain('Could not save locally');
+    const roster = await listPersons();
+    expect(roster).toHaveLength(1);
+    expect(roster[0]).toMatchObject({
+      id: savedPerson.id,
+      firstName: 'Jordan',
+      lastName: 'Lee',
+    });
+    updatePersonSpy.mockRestore();
   });
 });

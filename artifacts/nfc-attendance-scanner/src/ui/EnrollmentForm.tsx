@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import type { EnrollmentCandidate } from '@/scanner/use-attendance-session';
 import {
   deriveStudentEmail,
@@ -8,6 +9,7 @@ import {
 type EnrollmentFormProps = {
   candidate: EnrollmentCandidate;
   isSaving: boolean;
+  storageError: boolean;
   onSave: (details: {
     firstName: string;
     lastName: string;
@@ -20,6 +22,7 @@ type EnrollmentFormProps = {
 export function EnrollmentForm({
   candidate,
   isSaving,
+  storageError,
   onSave,
   onCancel,
 }: EnrollmentFormProps) {
@@ -90,6 +93,18 @@ export function EnrollmentForm({
           Cancel
         </button>
       </div>
+      {storageError ? (
+        <div
+          className="mb-4 flex items-start gap-2.5 rounded-xl border border-[hsl(var(--destructive)/.45)] bg-[hsl(var(--destructive)/.08)] px-3 py-2.5 text-sm text-[hsl(var(--destructive))]"
+          role="alert"
+        >
+          <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0" size={16} />
+          <span>
+            <strong className="font-semibold">Could not save locally.</strong>{' '}
+            Check browser storage and try again. Your entered details are still here.
+          </span>
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1.5 text-xs font-semibold text-[hsl(var(--muted-foreground))]">
           First name
