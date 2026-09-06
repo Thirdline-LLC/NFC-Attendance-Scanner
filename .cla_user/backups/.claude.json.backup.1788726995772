@@ -1,0 +1,12 @@
+{
+  "firstStartTime": "2026-09-06T20:28:18.999Z",
+  "firstStartVersion": "2.1.263",
+  "machineID": "19de695bb21a403f700f8421f22b5bcb226e569465ef8de0128688eef4e741f5",
+  "opusProMigrationComplete": true,
+  "sonnet1m45MigrationComplete": true,
+  "seenNotifications": {},
+  "hasResetAutoModeOptInForDefaultOffer": true,
+  "migrationVersion": 14,
+  "userID": "b8d8b6d07fc47c8ad5787d3a6b99e5da9e7d99a6b1e0a9d01358c69461bf393f",
+  "changelogLastFetched": 1788726499333
+}
