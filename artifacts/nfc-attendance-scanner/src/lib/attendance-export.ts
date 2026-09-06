@@ -37,6 +37,48 @@ export function formatMeetingDate(timestamp: string): string {
 }
 
 /**
+ * Commencement dates, keyed by graduating class, as Eastern-local calendar
+ * dates (`YYYY-MM-DD`). A class reads as Alumni the day after the date listed
+ * here, so the outgoing seniors stop counting as grade 12 at graduation rather
+ * than waiting for the August school-year rollover. A listed date is
+ * authoritative in both directions: a ceremony held after August 1 also keeps
+ * that class in grade 12 until it happens.
+ *
+ * Add each class as its date is set, e.g. `2027: '2027-05-29'`. A class with no
+ * entry falls back to the August rollover in `currentSeniorGradYear`, which is
+ * an approximation: it keeps the outgoing seniors in grade 12 through the
+ * summer.
+ */
+export const COMMENCEMENT_DATES: Record<number, string> = {};
+
+/** Shape of a `COMMENCEMENT_DATES` value; also enforced by its unit test. */
+const COMMENCEMENT_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The recorded commencement date for a class, or `null` when none is on file or
+ * the entry is unusable, in which case the August fallback applies rather than a
+ * bad date silently moving a class. An entry is unusable unless it is a real
+ * calendar date falling in the class's own graduation year: `Date.parse` alone
+ * is not enough, since it quietly rolls `2027-02-31` over into March.
+ */
+export function commencementDate(
+  gradYear: number,
+  commencementDates: Record<number, string> = COMMENCEMENT_DATES,
+): string | null {
+  const date = commencementDates[gradYear];
+
+  if (!date || !COMMENCEMENT_DATE_PATTERN.test(date)) return null;
+  if (date.slice(0, 4) !== String(gradYear)) return null;
+
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  // Round-trip to reject an overflowing day such as 2027-02-31.
+  if (parsed.toISOString().slice(0, 10) !== date) return null;
+
+  return date;
+}
+
+/**
  * The graduation year of the senior class in session on `timestamp`. A school
  * year rolls over in August, so anything from August onward belongs to the
  * year that ends the following spring: August 2026 -> the class of 2027.
@@ -56,14 +98,41 @@ export function currentSeniorGradYear(
   return month >= 8 ? year + 1 : year;
 }
 
+/**
+ * True once a class has walked. Commencement day itself still counts as grade
+ * 12, so a scan at a graduation-morning breakfast reports the student as a
+ * senior; the class turns over at the start of the next Eastern day.
+ */
+export function hasGraduated(
+  gradYear: number,
+  timestamp = new Date().toISOString(),
+  commencementDates: Record<number, string> = COMMENCEMENT_DATES,
+): boolean {
+  const date = commencementDate(gradYear, commencementDates);
+
+  if (date === null) return false;
+
+  // Both sides are Eastern `YYYY-MM-DD`, so a string compare is a date compare.
+  return formatMeetingDate(timestamp) > date;
+}
+
 export function deriveGrade(
   gradYear: number,
   timestamp = new Date().toISOString(),
+  commencementDates: Record<number, string> = COMMENCEMENT_DATES,
 ): string {
   const grade = 12 - (gradYear - currentSeniorGradYear(timestamp));
 
-  if (grade >= 9 && grade <= 12) return String(grade);
+  // A recorded commencement date is authoritative in both directions: it
+  // graduates a class ahead of the August rollover, and it also holds a class
+  // whose ceremony runs late in grade 12 until they have actually walked.
+  if (commencementDate(gradYear, commencementDates) !== null) {
+    if (hasGraduated(gradYear, timestamp, commencementDates)) return 'Alumni';
+    if (grade >= 12) return '12';
+  }
+
   if (grade > 12) return 'Alumni';
+  if (grade >= 9) return String(grade);
   return 'Below 9';
 }
 

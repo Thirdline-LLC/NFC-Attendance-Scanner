@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { EnrollmentCandidate } from '@/scanner/use-attendance-session';
 import {
   deriveStudentEmail,
   isValidSchoolEmail,
+  SCHOOL_EMAIL_DOMAIN,
 } from '@/lib/student-email';
 
 type EnrollmentFormProps = {
@@ -27,6 +28,7 @@ export function EnrollmentForm({
   onCancel,
 }: EnrollmentFormProps) {
   const isEditing = Boolean(candidate.person);
+  const emailFieldId = useId();
   const [firstName, setFirstName] = useState(candidate.person?.firstName ?? '');
   const [lastName, setLastName] = useState(candidate.person?.lastName ?? '');
   const [gradYear, setGradYear] = useState(
@@ -36,6 +38,7 @@ export function EnrollmentForm({
   const [emailOverride, setEmailOverride] = useState<string | null>(
     candidate.person?.email ?? null,
   );
+  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
     setFirstName(candidate.person?.firstName ?? '');
@@ -44,8 +47,12 @@ export function EnrollmentForm({
       candidate.person?.gradYear ? String(candidate.person.gradYear) : '',
     );
     setEmailOverride(candidate.person?.email ?? null);
+    setSubmitError('');
   }, [candidate.person]);
 
+  // Recomputed on every keystroke in the name and graduation-year fields, so
+  // the proposal stays live. `deriveStudentEmail` folds the year down to its
+  // last two digits, accepting both `2027` and `27`.
   const derivedEmail = useMemo(() => {
     try {
       return deriveStudentEmail(firstName, lastName, gradYear);
@@ -55,13 +62,36 @@ export function EnrollmentForm({
     }
   }, [firstName, lastName, gradYear]);
 
+  const isEmailOverridden = emailOverride !== null;
   const email = emailOverride ?? derivedEmail;
-  const isOverridden = emailOverride !== null;
+  const canRegenerate = derivedEmail !== '' && email !== derivedEmail;
   const showEmailWarning =
-    isOverridden && email.trim() !== '' && !isValidSchoolEmail(email);
+    isEmailOverridden && email.trim() !== '' && !isValidSchoolEmail(email);
+
+  const editEmail = (value: string) => {
+    // Any keystroke in the field freezes the automatic proposal.
+    setEmailOverride(value);
+    setSubmitError('');
+  };
+
+  const regenerateEmail = () => {
+    setEmailOverride(null);
+    setSubmitError('');
+  };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!isValidSchoolEmail(email)) {
+      setSubmitError(
+        email.trim() === ''
+          ? `Enter a ${SCHOOL_EMAIL_DOMAIN} email address before saving.`
+          : `"${email.trim()}" is not a ${SCHOOL_EMAIL_DOMAIN} address in the standard format.`,
+      );
+      return;
+    }
+
+    setSubmitError('');
     await onSave({
       firstName,
       lastName,
@@ -138,38 +168,51 @@ export function EnrollmentForm({
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)]"
           />
         </label>
-        <label className="grid gap-1.5 text-xs font-semibold text-[hsl(var(--muted-foreground))]">
+        {/* Not a wrapping label: the Regenerate button sits in the same row and
+            would otherwise become the label's associated control. */}
+        <div className="grid gap-1.5 text-xs font-semibold text-[hsl(var(--muted-foreground))]">
           <span className="flex items-center justify-between gap-2">
-            <span>
+            <label htmlFor={emailFieldId}>
               Email{' '}
               <span className="font-normal opacity-70">
-                {isOverridden ? 'edited' : 'auto'}
+                {isEmailOverridden ? 'edited' : 'auto'}
               </span>
-            </span>
-            {isOverridden && derivedEmail !== '' && email !== derivedEmail ? (
-              <button
-                type="button"
-                onClick={() => setEmailOverride(null)}
-                className="font-semibold text-[hsl(var(--primary))] underline-offset-4 hover:underline"
-              >
-                Reset
-              </button>
-            ) : null}
+            </label>
+            <button
+              type="button"
+              onClick={regenerateEmail}
+              disabled={!canRegenerate}
+              className="font-semibold text-[hsl(var(--primary))] underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline"
+              data-testid="button-regenerate-email"
+            >
+              Regenerate
+            </button>
           </span>
           <input
+            id={emailFieldId}
             type="email"
             value={email}
-            onChange={(event) => setEmailOverride(event.target.value)}
-            placeholder="jsmith27@stjohnschs.org"
-            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)]"
+            onChange={(event) => editEmail(event.target.value)}
+            placeholder={`jsmith27@${SCHOOL_EMAIL_DOMAIN}`}
+            aria-invalid={showEmailWarning || submitError !== ''}
+            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)] aria-[invalid=true]:border-[hsl(var(--destructive)/.6)]"
+            data-testid="input-email"
           />
           <span className="font-normal text-[10px] leading-snug opacity-70">
             {showEmailWarning
-              ? 'Not a stjohnschs.org address in the standard format.'
+              ? `Not a ${SCHOOL_EMAIL_DOMAIN} address in the standard format.`
               : 'Filled in from the name and graduation year. Edit to override.'}
           </span>
-        </label>
+        </div>
       </div>
+      {submitError ? (
+        <p
+          className="mt-4 text-sm font-semibold text-[hsl(var(--destructive))]"
+          role="alert"
+        >
+          {submitError}
+        </p>
+      ) : null}
       <button
         type="submit"
         disabled={isSaving}
