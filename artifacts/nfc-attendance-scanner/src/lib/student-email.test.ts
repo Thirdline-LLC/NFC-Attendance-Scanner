@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   deriveStudentEmail,
+  findEmailOwner,
   isSchoolDomainEmail,
   isValidSchoolEmail,
+  nextAvailableEmail,
   normalizeGraduationYear,
   normalizeNamePart,
   SCHOOL_EMAIL_DOMAIN,
@@ -245,3 +247,85 @@ describe('isSchoolDomainEmail', () => {
     expect(isSchoolDomainEmail('jane..smith@stjohnschs.org')).toBe(false);
   });
 });
+
+const roster = [
+  { id: 1, email: 'jsmith27@stjohnschs.org' },
+  { id: 2, email: 'jsmith271@stjohnschs.org' },
+  { id: 3, email: '  ALee28@StJohnsCHS.org  ' },
+];
+
+describe('findEmailOwner', () => {
+  it('finds the holder of an address', () => {
+    expect(findEmailOwner('jsmith27@stjohnschs.org', roster)?.id).toBe(1);
+    expect(findEmailOwner('jsmith271@stjohnschs.org', roster)?.id).toBe(2);
+  });
+
+  it('returns undefined when nobody holds it', () => {
+    expect(findEmailOwner('bnew30@stjohnschs.org', roster)).toBeUndefined();
+  });
+
+  it('ignores case and surrounding whitespace on both sides', () => {
+    expect(findEmailOwner('  JSmith27@StJohnsCHS.org ', roster)?.id).toBe(1);
+    expect(findEmailOwner('alee28@stjohnschs.org', roster)?.id).toBe(3);
+  });
+
+  it('never matches an empty address', () => {
+    expect(findEmailOwner('', roster)).toBeUndefined();
+    expect(findEmailOwner('   ', roster)).toBeUndefined();
+  });
+
+  it('excludes the student being edited from their own address', () => {
+    expect(findEmailOwner('jsmith27@stjohnschs.org', roster, 1)).toBeUndefined();
+    expect(findEmailOwner('jsmith27@stjohnschs.org', roster, 2)?.id).toBe(1);
+  });
+
+  it('searches an empty roster without complaint', () => {
+    expect(findEmailOwner('jsmith27@stjohnschs.org', [])).toBeUndefined();
+  });
+});
+
+describe('nextAvailableEmail', () => {
+  it('returns the address unchanged when it is free', () => {
+    expect(nextAvailableEmail('bnew30@stjohnschs.org', roster)).toBe(
+      'bnew30@stjohnschs.org',
+    );
+  });
+
+  it('appends the lowest free numeric suffix', () => {
+    // jsmith27@ and jsmith271@ are both taken, so 2 is the first opening.
+    expect(nextAvailableEmail('jsmith27@stjohnschs.org', roster)).toBe(
+      'jsmith272@stjohnschs.org',
+    );
+  });
+
+  it('skips a long run of taken suffixes', () => {
+    const crowded = [
+      { id: 1, email: 'jsmith27@stjohnschs.org' },
+      { id: 2, email: 'jsmith271@stjohnschs.org' },
+      { id: 3, email: 'jsmith272@stjohnschs.org' },
+      { id: 4, email: 'jsmith273@stjohnschs.org' },
+    ];
+
+    expect(nextAvailableEmail('jsmith27@stjohnschs.org', crowded)).toBe(
+      'jsmith274@stjohnschs.org',
+    );
+  });
+
+  it('leaves the address alone when only the student being edited holds it', () => {
+    expect(nextAvailableEmail('jsmith27@stjohnschs.org', roster, 1)).toBe(
+      'jsmith27@stjohnschs.org',
+    );
+  });
+
+  it('always produces an address in the school domain', () => {
+    expect(
+      isSchoolDomainEmail(nextAvailableEmail('jsmith27@stjohnschs.org', roster)),
+    ).toBe(true);
+  });
+
+  it('passes an empty or malformed address straight through', () => {
+    expect(nextAvailableEmail('', roster)).toBe('');
+    expect(nextAvailableEmail('not-an-address', roster)).toBe('not-an-address');
+  });
+});
+

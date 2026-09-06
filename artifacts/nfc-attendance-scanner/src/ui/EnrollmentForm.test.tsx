@@ -13,6 +13,7 @@ function renderForm(overrides: Partial<Parameters<typeof EnrollmentForm>[0]> = {
   render(
     <EnrollmentForm
       candidate={{ uid: '04A1B2C3' }}
+      roster={[]}
       isSaving={false}
       storageError={false}
       onSave={onSave}
@@ -408,3 +409,123 @@ describe('EnrollmentForm submission', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 });
+
+const janeSmith = {
+  id: 1,
+  cardUid: '04AAAAAA',
+  firstName: 'Jane',
+  lastName: 'Smith',
+  gradYear: 2027,
+  email: 'jsmith27@stjohnschs.org',
+  enrolledAt: '2026-09-01T12:00:00.000Z',
+};
+
+describe('EnrollmentForm collision detection', () => {
+  async function typeSecondJaneSmith(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText('First name'), 'Jane');
+    await user.type(screen.getByLabelText('Last name'), 'Smith');
+    await user.type(screen.getByLabelText('Graduation year'), '2027');
+  }
+
+  it('warns when the derived address already belongs to someone', async () => {
+    const { user, email } = renderForm({ roster: [janeSmith] });
+
+    await typeSecondJaneSmith(user);
+
+    expect(email.value).toBe('jsmith27@stjohnschs.org');
+    expect(screen.getByTestId('text-email-collision').textContent).toContain(
+      'Already used by Jane Smith, class of 2027.',
+    );
+    expect(email.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('stays quiet for a name nobody else holds', async () => {
+    const { user, email } = renderForm({ roster: [janeSmith] });
+
+    await user.type(screen.getByLabelText('First name'), 'Ada');
+    await user.type(screen.getByLabelText('Last name'), 'Lovelace');
+    await user.type(screen.getByLabelText('Graduation year'), '2027');
+
+    expect(email.value).toBe('alovelace27@stjohnschs.org');
+    expect(screen.queryByTestId('text-email-collision')).toBeNull();
+    expect(email.getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('does not flag a student against their own stored address', async () => {
+    const { email } = renderForm({
+      roster: [janeSmith],
+      candidate: { uid: janeSmith.cardUid, person: janeSmith },
+    });
+
+    expect(email.value).toBe('jsmith27@stjohnschs.org');
+    expect(screen.queryByTestId('text-email-collision')).toBeNull();
+  });
+
+  it('offers the next free variant and freezes it once applied', async () => {
+    const { user, email } = renderForm({ roster: [janeSmith] });
+
+    await typeSecondJaneSmith(user);
+    await user.click(screen.getByTestId('button-use-suggested-email'));
+
+    expect(email.value).toBe('jsmith271@stjohnschs.org');
+    expect(screen.queryByTestId('text-email-collision')).toBeNull();
+    expect(screen.getByText('edited')).toBeTruthy();
+
+    // Frozen: further edits to the name must not re-derive over the choice.
+    await user.clear(screen.getByLabelText('Graduation year'));
+    await user.type(screen.getByLabelText('Graduation year'), '2028');
+    expect(email.value).toBe('jsmith271@stjohnschs.org');
+  });
+
+  it('skips suffixes that are themselves taken', async () => {
+    const { user } = renderForm({
+      roster: [
+        janeSmith,
+        { ...janeSmith, id: 2, email: 'jsmith271@stjohnschs.org' },
+      ],
+    });
+
+    await typeSecondJaneSmith(user);
+
+    expect(
+      screen.getByTestId('button-use-suggested-email').textContent,
+    ).toContain('jsmith272@stjohnschs.org');
+  });
+
+  it('blocks submission while the duplicate stands, and allows it once fixed', async () => {
+    const { user, submit, onSave } = renderForm({ roster: [janeSmith] });
+
+    await typeSecondJaneSmith(user);
+    await user.click(submit);
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toContain(
+      'already belongs to Jane Smith',
+    );
+
+    await user.click(screen.getByTestId('button-use-suggested-email'));
+    await user.click(submit);
+
+    expect(onSave).toHaveBeenCalledWith({
+      firstName: 'Jane',
+      lastName: 'Smith',
+      gradYear: 2027,
+      email: 'jsmith271@stjohnschs.org',
+    });
+  });
+
+  it('catches a duplicate typed in by hand', async () => {
+    const { user, email, submit, onSave } = renderForm({ roster: [janeSmith] });
+
+    await user.type(screen.getByLabelText('First name'), 'Ada');
+    await user.type(screen.getByLabelText('Last name'), 'Lovelace');
+    await user.type(screen.getByLabelText('Graduation year'), '2027');
+    await user.clear(email);
+    await user.type(email, 'JSmith27@StJohnsCHS.org');
+    await user.click(submit);
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByTestId('text-email-collision')).toBeTruthy();
+  });
+});
+

@@ -1,15 +1,20 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import type { Person } from '@/data/attendance-store';
 import type { EnrollmentCandidate } from '@/scanner/use-attendance-session';
 import {
   deriveStudentEmail,
+  findEmailOwner,
   isSchoolDomainEmail,
   isValidSchoolEmail,
+  nextAvailableEmail,
   SCHOOL_EMAIL_DOMAIN,
 } from '@/lib/student-email';
 
 type EnrollmentFormProps = {
   candidate: EnrollmentCandidate;
+  /** Everyone already enrolled, so a derived address can be checked for reuse. */
+  roster: Person[];
   isSaving: boolean;
   storageError: boolean;
   onSave: (details: {
@@ -47,6 +52,7 @@ function initialEmailOverride(
 
 export function EnrollmentForm({
   candidate,
+  roster,
   isSaving,
   storageError,
   onSave,
@@ -96,6 +102,14 @@ export function EnrollmentForm({
   const isEmailAcceptable = email.trim() === '' || isSchoolDomainEmail(email);
   const isEmailOffFormula =
     email.trim() !== '' && isEmailAcceptable && !isValidSchoolEmail(email);
+  // The formula collides for any two students sharing a first initial, last
+  // name and graduation year, so the derived address may already be spoken
+  // for. The student being edited never counts as their own collision.
+  const editedPersonId = candidate.person?.id;
+  const emailOwner = findEmailOwner(email, roster, editedPersonId);
+  const suggestedEmail = emailOwner
+    ? nextAvailableEmail(email, roster, editedPersonId)
+    : '';
 
   const editEmail = (value: string) => {
     // Any keystroke in the field freezes the automatic proposal.
@@ -108,6 +122,13 @@ export function EnrollmentForm({
     setSubmitError('');
   };
 
+  const useSuggestedEmail = () => {
+    // A collision-free variant is a deliberate choice, so it sticks like any
+    // other manual entry rather than being re-derived on the next keystroke.
+    setEmailOverride(suggestedEmail);
+    setSubmitError('');
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -116,6 +137,14 @@ export function EnrollmentForm({
         email.trim() === ''
           ? `Enter a ${SCHOOL_EMAIL_DOMAIN} email address before saving.`
           : `"${email.trim()}" is not a ${SCHOOL_EMAIL_DOMAIN} address.`,
+      );
+      return;
+    }
+
+    if (emailOwner) {
+      // Two roster rows on one address cannot be told apart in the export.
+      setSubmitError(
+        `${email.trim()} already belongs to ${emailOwner.firstName} ${emailOwner.lastName}. Pick a different address.`,
       );
       return;
     }
@@ -223,23 +252,43 @@ export function EnrollmentForm({
             value={email}
             onChange={(event) => editEmail(event.target.value)}
             placeholder={`jsmith27@${SCHOOL_EMAIL_DOMAIN}`}
-            aria-invalid={!isEmailAcceptable || submitError !== ''}
+            aria-invalid={
+              !isEmailAcceptable || emailOwner !== undefined || submitError !== ''
+            }
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)] aria-[invalid=true]:border-[hsl(var(--destructive)/.6)]"
             data-testid="input-email"
           />
-          <span
-            className={
-              isEmailAcceptable
-                ? 'font-normal text-[10px] leading-snug opacity-70'
-                : 'font-normal text-[10px] leading-snug text-[hsl(var(--destructive))]'
-            }
-          >
-            {!isEmailAcceptable
-              ? `Must be an address in the ${SCHOOL_EMAIL_DOMAIN} domain.`
-              : isEmailOffFormula
-                ? 'Not the standard [initial][last name][yy] format — it will be saved as typed.'
-                : 'Filled in from the name and graduation year. Edit to override.'}
-          </span>
+          {emailOwner ? (
+            <span
+              className="font-normal text-[10px] leading-snug text-[hsl(var(--destructive))]"
+              data-testid="text-email-collision"
+            >
+              Already used by {emailOwner.firstName} {emailOwner.lastName},
+              class of {emailOwner.gradYear}.{' '}
+              <button
+                type="button"
+                onClick={useSuggestedEmail}
+                className="font-semibold underline underline-offset-2"
+                data-testid="button-use-suggested-email"
+              >
+                Use {suggestedEmail}
+              </button>
+            </span>
+          ) : (
+            <span
+              className={
+                isEmailAcceptable
+                  ? 'font-normal text-[10px] leading-snug opacity-70'
+                  : 'font-normal text-[10px] leading-snug text-[hsl(var(--destructive))]'
+              }
+            >
+              {!isEmailAcceptable
+                ? `Must be an address in the ${SCHOOL_EMAIL_DOMAIN} domain.`
+                : isEmailOffFormula
+                  ? 'Not the standard [initial][last name][yy] format — it will be saved as typed.'
+                  : 'Filled in from the name and graduation year. Edit to override.'}
+            </span>
+          )}
         </div>
       </div>
       {submitError ? (

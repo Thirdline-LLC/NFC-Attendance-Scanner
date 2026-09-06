@@ -85,3 +85,60 @@ export function isValidSchoolEmail(email: string): boolean {
 export function isSchoolDomainEmail(email: string): boolean {
   return SCHOOL_DOMAIN_PATTERN.test(email.trim().toLowerCase());
 }
+
+/**
+ * The shape the roster lookups need: anything carrying an address and an
+ * optional identity. Structural rather than importing `Person`, so this module
+ * stays free of the Dexie layer.
+ */
+export type EmailHolder = {
+  id?: number;
+  email: string;
+};
+
+/**
+ * The person already holding `email`, if any. Comparison is trimmed and
+ * case-insensitive. `excludeId` omits one roster entry by id, so a student
+ * being edited never collides with their own stored address.
+ */
+export function findEmailOwner<T extends EmailHolder>(
+  email: string,
+  people: readonly T[],
+  excludeId?: number,
+): T | undefined {
+  const target = email.trim().toLowerCase();
+  if (!target) return undefined;
+
+  return people.find(
+    (person) =>
+      person.email.trim().toLowerCase() === target &&
+      !(excludeId !== undefined && person.id === excludeId),
+  );
+}
+
+/**
+ * `derived` itself when nobody holds it, otherwise the same address with the
+ * lowest free numeric suffix on its local part: the second Jane Smith of 2027
+ * gets `jsmith271@`, the third `jsmith272@`. The result still satisfies
+ * `isSchoolDomainEmail`, though not the stricter `isValidSchoolEmail`.
+ */
+export function nextAvailableEmail<T extends EmailHolder>(
+  derived: string,
+  people: readonly T[],
+  excludeId?: number,
+): string {
+  if (!findEmailOwner(derived, people, excludeId)) return derived;
+
+  const [localPart, domain] = derived.trim().toLowerCase().split('@');
+  if (!localPart || !domain) return derived;
+
+  // At most `people.length` addresses are taken, so a free suffix always turns
+  // up inside this range — the bound just makes termination obvious.
+  for (let suffix = 1; suffix <= people.length + 1; suffix += 1) {
+    const candidate = `${localPart}${suffix}@${domain}`;
+    if (!findEmailOwner(candidate, people, excludeId)) return candidate;
+  }
+
+  return derived;
+}
+

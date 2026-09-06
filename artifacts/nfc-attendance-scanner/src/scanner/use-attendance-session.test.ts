@@ -27,6 +27,7 @@ function renderEnrollmentForm(
   return render(
     React.createElement(EnrollmentForm, {
       candidate,
+      roster: [],
       isSaving: false,
       storageError: false,
       onSave,
@@ -147,6 +148,7 @@ describe('enrollment persistence', () => {
     const form = render(
       React.createElement(EnrollmentForm, {
         candidate: result.current.enrollmentCandidate!,
+        roster: result.current.persons,
         isSaving: result.current.isSaving,
         storageError: result.current.storageError,
         onSave: result.current.enrollPerson,
@@ -164,6 +166,7 @@ describe('enrollment persistence', () => {
     form.rerender(
       React.createElement(EnrollmentForm, {
         candidate: result.current.enrollmentCandidate!,
+        roster: result.current.persons,
         isSaving: result.current.isSaving,
         storageError: result.current.storageError,
         onSave: result.current.enrollPerson,
@@ -203,6 +206,7 @@ describe('enrollment persistence', () => {
     const form = render(
       React.createElement(EnrollmentForm, {
         candidate: result.current.enrollmentCandidate!,
+        roster: result.current.persons,
         isSaving: result.current.isSaving,
         storageError: result.current.storageError,
         onSave: result.current.enrollPerson,
@@ -219,6 +223,7 @@ describe('enrollment persistence', () => {
     form.rerender(
       React.createElement(EnrollmentForm, {
         candidate: result.current.enrollmentCandidate!,
+        roster: result.current.persons,
         isSaving: result.current.isSaving,
         storageError: result.current.storageError,
         onSave: result.current.enrollPerson,

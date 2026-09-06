@@ -235,6 +235,7 @@ export function ScannerScreen() {
                 <EnrollmentForm
                   key={enrollmentCandidate.uid}
                   candidate={enrollmentCandidate}
+                  roster={persons}
                   isSaving={isSaving}
                   storageError={storageError}
                   onSave={handleEnrollPerson}
