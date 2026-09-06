@@ -4,10 +4,7 @@
     "agents-view-multiclauding": 3,
     "artifact-publish-plan": 3,
     "new-user-warmup": 3,
-    "plan-mode-for-complex-tasks": 3,
-    "ultrareview-awareness": 4,
-    "color-when-multi-clauding": 4,
-    "auto-copy-config-hint": 4
+    "plan-mode-for-complex-tasks": 3
   },
   "cachedGrowthBookFeatures": {
     "tengu_mcp_singleton_unwrap": true,
@@ -1211,12 +1208,6 @@
     "agents-view-multiclauding": 1,
     "artifact-publish-plan": 1,
     "new-user-warmup": 1,
-    "plan-mode-for-complex-tasks": 1,
-    "ultrareview-awareness": 1,
-    "color-when-multi-clauding": 1,
-    "auto-copy-config-hint": 1
-  },
-  "autoModeEnvSetup": {
-    "denials": 1
+    "plan-mode-for-complex-tasks": 1
   }
 }
