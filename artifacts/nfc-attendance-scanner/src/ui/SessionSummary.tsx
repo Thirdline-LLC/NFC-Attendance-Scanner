@@ -29,7 +29,8 @@ export function SessionSummary({
           Session complete
         </h2>
         <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">
-          The session remains stored locally until you start a new one.
+          Taps from this session stay saved on this device. Starting a new
+          session begins a fresh count without deleting them.
         </p>
         <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <SummaryMetric label="Unique attendance" value={summary.uniqueAttendance} />

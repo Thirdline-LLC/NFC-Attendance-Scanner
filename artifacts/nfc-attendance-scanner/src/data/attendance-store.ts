@@ -166,8 +166,30 @@ export async function updatePerson(
   });
 }
 
+/**
+ * Every tap ever recorded, across every session, oldest first. Starting a new
+ * session only rotates the session id (see `startNewSession` in
+ * `use-attendance-session.ts`), so this is the whole history a dashboard or
+ * export works from, not just the session on screen.
+ */
 export async function listTapRecords(): Promise<TapRecord[]> {
   return tapsTable.orderBy('scannedAt').toArray();
+}
+
+/**
+ * Every session id present in the taps table, once each, ordered by each
+ * session's earliest tap (oldest session first). Session ids are random UUIDs,
+ * so sorting them lexically would tell a reader nothing; chronological order is
+ * what a "recent sessions" list wants. Walks the `scannedAt` index instead of
+ * loading every tap, since history is retained indefinitely.
+ */
+export async function listSessionIds(): Promise<string[]> {
+  // A Set keeps insertion order, which here is first-tap order.
+  const sessionIds = new Set<string>();
+  await tapsTable.orderBy('scannedAt').each((tap) => {
+    sessionIds.add(tap.sessionId);
+  });
+  return [...sessionIds];
 }
 
 export async function listSessionTapRecords(sessionId: string): Promise<TapRecord[]> {
@@ -216,8 +238,19 @@ export async function recordSessionTap(input: {
   });
 }
 
-export async function clearAttendanceSession(): Promise<void> {
-  await Promise.all([scansTable.clear(), tapsTable.clear()]);
+/**
+ * Destructive: deletes every tap ever recorded, plus the pre-enrollment
+ * `scans` table, in one transaction so a failure part-way cannot leave half
+ * the history behind. The roster (`persons`) is deliberately untouched — a
+ * card's identity outlives its attendance record. Nothing in the UI calls this
+ * yet; it exists for a confirmed "delete all attendance history" action, never
+ * for starting a session, which only rotates the session id.
+ */
+export async function clearAllAttendanceHistory(): Promise<void> {
+  await database.transaction('rw', scansTable, tapsTable, async () => {
+    await scansTable.clear();
+    await tapsTable.clear();
+  });
 }
 
 function makeSessionId(): string {

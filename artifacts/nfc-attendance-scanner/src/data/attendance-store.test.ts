@@ -3,10 +3,16 @@ import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   addPerson,
+  clearAllAttendanceHistory,
   countSessionAttendance,
   DuplicateEmailError,
   listPersons,
+  listScans,
+  listSessionIds,
   listSessionTapRecords,
+  listTapRecords,
+  recordSessionTap,
+  saveScan,
   updatePerson,
 } from './attendance-store';
 import { useAttendanceSession } from '@/scanner/use-attendance-session';
@@ -207,5 +213,82 @@ describe('roster email uniqueness', () => {
 
     expect(updated.firstName).toBe('Janet');
     expect(updated.email).toBe(jane.email);
+  });
+});
+
+describe('attendance history', () => {
+  const CARD_A = '04A1B2C3D4E5F6';
+  const CARD_B = '04F6E5D4C3B2A1';
+  const jane = {
+    cardUid: CARD_A,
+    firstName: 'Jane',
+    lastName: 'Smith',
+    gradYear: 2027,
+    email: 'jsmith27@stjohnschs.org',
+    enrolledAt: '2026-09-01T12:00:00.000Z',
+  };
+
+  const unknownTap = (sessionId: string, uid: string, scannedAt: string) => ({
+    sessionId,
+    uid,
+    scannedAt,
+    personId: null,
+  });
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  it('lists every tap across sessions, oldest first', async () => {
+    await recordSessionTap(unknownTap('later', CARD_A, '2026-09-08T13:00:00.000Z'));
+    await recordSessionTap(unknownTap('earlier', CARD_A, '2026-09-01T13:00:00.000Z'));
+
+    expect((await listTapRecords()).map((tap) => tap.sessionId)).toEqual([
+      'earlier',
+      'later',
+    ]);
+  });
+
+  it('lists each session id once, ordered by its first tap', async () => {
+    // Inserted out of time order with the sessions interleaved, so the result
+    // cannot be insertion order by accident.
+    await recordSessionTap(unknownTap('later', CARD_A, '2026-09-08T13:00:00.000Z'));
+    await recordSessionTap(unknownTap('earlier', CARD_A, '2026-09-01T13:00:00.000Z'));
+    await recordSessionTap(unknownTap('later', CARD_B, '2026-09-08T13:05:00.000Z'));
+    await recordSessionTap(unknownTap('earlier', CARD_B, '2026-09-01T13:05:00.000Z'));
+
+    expect(await listSessionIds()).toEqual(['earlier', 'later']);
+  });
+
+  it('reports no sessions before anything has been recorded', async () => {
+    expect(await listSessionIds()).toEqual([]);
+  });
+
+  it('clearAllAttendanceHistory wipes taps and legacy scans but keeps the roster', async () => {
+    const saved = await addPerson(jane);
+    await recordSessionTap({
+      sessionId: 'first',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-01T13:00:00.000Z',
+      personId: saved.id!,
+    });
+    await recordSessionTap({
+      sessionId: 'second',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-08T13:00:00.000Z',
+      personId: saved.id!,
+    });
+    await saveScan({ uid: jane.cardUid, scannedAt: '2026-08-20T13:00:00.000Z' });
+
+    await clearAllAttendanceHistory();
+
+    expect(await listTapRecords()).toEqual([]);
+    expect(await listSessionIds()).toEqual([]);
+    expect(await listScans()).toEqual([]);
+    // A card's identity outlives its attendance record.
+    expect(await listPersons()).toEqual([
+      expect.objectContaining({ id: saved.id, cardUid: jane.cardUid }),
+    ]);
   });
 });

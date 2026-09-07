@@ -1,10 +1,24 @@
 import React from 'react';
 import Dexie from 'dexie';
-import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as attendanceStore from '@/data/attendance-store';
-import { addPerson, listPersons, type Person } from '@/data/attendance-store';
+import {
+  addPerson,
+  countSessionAttendance,
+  listPersons,
+  listSessionIds,
+  listTapRecords,
+  type Person,
+} from '@/data/attendance-store';
 import { EnrollmentForm } from '@/ui/EnrollmentForm';
 import { useAttendanceSession } from './use-attendance-session';
 
@@ -244,5 +258,92 @@ describe('enrollment persistence', () => {
       lastName: 'Lee',
     });
     updatePersonSpy.mockRestore();
+  });
+});
+describe('session history retention', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  async function scan(
+    result: { current: ReturnType<typeof useAttendanceSession> },
+    uid: string,
+  ) {
+    await act(async () => {
+      await result.current.handleScan(uid);
+    });
+  }
+
+  it("starts a new session without deleting the previous session's taps", async () => {
+    await addPerson(existingPerson);
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+    const firstSessionId = result.current.sessionId;
+
+    await scan(result, existingUid);
+    await scan(result, newUid);
+    expect(result.current.taps).toHaveLength(2);
+    expect(result.current.count).toBe(1);
+
+    // The real flow: End Session shows the summary, then Start New Session.
+    act(() => result.current.endSession());
+    expect(result.current.sessionSummary).not.toBeNull();
+
+    await act(async () => {
+      await result.current.startNewSession();
+    });
+
+    const secondSessionId = result.current.sessionId;
+    expect(secondSessionId).not.toBe(firstSessionId);
+    // Rotating the session id must leave the earlier taps on disk: they are
+    // the history a dashboard reads later, so "new session" is not "wipe".
+    const history = await listTapRecords();
+    expect(history.map((tap) => tap.sessionId)).toEqual([
+      firstSessionId,
+      firstSessionId,
+    ]);
+    expect(await countSessionAttendance(firstSessionId)).toBe(1);
+    expect(await countSessionAttendance(secondSessionId)).toBe(0);
+    expect(result.current.taps).toEqual([]);
+    expect(result.current.count).toBe(0);
+    expect(result.current.sessionSummary).toBeNull();
+    expect(result.current.isSaving).toBe(false);
+  });
+
+  it('scopes the count and taps to the current session while history accumulates', async () => {
+    await addPerson(existingPerson);
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+    const firstSessionId = result.current.sessionId;
+    await scan(result, existingUid);
+    await scan(result, newUid);
+    await act(async () => {
+      await result.current.startNewSession();
+    });
+    const secondSessionId = result.current.sessionId;
+
+    // The same card again: in a fresh session it counts, rather than reading
+    // as a duplicate of the earlier session's tap.
+    await scan(result, existingUid);
+    expect(result.current.feedback).toBe('valid');
+    expect(result.current.count).toBe(1);
+    expect(result.current.taps).toHaveLength(1);
+    expect(result.current.taps[0].sessionId).toBe(secondSessionId);
+
+    expect(await listTapRecords()).toHaveLength(3);
+    expect(await listSessionIds()).toEqual([firstSessionId, secondSessionId]);
+
+    // A reload picks up only the current session, not the whole history.
+    cleanup();
+    const { result: reloaded } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(reloaded);
+    expect(reloaded.current.sessionId).toBe(secondSessionId);
+    expect(reloaded.current.taps).toHaveLength(1);
+    expect(reloaded.current.count).toBe(1);
   });
 });
