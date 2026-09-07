@@ -1,3 +1,4 @@
 - [Enrollment recovery](enrollment-recovery.md) — failed roster writes preserve retryable details, show storage errors, and never claim success early.
 - [Fresh attendance state](fresh-attendance-state.md) — startup and recovery reads must not overwrite newer taps or a rotated session on screen.
+- [Replit browser tests](replit-browser-tests.md) — Playwright needs the managed Chromium executable explicitly configured in this workspace.
 - [Keyboard interaction tests](keyboard-interaction-tests.md) — user-event physical key codes use `[Space]` when asserting native button activation in this app.
