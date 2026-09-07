@@ -171,6 +171,24 @@ export function useAttendanceSession(mode: ScannerMode) {
     }
   }, [applyStorageStatus]);
 
+  /**
+   * `loadSession` through the same queue that serialises scans.
+   *
+   * The read and the write it may overtake both land on `attendanceCount` and
+   * `tapsRef`, and the read is the older of the two: a tap committing between
+   * `countSessionAttendance` and the `setAttendanceCount` that follows it would
+   * be rolled straight back off the screen. Queueing makes the recovery read
+   * wait its turn, so what it reports is never staler than what is displayed.
+   */
+  const refreshFromStore = useCallback(() => {
+    const next = queue.current.then(() => loadSession());
+    queue.current = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }, [loadSession]);
+
   useEffect(() => {
     mountedRef.current = true;
     void loadSession();
@@ -275,7 +293,7 @@ export function useAttendanceSession(mode: ScannerMode) {
         if (storageStatusRef.current === 'save-failed') {
           applyStorageStatus('ready');
         } else if (storageStatusRef.current === 'unavailable') {
-          void loadSession();
+          void refreshFromStore();
         }
         const nextFeedback = person
           ? committed.priorCounted
@@ -469,7 +487,7 @@ export function useAttendanceSession(mode: ScannerMode) {
     isSaving,
     storageStatus,
     storageError,
-    retryStorage: loadSession,
+    retryStorage: refreshFromStore,
     handleScan,
     enrollPerson,
     cancelEnrollment,

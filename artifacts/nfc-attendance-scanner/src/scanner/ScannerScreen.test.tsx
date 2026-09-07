@@ -403,7 +403,7 @@ describe('ScannerScreen new-session confirmation', () => {
   it('exports from inside the dialog without answering the question', async () => {
     const exportSpy = vi
       .spyOn(attendanceExport, 'exportAttendanceWorkbook')
-      .mockImplementation(() => undefined);
+      .mockReturnValue('attendance-2026-09-07-20260907T000000Z.xlsx');
     const user = await renderWithOneTap();
 
     await user.click(screen.getByTestId('button-reset-session'));
@@ -414,6 +414,37 @@ describe('ScannerScreen new-session confirmation', () => {
     expect(exportedTaps).toHaveLength(1);
     expect(screen.getByTestId('dialog-new-session')).toBeTruthy();
     expect(screen.getByTestId('text-attendance-count').textContent).toBe('1');
+  });
+
+  it('names the file it handed to the browser', async () => {
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockReturnValue(
+      'attendance-2026-09-07-20260907T000000Z.xlsx',
+    );
+    const user = await renderWithOneTap();
+
+    await user.click(screen.getByTestId('button-reset-session'));
+    await user.click(await screen.findByTestId('button-dialog-export'));
+
+    // A blocked download throws nothing, so the filename is the only honest
+    // confirmation the page can give — see ExportNotice.
+    expect(screen.getByTestId('text-export-saved').textContent).toContain(
+      'attendance-2026-09-07-20260907T000000Z.xlsx',
+    );
+  });
+
+  it('says so when the export does not run at all', async () => {
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockImplementation(
+      () => {
+        throw new Error('download blocked');
+      },
+    );
+    const user = await renderWithOneTap();
+
+    await user.click(screen.getByTestId('button-reset-session'));
+    await user.click(await screen.findByTestId('button-dialog-export'));
+
+    expect(screen.getByTestId('text-export-failed')).toBeTruthy();
+    expect(screen.queryByTestId('text-export-saved')).toBeNull();
   });
 
   it('cancels on Escape', async () => {

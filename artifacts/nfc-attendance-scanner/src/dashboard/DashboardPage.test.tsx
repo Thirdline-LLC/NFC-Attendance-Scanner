@@ -130,7 +130,7 @@ describe('DashboardPage', () => {
     });
     const exportSpy = vi
       .spyOn(attendanceExport, 'exportAttendanceWorkbook')
-      .mockImplementation(() => undefined);
+      .mockReturnValue('attendance-2026-09-07-20260907T000000Z.xlsx');
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('dashboard');
@@ -144,6 +144,22 @@ describe('DashboardPage', () => {
       new Set(['legacy', 'session-one', 'session-two']),
     );
     expect(exportedPersons).toHaveLength(2);
+  });
+
+  it('names the file it handed to the browser', async () => {
+    await seedTwoSessions();
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockReturnValue(
+      'attendance-2026-09-07-20260907T000000Z.xlsx',
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('dashboard');
+
+    await user.click(screen.getByTestId('button-export-history'));
+
+    expect(screen.getByTestId('text-export-saved').textContent).toContain(
+      'attendance-2026-09-07-20260907T000000Z.xlsx',
+    );
   });
 
   it('re-reads the store when refreshed', async () => {

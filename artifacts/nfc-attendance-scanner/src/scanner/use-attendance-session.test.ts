@@ -590,6 +590,51 @@ describe('storage recovery', () => {
     expect(result.current.storageStatus).toBe('ready');
   });
 
+  // Note: this pins the end state, not the interleaving. The ordering bug it
+  // was written for — a recovery read landing after the tap that overtook it,
+  // rolling the count back — could not be reproduced deterministically under
+  // jsdom; `refreshFromStore` queueing the read behind the scan is what
+  // actually rules it out. What this does catch is the queue deadlocking or a
+  // scan being dropped while a retry is in flight.
+  it('applies both a retry and a tap that overlaps it', async () => {
+    await addPerson(existingPerson);
+    // A second enrolled card, so the racing tap is one that actually counts.
+    await addPerson({
+      ...existingPerson,
+      cardUid: newUid,
+      firstName: 'Priya',
+      lastName: 'Nair',
+      email: 'pnair27@stjohnschs.org',
+    });
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+    await act(async () => {
+      await result.current.handleScan(existingUid);
+    });
+    expect(result.current.count).toBe(1);
+
+    // Hold the recovery read open, then commit a tap while it is in flight.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const realListPersons = attendanceStore.listPersons;
+    vi.spyOn(attendanceStore, 'listPersons').mockImplementation(async () => {
+      await gate;
+      return realListPersons();
+    });
+
+    await act(async () => {
+      const refreshing = result.current.retryStorage();
+      const scanning = result.current.handleScan(newUid);
+      release();
+      await Promise.all([refreshing, scanning]);
+    });
+
+    expect(result.current.count).toBe(2);
+    expect(await countSessionAttendance(result.current.sessionId)).toBe(2);
+  });
+
   it('flags a tap that did not save and clears it on the next good tap', async () => {
     await addPerson(existingPerson);
     vi.spyOn(attendanceStore, 'recordSessionTap').mockRejectedValueOnce(

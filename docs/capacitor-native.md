@@ -375,10 +375,23 @@ party on every boot while the dashboard told the operator that nothing is sent
 anywhere. Those were the only two requests the bundle made, so with them gone,
 "this app touches the network never" is now literally true.
 
-Verified by grepping the built CSS and JS for `https://`. What still matches is
-inert: XML namespaces baked into SheetJS, and documentation links inside React
-and react-router error strings (`reactjs.org/docs/error-decoder`,
-`reactrouter.com/...`). Those are string literals printed into a message when
-something has already gone wrong — nothing fetches them. Re-run that grep after
-adding any dependency; a URL that appears in a `fetch`, `<link>`, `@import` or
-`src` is a real request and does not belong in this bundle.
+Verify with `grep -ohE 'https?://[^"'"'"');]+' dist/public/assets/*.js dist/public/assets/*.css`
+— note `https?`, not `https`: an earlier version of this paragraph grepped only
+for `https://` and so enumerated the survivors wrongly. What matches is inert,
+in four groups:
+
+- **XML namespaces**, the overwhelming majority — SheetJS's OOXML and
+  OpenDocument identifiers (`schemas.openxmlformats.org`, `purl.org/dc`,
+  `openoffice.org`) and the browser's own (`w3.org/2000/svg`,
+  `w3.org/1999/xhtml`). Namespaces are names, not addresses; nothing resolves
+  them.
+- **Links printed into error messages**: React's `reactjs.org/docs/error-decoder`,
+  `reactrouter.com/...`, Dexie's `bit.ly/2kdckMn` (in its "Transaction committed
+  too early" text) and SheetJS's `tinyurl.com/y2uuvskb`. They are shown to a
+  developer after something has already gone wrong.
+- **`http://localhost`**, react-router's placeholder origin for parsing a URL.
+- **`http://macVmlSchemaUri`**, a SheetJS placeholder that is not a real host.
+
+None is fetched. Re-run the grep after adding any dependency: what matters is
+not that a URL appears, but that it appears in a `fetch`, `<link>`, `@import`
+or `src` — that is a real request, and it does not belong in this bundle.

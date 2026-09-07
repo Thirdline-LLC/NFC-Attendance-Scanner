@@ -112,7 +112,12 @@ async function assertEmailAvailable(
 export async function addPerson(person: Omit<Person, 'id'>): Promise<Person> {
   return database.transaction('rw', personsTable, async () => {
     await assertEmailAvailable(person.email);
-    const id = await personsTable.add(person);
+    // A copy, because Dexie stamps the generated key onto the object it is
+    // handed. Stamping the caller's object turns an innocent reuse of it —
+    // spreading a fixture, retrying a failed save — into an insert carrying
+    // somebody else's primary key, which fails as a ConstraintError far from
+    // the cause.
+    const id = await personsTable.add({ ...person });
     return { ...person, id };
   });
 }

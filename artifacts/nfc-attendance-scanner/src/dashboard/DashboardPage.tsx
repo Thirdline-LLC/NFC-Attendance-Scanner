@@ -14,6 +14,7 @@ import {
 } from '@/lib/attendance-metrics';
 import { Dashboard } from '@/ui/Dashboard';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
+import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 
 /**
  * The container behind `Dashboard`: it reads the whole tap history and the
@@ -63,9 +64,18 @@ export function DashboardPage() {
    * is the only route by which a rotated-away session — or a tap the v3
    * upgrade stamped `legacy` — reaches the workbook that is the record.
    */
+  const [exportResult, setExportResult] = useState<ExportResult>(null);
+
   const exportAll = useCallback(() => {
     if (!history) return;
-    exportAttendanceWorkbook(history.taps, history.persons);
+    try {
+      setExportResult({
+        ok: true,
+        filename: exportAttendanceWorkbook(history.taps, history.persons),
+      });
+    } catch {
+      setExportResult({ ok: false });
+    }
   }, [history]);
 
   return (
@@ -174,6 +184,7 @@ export function DashboardPage() {
               onRefresh={() => void load()}
               onExportAll={history ? exportAll : undefined}
             />
+            <ExportNotice result={exportResult} />
           </div>
         ) : null}
       </div>

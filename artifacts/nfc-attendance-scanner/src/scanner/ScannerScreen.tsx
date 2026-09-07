@@ -14,6 +14,7 @@ import {
   Users,
 } from 'lucide-react';
 import { exportAttendanceWorkbook } from '@/lib/attendance-export';
+import { type ExportResult } from '@/ui/ExportNotice';
 import {
   useAttendanceSession,
   type ScannerMode,
@@ -37,6 +38,7 @@ export function ScannerScreen() {
   // Rotating the session id is destructive from the desk's point of view, so
   // every entry point routes through one confirmation instead of firing.
   const [isConfirmingNewSession, setIsConfirmingNewSession] = useState(false);
+  const [exportResult, setExportResult] = useState<ExportResult>(null);
   const {
     count,
     feedback,
@@ -135,7 +137,11 @@ export function ScannerScreen() {
   // Everything ever recorded on the device — earlier sessions, and the taps a
   // v3 upgrade stamped 'legacy' — is exported from the dashboard instead.
   const handleExport = useCallback(() => {
-    exportAttendanceWorkbook(taps, persons);
+    try {
+      setExportResult({ ok: true, filename: exportAttendanceWorkbook(taps, persons) });
+    } catch {
+      setExportResult({ ok: false });
+    }
   }, [persons, taps]);
 
   const handleEnrollPerson = useCallback(
@@ -470,6 +476,7 @@ export function ScannerScreen() {
         <SessionSummary
           summary={sessionSummary}
           onExport={handleExport}
+          exportResult={exportResult}
           onStartNewSession={() => setIsConfirmingNewSession(true)}
           onDismiss={handleDismissSummary}
           isCovered={isConfirmingNewSession}
@@ -478,6 +485,7 @@ export function ScannerScreen() {
 
       {isConfirmingNewSession && (
         <NewSessionDialog
+          exportResult={exportResult}
           metrics={metrics}
           onExport={handleExport}
           onConfirm={() => void handleConfirmNewSession()}

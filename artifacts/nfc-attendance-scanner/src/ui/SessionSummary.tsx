@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import type { SessionSummary as SessionSummaryData } from '@/scanner/use-attendance-session';
+import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 
 type SessionSummaryProps = {
   summary: SessionSummaryData;
   onExport: () => void;
+  exportResult?: ExportResult;
   onStartNewSession: () => void;
   /** Closes the summary and returns to scanning; rotates nothing. */
   onDismiss: () => void;
@@ -20,6 +22,7 @@ type SessionSummaryProps = {
 export function SessionSummary({
   summary,
   onExport,
+  exportResult = null,
   onStartNewSession,
   onDismiss,
   isCovered = false,
@@ -115,6 +118,7 @@ export function SessionSummary({
             Start New Session
           </button>
         </div>
+        <ExportNotice result={exportResult} />
         {/* End Session sits beside the reader on a kiosk, so it gets pressed by
             accident. Leaving is free: this session keeps its count. */}
         <button

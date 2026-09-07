@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { AlertTriangle, Download, RotateCcw } from 'lucide-react';
 import type { SessionMetrics } from '@/scanner/use-attendance-session';
+import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 
 type NewSessionDialogProps = {
   /** This session's figures, so the operator sees what is about to leave the screen. */
   metrics: SessionMetrics;
   /** Runs the same export the summary offers. Deliberately leaves the dialog open. */
   onExport: () => void;
+  /** What that export did, so "Export first" can be seen to have worked. */
+  exportResult?: ExportResult;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -25,6 +28,7 @@ function plural(count: number, noun: string): string {
 export function NewSessionDialog({
   metrics,
   onExport,
+  exportResult = null,
   onConfirm,
   onCancel,
 }: NewSessionDialogProps) {
@@ -112,6 +116,8 @@ export function NewSessionDialog({
           <Download aria-hidden="true" size={15} />
           Export first
         </button>
+
+        <ExportNotice result={exportResult} />
         <button
           type="button"
           onClick={onConfirm}

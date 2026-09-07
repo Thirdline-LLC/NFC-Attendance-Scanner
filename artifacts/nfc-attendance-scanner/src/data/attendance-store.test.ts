@@ -35,6 +35,42 @@ async function withRawDatabase<T>(
 const LEGACY_SESSION_ID = 'legacy';
 const EXISTING_SESSION_ID = 'existing-session';
 
+describe('addPerson', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  it('does not stamp the generated id onto the caller\u2019s object', async () => {
+    // Dexie writes the key back onto whatever object it is handed. Left alone,
+    // reusing that object — spreading a fixture, retrying a failed save — sends
+    // somebody else's primary key into the next insert, which surfaces as a
+    // ConstraintError nowhere near the cause.
+    const details = {
+      cardUid: '04A1B2C3D4E5F6',
+      firstName: 'Jordan',
+      lastName: 'Lee',
+      gradYear: 2027,
+      email: 'jlee27@stjohnschs.org',
+      enrolledAt: '2026-09-01T10:00:00.000Z',
+    };
+
+    const saved = await addPerson(details);
+
+    expect(saved.id).toBeTypeOf('number');
+    expect(details).not.toHaveProperty('id');
+
+    // The reused object must still be insertable as a different student.
+    const second = await addPerson({
+      ...details,
+      cardUid: '04F6E5D4C3B2A1',
+      email: 'jlee28@stjohnschs.org',
+    });
+    expect(second.id).not.toBe(saved.id);
+    expect(await listPersons()).toHaveLength(2);
+  });
+});
+
 describe('attendance store migrations', () => {
   beforeEach(async () => {
     localStorage.clear();
