@@ -263,6 +263,41 @@ describe('RosterManager listing', () => {
     expect((remove as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('keeps Edit and Remove in keyboard order and activates both keys', async () => {
+    const onRemove = vi.fn<NonNullable<RosterProps['onRemove']>>();
+    const { user } = renderRoster({ onRemove });
+    const row = screen.getByTestId('row-person-1');
+    const edit = within(row).getByRole('button', {
+      name: 'Edit Jane Smith',
+    });
+    const remove = within(row).getByRole('button', {
+      name: 'Remove Jane Smith',
+    });
+
+    edit.focus();
+    expect(document.activeElement).toBe(edit);
+    await user.tab();
+    expect(document.activeElement).toBe(remove);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(edit);
+
+    await user.keyboard('{Enter}');
+    expect(edit.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('form-enrollment')).toBeTruthy();
+
+    edit.focus();
+    await user.keyboard('[Space]');
+    expect(edit.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByTestId('form-enrollment')).toBeNull();
+
+    remove.focus();
+    await user.keyboard('{Enter}');
+    await user.keyboard('[Space]');
+    expect(onRemove).toHaveBeenCalledTimes(2);
+    expect(onRemove).toHaveBeenNthCalledWith(1, janeSmith);
+    expect(onRemove).toHaveBeenNthCalledWith(2, janeSmith);
+  });
+
   it('counts the roster, singular and plural', () => {
     const { count, rerender } = renderRoster();
     expect(count()).toBe('5 students');
