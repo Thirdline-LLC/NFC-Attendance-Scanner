@@ -66,12 +66,12 @@ export function DashboardPage() {
    */
   const [exportResult, setExportResult] = useState<ExportResult>(null);
 
-  const exportAll = useCallback(() => {
+  const exportAll = useCallback(async () => {
     if (!history) return;
     try {
       setExportResult({
         ok: true,
-        filename: exportAttendanceWorkbook(history.taps, history.persons),
+        ...(await exportAttendanceWorkbook(history.taps, history.persons)),
       });
     } catch {
       setExportResult({ ok: false });
@@ -182,7 +182,7 @@ export function DashboardPage() {
               metrics={metrics}
               isLoading={isLoading}
               onRefresh={() => void load()}
-              onExportAll={history ? exportAll : undefined}
+              onExportAll={history ? () => void exportAll() : undefined}
             />
             <ExportNotice result={exportResult} />
           </div>

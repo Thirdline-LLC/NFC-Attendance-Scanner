@@ -1,6 +1,10 @@
 import * as XLSX from 'xlsx';
 import type { Person, TapRecord } from '@/data/attendance-store';
 import { indexRoster, resolveTapPerson } from '@/lib/tap-identity';
+import {
+  deliverWorkbook,
+  type DeliveredExport,
+} from '@/lib/workbook-delivery';
 
 const EXPORT_TIME_ZONE = 'America/New_York';
 
@@ -240,28 +244,14 @@ export function buildAttendanceWorkbook(
 }
 
 /**
- * Build the workbook and hand it to the browser, which downloads it.
- *
- * `XLSX.writeFile` in a browser makes a Blob, points a synthetic `<a download>`
- * at it and clicks it — verified against xlsx@0.18.5's `write_dl`, and observed
- * in Chromium. It reports nothing back: no callback, no promise, no throw. So a
- * host that ignores that click (a Capacitor WebView may well be one) is
- * indistinguishable here from a file that saved. `docs/capacitor-native.md`
- * carries the device test and the native delivery path.
+ * Builds the workbook and hands it over, by whichever route the platform has:
+ * a browser download, or a file written to the device and offered to the share
+ * sheet. `deliverWorkbook` owns that choice and documents what each route can
+ * and cannot promise; this function exists so callers need not know.
  */
-/**
- * Hands the workbook to the browser and reports the name it was given, so a
- * caller can tell the operator what to look for. A browser that declines the
- * download throws nothing, so the name is the only confirmation available —
- * see `ExportNotice`.
- */
-export function exportAttendanceWorkbook(
+export async function exportAttendanceWorkbook(
   taps: readonly TapRecord[],
   persons: readonly Person[],
-): string {
-  const { filename, workbook } = buildAttendanceWorkbook(taps, persons);
-
-  XLSX.writeFile(workbook, filename, { bookType: 'xlsx', compression: true });
-
-  return filename;
+): Promise<DeliveredExport> {
+  return deliverWorkbook(buildAttendanceWorkbook(taps, persons));
 }

@@ -137,9 +137,9 @@ export function ScannerScreen() {
   // This session only, which is what the desk wants at the end of a meeting.
   // Everything ever recorded on the device — earlier sessions, and the taps a
   // v3 upgrade stamped 'legacy' — is exported from the dashboard instead.
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     try {
-      setExportResult({ ok: true, filename: exportAttendanceWorkbook(taps, persons) });
+      setExportResult({ ok: true, ...(await exportAttendanceWorkbook(taps, persons)) });
     } catch {
       setExportResult({ ok: false });
     }
@@ -477,7 +477,7 @@ export function ScannerScreen() {
       {sessionSummary && (
         <SessionSummary
           summary={sessionSummary}
-          onExport={handleExport}
+          onExport={() => void handleExport()}
           exportResult={exportResult}
           onStartNewSession={() => setIsConfirmingNewSession(true)}
           onDismiss={handleDismissSummary}
@@ -489,7 +489,7 @@ export function ScannerScreen() {
         <NewSessionDialog
           exportResult={exportResult}
           metrics={metrics}
-          onExport={handleExport}
+          onExport={() => void handleExport()}
           onConfirm={() => void handleConfirmNewSession()}
           onCancel={handleCancelNewSession}
         />

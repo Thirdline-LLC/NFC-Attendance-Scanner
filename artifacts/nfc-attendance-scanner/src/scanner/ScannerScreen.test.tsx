@@ -403,7 +403,10 @@ describe('ScannerScreen new-session confirmation', () => {
   it('exports from inside the dialog without answering the question', async () => {
     const exportSpy = vi
       .spyOn(attendanceExport, 'exportAttendanceWorkbook')
-      .mockReturnValue('attendance-2026-09-07-20260907T000000Z.xlsx');
+      .mockResolvedValue({
+        filename: 'attendance-2026-09-07-20260907T000000Z.xlsx',
+        delivery: 'download',
+      });
     const user = await renderWithOneTap();
 
     await user.click(screen.getByTestId('button-reset-session'));
@@ -417,9 +420,10 @@ describe('ScannerScreen new-session confirmation', () => {
   });
 
   it('names the file it handed to the browser', async () => {
-    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockReturnValue(
-      'attendance-2026-09-07-20260907T000000Z.xlsx',
-    );
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockResolvedValue({
+      filename: 'attendance-2026-09-07-20260907T000000Z.xlsx',
+      delivery: 'download',
+    });
     const user = await renderWithOneTap();
 
     await user.click(screen.getByTestId('button-reset-session'));

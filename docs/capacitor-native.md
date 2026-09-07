@@ -16,14 +16,18 @@ one thing here nobody has yet checked.
 
 ## Install (run these once, from the repo root)
 
-Nothing here is installed yet. The workspace enforces a one-day minimum release
-age on new packages, so these can fail if a version was published today; wait
-rather than disabling that setting.
+**These are already installed** — `@capacitor/core`, `@capacitor/filesystem`
+and `@capacitor/share` as dependencies, `@capacitor/cli`, `@capacitor/ios` and
+`@capacitor/android` as dev dependencies. Nothing below needs adding; the
+commands are recorded so a fresh checkout can be rebuilt.
 
 ```bash
-pnpm --filter @workspace/nfc-attendance-scanner add -D @capacitor/cli
-pnpm --filter @workspace/nfc-attendance-scanner add @capacitor/core @capacitor/ios @capacitor/android
+pnpm --filter @workspace/nfc-attendance-scanner add @capacitor/core @capacitor/filesystem @capacitor/share
+pnpm --filter @workspace/nfc-attendance-scanner add -D @capacitor/cli @capacitor/ios @capacitor/android
 ```
+
+The workspace enforces a one-day minimum release age, so an add can fail if a
+version was published today. Wait rather than disabling that setting.
 
 Then, from `artifacts/nfc-attendance-scanner/`:
 
@@ -38,14 +42,6 @@ pnpm exec cap open ios         # or: cap open android
 `cap add` and `cap open` need a Mac with Xcode (iOS) or Android Studio
 (Android); neither runs in this container. Everything up to and including
 `build:native` does.
-
-After the CLI is installed, drop the local type alias at the top of
-`capacitor.config.ts` and use the real one, so a misspelt key fails at sync
-time instead of silently doing nothing:
-
-```ts
-import type { CapacitorConfig } from '@capacitor/cli';
-```
 
 Convenience scripts already in `package.json`: `native:sync`, `native:ios`,
 `native:android` — each rebuilds first, so the native shell never ships a stale
@@ -193,97 +189,52 @@ observed failure.
 The expected symptom on both is the same and is the dangerous one: the button
 depresses, nothing appears, nothing errors.
 
-### The native export path (designed, not built)
+### The native export path
 
-`buildAttendanceWorkbook(taps, persons)` returns `{ filename, workbook }` and
-delivers nothing anywhere. That split exists precisely so this can be dropped
-in without touching how the sheet is built.
+**Built.** `src/lib/workbook-delivery.ts` owns it, and both screens reach it
+through `exportAttendanceWorkbook`, so neither knows which platform it is on.
 
-Two packages are needed and are **not** installed — add them only once the
-device check has actually shown the download failing:
+`buildAttendanceWorkbook(taps, persons)` still returns `{ filename, workbook }`
+and delivers nothing; `deliverWorkbook` picks the route:
 
-```bash
-pnpm --filter @workspace/nfc-attendance-scanner add @capacitor/filesystem @capacitor/share
-```
+- **Browser** — `XLSX.writeFile`, the download described above. It reports
+  nothing back, so this branch promises nothing beyond "handed over".
+- **Device** (`Capacitor.isNativePlatform()`) — `XLSX.write(..., { type:
+  'base64' })`, then `Filesystem.writeFile` into `Directory.Documents`, then
+  the share sheet with the resulting `uri`. base64 rather than a Blob because
+  that is what crosses the WebView bridge, which is also the workaround Android
+  would otherwise need for `blob:` downloads.
 
-```ts
-// src/lib/attendance-export-native.ts
-import { Directory, Filesystem } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
-import * as XLSX from 'xlsx';
-import type { AttendanceWorkbook } from '@/lib/attendance-export';
+Three behaviours worth knowing, each pinned by a test in
+`workbook-delivery.test.ts`:
 
-export async function saveAttendanceWorkbookNative(
-  built: AttendanceWorkbook,
-): Promise<string> {
-  // base64 is the form Filesystem.writeFile wants for binary: with no
-  // `encoding` it decodes the string and writes the bytes as they are.
-  const data = XLSX.write(built.workbook, {
-    bookType: 'xlsx',
-    type: 'base64',
-    compression: true,
-  });
-  const { uri } = await Filesystem.writeFile({
-    path: built.filename,
-    data,
-    directory: Directory.Documents,
-    recursive: true,
-  });
-  // Writing it is not getting it off the device. The share sheet is what puts
-  // the workbook into Mail/Drive/AirDrop — and it is the only proof the
-  // operator gets that a file exists at all.
-  await Share.share({
-    title: 'Attendance export',
-    url: uri,
-    dialogTitle: 'Send the attendance workbook',
-  });
-  return uri;
-}
-```
+- A **failed write throws**. Unlike a download, this failure is knowable, so it
+  is surfaced rather than swallowed into a success the operator would trust.
+- A **cancelled share is not a failure**. The file is already on disk by then;
+  reporting an error would be false, and would push the operator into
+  exporting again.
+- **No share sheet, no problem** — `Share.canShare()` is checked first, and the
+  file still counts as delivered.
 
-It slots into `exportAttendanceWorkbook` in `src/lib/attendance-export.ts`,
-which is the only place either screen goes through:
+The result carries `delivery: 'download' | 'file'`, and `ExportNotice` says
+different things for each: a native export states the file exists and where,
+because it can; a download tells the operator to go and check, because it
+cannot. That is the "say on screen whether it worked" requirement, and it is
+done on both platforms.
 
-```ts
-import { Capacitor } from '@capacitor/core';
-import { saveAttendanceWorkbookNative } from '@/lib/attendance-export-native';
+#### Still to do on a real device
 
-export async function exportAttendanceWorkbook(taps, persons): Promise<void> {
-  const built = buildAttendanceWorkbook(taps, persons);
+The code is written and unit-tested. It has never run on iOS or Android,
+because neither can run here. Two things need doing before it is trusted:
 
-  if (Capacitor.isNativePlatform()) {
-    await saveAttendanceWorkbookNative(built);
-    return;
-  }
-
-  XLSX.writeFile(built.workbook, built.filename, {
-    bookType: 'xlsx',
-    compression: true,
-  });
-}
-```
-
-Both call sites are synchronous today and would become
-`void exportAttendanceWorkbook(...).then(…).catch(…)`. Three things to get
-right:
-
-- On iOS, `Directory.Documents` is only visible in the Files app if
-  `UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace` are `YES` in
-  `Info.plist`. Without them the file exists and nobody can reach it, so the
-  `Share` step is not optional.
-- On modern Android, `Directory.Documents` is app-scoped storage, not the
-  shared Documents folder. Same conclusion: share it out.
-- Once `@capacitor/filesystem` is in for this, the JSON snapshot below costs
-  almost nothing extra. Do both in one change.
-
-### Say on screen whether it worked
-
-Nothing currently does, on any platform. Whatever happens with the native path,
-the export should report — "Saved attendance-….xlsx", or a visible failure —
-because a silent no-op mistaken for a saved file is the exact way a term of
-attendance goes missing. This is not built yet; do it in the same change as the
-native path, and make the failure branch `catch` a rejected
-`saveAttendanceWorkbookNative`.
+- **`Info.plist`.** On iOS, `Directory.Documents` is only visible in the Files
+  app if `UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace` are
+  `YES`. Without them the file exists and nobody can reach it. Set both when
+  `cap add ios` has generated the project — the share sheet covers getting the
+  file out, but not finding it later.
+- **Android scoping.** On modern Android `Directory.Documents` is app-scoped
+  storage, not the shared Documents folder. The share step is what gets the
+  workbook somewhere durable; do not tell an operator to "look in Documents".
 
 ### A second copy, on the device
 
@@ -297,11 +248,10 @@ Also designed and deliberately not implemented:
   turns a device swap into a two-minute job and covers the eviction case
   entirely.
 
-Left unbuilt because it adds a runtime dependency and a file-permission
-surface. It was previously written down here as unnecessary "because the export
-already covers the common case"; on a native build that is exactly the
-assumption the section above says nobody has checked. If the export check or
-the seven-day test fails, build both before rolling out.
+Still unbuilt — but the reason has changed. `@capacitor/filesystem` is now a
+dependency for the export, so the snapshot no longer costs one; what is left is
+the import path and its failure modes. Build it if the seven-day test below
+fails, or before any device is trusted with a term of attendance.
 
 ### Moving to a new device
 
@@ -315,26 +265,31 @@ device by design.
 ## Three things to check on a real device
 
 **The export has to produce a file.** This is the one that can lose data, so do
-it first, with a throwaway session on a real build:
+it first, with a throwaway session on a real build. A native build no longer
+depends on the browser download at all — it writes the file itself and opens
+the share sheet — so what this checks is that the written path works end to
+end:
 
 1. Check a card in, press **End Session**, press **Export**.
-2. Watch the screen. Today's build has no share sheet and no save dialog to
-   offer — the entire mechanism is that anchor click — so *anything* that
-   happens (a save prompt, a preview, a Downloads notification) means the
-   WebView handled it.
-3. Then go looking for the file: Android, Files → Downloads; iOS, the Files
-   app, where the app has a folder at all only with the `Info.plist` keys named
-   above, so expect nothing there.
-4. Attach a debugger to the WebView (Safari → Develop → the device, or
-   `chrome://inspect`) and export again with the console open. A silent
-   nothing, no error, is exactly the failure this is looking for.
-5. If nothing lands, build
-   [the native export path](#the-native-export-path-designed-not-built) before
-   the app goes near a real meeting. Do not ship a kiosk whose export only
-   works in the preview.
+2. A share sheet should appear. The on-screen notice should read *"Saved
+   attendance-….xlsx to this device's Documents"* — the wording that only the
+   native path produces. If it instead says *"Handed … to the browser"*, the
+   build is not running as a native platform and `Capacitor.isNativePlatform()`
+   is returning false; fix that before anything else.
+3. Send the file somewhere off the device from the sheet, and open it. A
+   zero-byte or corrupt workbook means the base64 round-trip is wrong.
+4. Dismiss the sheet on a second export without sending. The notice must still
+   report success — the file is already written — and the file must be in
+   Documents.
+5. Find it without the sheet: iOS, the Files app, which needs the `Info.plist`
+   keys named above; Android, via the share target, since Documents is
+   app-scoped.
+6. Attach a debugger to the WebView (Safari → Develop → the device, or
+   `chrome://inspect`) and watch for a rejected `Filesystem.writeFile`. That
+   one throws, so it should be visible rather than silent.
 
 Until this has been run on a build someone will actually use, treat the
-"the .xlsx is the system of record" line as true of the web app only.
+"the .xlsx is the system of record" line as proven for the web app only.
 
 **The reader is a keyboard.** The NFC reader is a USB HID keyboard wedge: it
 types fourteen hex characters and presses Enter into whatever has focus. In the

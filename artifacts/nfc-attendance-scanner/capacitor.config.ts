@@ -1,23 +1,8 @@
 // Read by the Capacitor CLI from the package root whenever it runs here
 // (`pnpm --filter @workspace/nfc-attendance-scanner exec cap ...`). It sits
-// outside tsconfig's `src/**` include, so `pnpm run typecheck` never sees it;
-// it is kept valid TypeScript regardless so the CLI (which compiles it with
-// its own TS) has nothing to trip on.
-//
-// After `pnpm add -D @capacitor/cli` lands, delete the local alias below and
-// use the CLI's own schema instead so misspelt keys fail at sync time:
-//   import type { CapacitorConfig } from '@capacitor/cli';
-type CapacitorConfig = {
-  appId: string;
-  appName: string;
-  webDir: string;
-  server?: {
-    url?: string;
-    hostname?: string;
-    iosScheme?: string;
-    androidScheme?: string;
-  };
-};
+// outside tsconfig's `src/**` include, so `pnpm run typecheck` never sees it —
+// the CLI's own schema is what catches a misspelt key here, at sync time.
+import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'org.stjohnschs.attendance',

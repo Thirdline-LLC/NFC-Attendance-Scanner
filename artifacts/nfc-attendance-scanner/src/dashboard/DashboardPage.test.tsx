@@ -130,7 +130,10 @@ describe('DashboardPage', () => {
     });
     const exportSpy = vi
       .spyOn(attendanceExport, 'exportAttendanceWorkbook')
-      .mockReturnValue('attendance-2026-09-07-20260907T000000Z.xlsx');
+      .mockResolvedValue({
+        filename: 'attendance-2026-09-07-20260907T000000Z.xlsx',
+        delivery: 'download',
+      });
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('dashboard');
@@ -148,9 +151,10 @@ describe('DashboardPage', () => {
 
   it('names the file it handed to the browser', async () => {
     await seedTwoSessions();
-    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockReturnValue(
-      'attendance-2026-09-07-20260907T000000Z.xlsx',
-    );
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockResolvedValue({
+      filename: 'attendance-2026-09-07-20260907T000000Z.xlsx',
+      delivery: 'download',
+    });
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('dashboard');
