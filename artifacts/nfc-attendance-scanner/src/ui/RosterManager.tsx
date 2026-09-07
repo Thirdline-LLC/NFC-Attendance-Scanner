@@ -431,17 +431,17 @@ function RosterRow({
         className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-[hsl(var(--border)/.6)] px-4 py-3 transition-colors first:border-t-0 sm:table-row sm:p-0 ${rowTone}`}
         data-testid={`row-person-${personId ?? 'unsaved'}`}
       >
-        <td className="font-semibold text-[hsl(var(--foreground))] sm:whitespace-nowrap sm:px-4 sm:py-3">
+        <td className="min-w-0 font-semibold text-[hsl(var(--foreground))] [overflow-wrap:anywhere] sm:px-4 sm:py-3">
           {person.firstName}
         </td>
-        <td className="font-semibold text-[hsl(var(--foreground))] sm:whitespace-nowrap sm:px-4 sm:py-3">
+        <td className="min-w-0 font-semibold text-[hsl(var(--foreground))] [overflow-wrap:anywhere] sm:px-4 sm:py-3">
           {person.lastName}
         </td>
         <td className="order-1 basis-full text-[hsl(var(--muted-foreground))] sm:order-none sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-[hsl(var(--foreground))]">
           <span className="sm:hidden">Class of </span>
           {person.gradYear}
         </td>
-        <td className="order-2 basis-full text-[hsl(var(--muted-foreground))] [overflow-wrap:anywhere] sm:order-none sm:basis-auto sm:px-4 sm:py-3 sm:text-[hsl(var(--foreground))]">
+        <td className="order-2 min-w-0 basis-full text-[hsl(var(--muted-foreground))] [overflow-wrap:anywhere] sm:order-none sm:basis-auto sm:px-4 sm:py-3 sm:text-[hsl(var(--foreground))]">
           {person.email}
         </td>
         <td className="ml-auto font-mono text-xs font-bold tracking-[0.16em] text-[hsl(var(--foreground))] sm:ml-0 sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-sm">
@@ -449,7 +449,7 @@ function RosterRow({
             {maskCardUid(person.cardUid)}
           </span>
         </td>
-        <td className="order-3 basis-full sm:order-none sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-right">
+        <td className="order-3 min-w-0 basis-full sm:order-none sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-right">
           <div
             className="flex w-full items-center gap-2 sm:inline-flex sm:w-auto"
             data-testid={`actions-person-${personId ?? 'unsaved'}`}

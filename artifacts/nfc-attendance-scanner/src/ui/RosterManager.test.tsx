@@ -78,6 +78,16 @@ const rebeccaFacade: Person = {
   enrolledAt: '2026-09-01T12:05:00.000Z',
 };
 
+const longNamedPerson: Person = {
+  id: 7,
+  cardUid: '04ABCDEF123456',
+  firstName: 'Alexandria',
+  lastName: 'Montgomery-Wellington-Smythe',
+  gradYear: 2027,
+  email: 'alexandria.montgomery-wellington-smythe.2027@stjohnschs.org',
+  enrolledAt: '2026-09-01T12:06:00.000Z',
+};
+
 // Deliberately not in display order.
 const roster: Person[] = [
   janeSmith,
@@ -212,6 +222,45 @@ describe('RosterManager listing', () => {
         .getByRole('button', { name: 'Edit Jane Smith' })
         .getAttribute('aria-expanded'),
     ).toBe('true');
+  });
+
+  it('keeps actions available when names and email values are unusually long', () => {
+    renderRoster({
+      persons: [longNamedPerson],
+      onRemove: vi.fn<NonNullable<RosterProps['onRemove']>>(),
+    });
+    const row = screen.getByTestId('row-person-7');
+    const actions = within(row).getByTestId('actions-person-7');
+    const edit = within(actions).getByRole('button', {
+      name: 'Edit Alexandria Montgomery-Wellington-Smythe',
+    });
+    const remove = within(actions).getByRole('button', {
+      name: 'Remove Alexandria Montgomery-Wellington-Smythe',
+    });
+
+    expect(within(row).getByText(longNamedPerson.firstName)).toBeTruthy();
+    expect(within(row).getByText(longNamedPerson.lastName)).toBeTruthy();
+    expect(within(row).getByText(longNamedPerson.email)).toBeTruthy();
+    expect(
+      within(row).getByText(longNamedPerson.firstName).closest('td')?.className,
+    ).toContain('min-w-0');
+    expect(
+      within(row).getByText(longNamedPerson.lastName).closest('td')?.className,
+    ).toContain('[overflow-wrap:anywhere]');
+
+    // The action group has a full-width mobile layout and an inline desktop
+    // layout, with the same spacing and sufficiently large touch targets.
+    expect(actions.className).toContain('items-center');
+    expect(actions.className).toContain('gap-2');
+    expect(actions.className).toContain('w-full');
+    expect(actions.className).toContain('sm:inline-flex');
+    expect(actions.className).toContain('sm:w-auto');
+    expect(edit.className).toContain('flex-1');
+    expect(edit.className).toContain('sm:flex-none');
+    expect(remove.className).toContain('flex-1');
+    expect(remove.className).toContain('sm:flex-none');
+    expect((edit as HTMLButtonElement).disabled).toBe(false);
+    expect((remove as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('counts the roster, singular and plural', () => {
