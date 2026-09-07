@@ -1,6 +1,7 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  Copy,
   Pencil,
   Trash2,
   Search,
@@ -418,6 +419,9 @@ function RosterRow({
   onRemove,
 }: RosterRowProps) {
   const editorId = useId();
+  const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(
+    null,
+  );
   // Rows come from Dexie, which always assigns an id; the guard only keeps the
   // shared `Person` type honest, and a row without one is simply read-only.
   const personId = person.id;
@@ -502,7 +506,45 @@ function RosterRow({
                 Remove
               </button>
             ) : null}
+            <button
+              type="button"
+              onClick={async () => {
+                setCopyStatus(null);
+                try {
+                  if (
+                    typeof navigator === 'undefined' ||
+                    !navigator.clipboard?.writeText
+                  ) {
+                    throw new Error('Clipboard API unavailable');
+                  }
+                  await navigator.clipboard.writeText(person.email);
+                  setCopyStatus('success');
+                } catch {
+                  setCopyStatus('error');
+                }
+              }}
+              aria-label={`Copy email for ${person.firstName} ${person.lastName}`}
+              className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-xs font-semibold text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:min-h-0 sm:flex-none"
+              data-testid={`button-copy-email-${personId ?? 'unsaved'}`}
+            >
+              <Copy aria-hidden="true" size={14} />
+              Copy
+            </button>
           </div>
+          {copyStatus ? (
+            <p
+              className={`mt-1 text-xs font-semibold ${
+                copyStatus === 'success'
+                  ? 'text-[hsl(var(--primary))]'
+                  : 'text-[hsl(var(--destructive))]'
+              }`}
+              role="status"
+            >
+              {copyStatus === 'success'
+                ? 'Email copied'
+                : 'Could not copy email. Try selecting it manually.'}
+            </p>
+          ) : null}
         </td>
       </tr>
       {isEditing && personId !== undefined ? (
