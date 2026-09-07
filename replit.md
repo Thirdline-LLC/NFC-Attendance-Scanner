@@ -138,4 +138,14 @@ _Populate as you build — explicit user instructions worth remembering across s
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
-- `docs/capacitor-native.md` — packaging this app for iOS/Android and keeping IndexedDB data alive there
+- `docs/operating-the-kiosk.md` — the front-desk instructions: enrolling,
+  checking in, what each message means, exporting, and what to do when
+  something looks wrong. Written for a volunteer, not a developer; keep it in
+  step with the copy on screen when that copy changes.
+- `docs/capacitor-native.md` — packaging this app for iOS/Android and keeping
+  IndexedDB data alive there. The `ios/` and `android/` projects are generated
+  by Capacitor and **committed**, name and icons already set; a Mac session
+  should only need `build:native` → `cap sync` → `cap open`.
+- `artifacts/nfc-attendance-scanner/branding/` — `mark.svg`, the source of the
+  native app icon and splash screens, and `generate-icons.sh`, which renders
+  every size into both platform asset catalogues with ImageMagick.

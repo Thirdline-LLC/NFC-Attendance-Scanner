@@ -100,6 +100,10 @@ export function useAttendanceSession(mode: ScannerMode) {
   const mountedRef = useRef(true);
   const storageStatusRef = useRef<StorageStatus>('checking');
   const queue = useRef(Promise.resolve());
+  // Opening/recovery reads can overlap a physical tap. If their snapshot was
+  // taken before that write, it must not roll the fresh count and tap list back
+  // off the screen when the read eventually resolves.
+  const tapWriteVersion = useRef(0);
   const modeRef = useRef(mode);
   const sessionIdRef = useRef(sessionId);
   const personsRef = useRef<Person[]>([]);
@@ -149,6 +153,7 @@ export function useAttendanceSession(mode: ScannerMode) {
   const loadSession = useCallback(async () => {
     applyStorageStatus('checking');
     const currentSessionId = sessionIdRef.current;
+    const readTapWriteVersion = tapWriteVersion.current;
 
     try {
       const [savedPersons, savedTaps, savedAttendanceCount] = await Promise.all(
@@ -162,12 +167,16 @@ export function useAttendanceSession(mode: ScannerMode) {
       // The roster does not belong to a session, so it is applied either way.
       personsRef.current = savedPersons;
       setPersons(savedPersons);
-      // The taps and the count do belong to one. If the session rotated while
-      // this read was in flight, what came back describes a meeting that is no
-      // longer on screen, and applying it would put the previous meeting's
-      // taps and count back under the new session's heading. The rotation
-      // already left the view in the state it wants.
-      if (sessionIdRef.current === currentSessionId) {
+      // The taps and the count do belong to one, and this read may be older
+      // than what is on screen in two different ways. If the session rotated
+      // while it was in flight, applying it would put the previous meeting's
+      // taps back under the new session's heading; if a tap committed while it
+      // was in flight, applying it would roll that tap off the count. Either
+      // way the newer writer already left the view in the state it wants.
+      if (
+        sessionIdRef.current === currentSessionId &&
+        tapWriteVersion.current === readTapWriteVersion
+      ) {
         tapsRef.current = savedTaps;
         setTaps(savedTaps);
         setAttendanceCount(savedAttendanceCount);
@@ -286,7 +295,10 @@ export function useAttendanceSession(mode: ScannerMode) {
           person = personsRef.current.find((item) => item.cardUid === uid);
         }
         const scannedAt = new Date().toISOString();
+        // Captured before the await so a rotation mid-write cannot land this
+        // tap under the session that replaced the one it was scanned in.
         const tapSessionId = sessionIdRef.current;
+        tapWriteVersion.current += 1;
         const committed = await recordSessionTap({
           sessionId: tapSessionId,
           uid,

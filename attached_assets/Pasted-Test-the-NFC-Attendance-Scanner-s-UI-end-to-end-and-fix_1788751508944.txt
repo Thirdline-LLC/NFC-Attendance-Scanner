@@ -1,0 +1,122 @@
+Test the NFC Attendance Scanner's UI end to end and fix what's broken.
+
+## What this app is
+
+A frontend-only, offline-first kiosk in `artifacts/nfc-attendance-scanner`
+(pnpm workspace). React 18 + TypeScript + Vite + Tailwind + Dexie/IndexedDB.
+A school front desk uses it to check students in by NFC card.
+
+Read these before touching anything: `CLAUDE.md`, `replit.md`, and
+`artifacts/nfc-attendance-scanner/.claude/skills/run-nfc-attendance-scanner/SKILL.md`.
+That skill has a committed browser driver, every data-testid by screen, and
+the traps that have already cost people time.
+
+## Rules you must not break
+
+1. NO BACKEND, EVER. No server, no API, no auth, no analytics, no telemetry,
+   no cloud sync. All data lives in IndexedDB on the device. Do not add one
+   "to make testing easier."
+2. NO NEW DEPENDENCIES. If you think you need one, stop and say why instead.
+3. The app makes ZERO network requests at runtime. Fonts are self-hosted.
+   Verify with: grep -ohE 'https?://[^"'"'"');]+' dist/public/assets/*.js
+   Everything that matches must be an inert string (XML namespaces, error-message
+   links). Nothing may appear in a fetch, <link>, @import or src.
+4. A card UID is hardware identity. Only its last 4 characters may ever reach
+   the DOM, as '••••' + tail via maskCardUid. A full 14-char UID on screen or
+   in innerHTML is a critical bug.
+5. The card UID is never editable after enrollment.
+6. Emails must be in the stjohnschs.org domain.
+
+## How to run and verify
+
+From `artifacts/nfc-attendance-scanner`:
+
+    pnpm run test        # vitest — 285 passing right now, keep them passing
+    pnpm run typecheck   # tsc --noEmit
+    PORT=23205 BASE_PATH=/ pnpm run build
+    pnpm run build:native
+
+- pnpm only. npm and yarn are rejected by the root preinstall.
+- vite.config.ts THROWS unless both PORT and BASE_PATH are set, build included.
+- There is NO ESLint config. Do not try to lint.
+- A dev server is ALREADY RUNNING on port 23205 and serves this checkout. Use
+  it. Do not start a second one for this package.
+- NEVER run `pkill -f vite`. It kills the preview runner's server, and the
+  preview then shows "artifact crashed" with SIGTERM even though nothing
+  crashed. Kill by PID: kill $(lsof -t -i :<port> -sTCP:LISTEN)
+
+A scan is a keystroke burst, not a click: fill
+`[data-testid="input-scanner-hidden"]` and dispatch an Enter keydown. The UID
+must match ^[0-9A-F]{14}$. `el.value = x` does nothing to a React input — go
+through the native setter, which the committed driver already handles.
+
+## Walk these flows and report what you see
+
+Do this in a real browser, at kiosk width AND at 390px phone width, and at a
+SHORT viewport (844x390 landscape) — overlays have hidden their own buttons
+below the fold before.
+
+1. Enroll: switch to Enroll, scan 04A1B2C3D4E5F6, fill the form. The email
+   should derive live as you type. Save.
+2. Check in: switch to Check-in, scan the same card. Count goes to 1. Scan it
+   again — duplicate, count stays 1.
+3. Unknown card: scan 04FFEEDDCCBB99 in Check-in. Reported unknown, not counted.
+4. Bad read: scan `NOTHEX` — reports an invalid scan.
+5. Email collision: enroll a second student whose name derives the same address.
+   A dialog should name the existing holder and offer a way out.
+6. End Session: the summary appears. "Export this session" must show a notice
+   naming the .xlsx file. Dismiss without rotating — count survives.
+7. New session: End Session -> Start New Session -> a confirmation dialog
+   naming this session's counts. Carm — count goes
+   to 0 AND the previous taps are still in IndexedDB (check the dashboard).
+8. Roster: click Students. Search bl, and the last
+   4 of a card. Edit a student's graduation year in place and save. Confirm the
+   card field cannot be edited anyw
+9. Retroactive enrollment: enroll the previously-unknown card, then check the
+   dashboard — that card's earlier taps must now count as identified and
+   "unidentified taps" must drop.
+10. Dashboard: numbers must match what you actually did — unique students,
+    sessions held, unidentified tap its file.
+
+## Behaviour that is DELIBERATE — do not "fix" it
+
+- Scans do nothing on /roster and /dashboard. The scanner is unmounted there.
+  Both pages carry a `text-scans-pais the design.
+- Scanning is disabled while the enrollment form, session summary, or
+  new-session dialog is open.
+- Starting a new session does NOT dhe session id.
+  History is retained so the dashboigures.
+- Enrollment is blocked entirely whthe form would
+  invite details that have nowhere to save.
+- The scanner's export covers the CURRENT session; the dashboard's "Export all
+  history" covers everything.
+- The roster search collapses long t is the UID
+  masking rule, not a bug. But an ordinary name must still be findable —
+  search "Rebecca" and "Facade"; ifdent, that IS
+  a bug.
+
+## Known and unverified — do not claim you fixed these
+
+- Whether XLSX.writeFile works inside a Capacitor WebView is UNVERIFIED and
+  cannot be tested here. See docs/capacitor-native.md. Do not assert it works.
+- Whether WebKit's 7-day script-wriide a Capacitor
+  WKWebView is UNVERIFIED. Do not assert either way.
+
+## How to fix what you find
+
+- Report every bug with the exact s you expected.
+- Fix the cause, not the symptom.
+- Every behavioural fix needs a regtest works:
+  temporarily revert your fix and confirm the test fails. A test that passes
+  without the fix is worthless — say so rather than keeping it.
+- `pnpm run test` and `pnpm run typecheck` must be clean before you commit,
+  and both builds must pass if you
+- Do not change public function sigy caller
+  (grep src/) and confirming with t
+- Commit in small steps, one logical change each, with a message that explains
+  WHY. This container restarts oftet.
+- If something looks wrong but you are not sure, say so instead of guessing.
+  Being honest about uncertainty isnt wrong
+  answers — this app holds the only copy of a term's attendance.
+
+Two notes on using it. The "deliber load-bearing part — without it anagent will report the dead scans ont by mounting a second scanner,which would fight the real one for  prove a regression test failswithout the fix is there because I te a test for a race condition thatpassed with the bug still present, which is worse than no test.

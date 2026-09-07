@@ -275,6 +275,15 @@ describe('ScannerScreen reader focus', () => {
     );
 
     // A press anywhere that is not a control of its own hands it back.
+    const pagePress = new Event('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+    });
+    screen.getByRole('heading', { name: 'Attendance Scanner' }).dispatchEvent(pagePress);
+    // The page must not let its default text/focus behavior steal the hidden
+    // reader after the refocus handler runs.
+    expect(pagePress.defaultPrevented).toBe(true);
+
     await user.click(screen.getByRole('heading', { name: 'Attendance Scanner' }));
 
     await waitFor(() => expect(document.activeElement).toBe(hiddenInput));
@@ -299,6 +308,43 @@ describe('ScannerScreen reader focus', () => {
     expect(document.activeElement).not.toBe(
       screen.getByTestId('input-scanner-hidden'),
     );
+  });
+
+  it('keeps the hidden reader focused when switching to enroll mode', async () => {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+
+    const hiddenInput = screen.getByTestId('input-scanner-hidden');
+    const enrollButton = screen.getByRole('button', { name: 'Enroll' });
+    const modePress = new Event('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+    });
+    enrollButton.dispatchEvent(modePress);
+
+    expect(modePress.defaultPrevented).toBe(true);
+
+    await user.click(enrollButton);
+    await waitFor(() => expect(document.activeElement).toBe(hiddenInput));
+    expect(enrollButton.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('text-scanner-focus').textContent).toContain(
+      'Scanner active',
+    );
+  });
+
+  it('prevents admin navigation links from stealing reader focus', async () => {
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+
+    for (const testId of ['link-roster', 'link-dashboard']) {
+      const linkPress = new Event('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+      });
+      screen.getByTestId(testId).dispatchEvent(linkPress);
+      expect(linkPress.defaultPrevented).toBe(true);
+    }
   });
 });
 

@@ -6,7 +6,10 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'org.stjohnschs.attendance',
-  appName: 'SJC Attendance Scanner',
+  // The home-screen label. Short on purpose: iOS elides a long one under
+  // the icon. `cap add` stamps this into ios Info.plist (CFBundleDisplayName)
+  // and android res/values/strings.xml, so those two must be changed with it.
+  appName: 'SJC Attendance',
   // Must match `build.outDir` in vite.config.ts: `cap sync` copies this
   // directory into ios/App/App/public and android/app/src/main/assets/public.
   webDir: 'dist/public',
