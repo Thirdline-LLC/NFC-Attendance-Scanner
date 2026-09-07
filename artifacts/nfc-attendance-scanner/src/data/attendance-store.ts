@@ -37,18 +37,34 @@ database
     taps:
       '++id, uid, scannedAt, personId, sessionId, counted, [sessionId+uid+counted], [sessionId+counted]',
   })
-  .upgrade((transaction) =>
-    transaction
+  .upgrade((transaction) => {
+    // `counted` means "this is the tap that counts this card toward this
+    // session", which is why `recordSessionTap` sets it on the first tap of a
+    // card in a session and on none of the repeats. Migrated rows have to obey
+    // the same rule. Stamping every identified tap `true` broke it: a v1/v2
+    // database predates sessions entirely, so all of its taps land in the one
+    // `'legacy'` session, and a student who tapped at ten meetings arrived
+    // there counted ten times over — one card, one session, ten units of
+    // attendance. The first tap of each card wins, in primary-key order,
+    // which is the order they were recorded in.
+    const countedKeys = new Set<string>();
+
+    return transaction
       .table('taps')
       .toCollection()
       .modify((tap: Partial<TapRecord>) => {
         tap.sessionId = tap.sessionId ?? 'legacy';
+        // A UID cannot contain a NUL, so the two halves cannot run together.
+        const key = `${tap.sessionId}\u0000${tap.uid}`;
         tap.counted =
           typeof tap.counted === 'boolean'
             ? tap.counted
-            : typeof tap.personId === 'number';
-      }),
-  );
+            : typeof tap.personId === 'number' && !countedKeys.has(key);
+        // A row that already carried the flag claims the card too, so a
+        // migrated tap after it is a repeat rather than a second count.
+        if (tap.counted) countedKeys.add(key);
+      });
+  });
 // `counted` is a boolean, and IndexedDB has no boolean key type: the index and
 // the two compound indexes v3 declared over it could never hold a single
 // entry. They are dropped rather than re-encoded as 0/1 because nothing
@@ -206,6 +222,81 @@ export async function setAttendanceTarget(target: number): Promise<void> {
     // Stored as text so the row shape stays one type whatever a later setting
     // needs to hold.
     value: String(target),
+  });
+}
+
+/** What removing a student would take with them. */
+export type PersonRemoval = {
+  tapCount: number;
+  sessionCount: number;
+};
+
+/**
+ * Every tap that belongs to a student, by either route the app uses to match
+ * one: the `personId` stored at scan time, and the card itself.
+ *
+ * Both are needed. A card tapped before it was enrolled is stored with a null
+ * `personId` and is matched to its student retroactively by UID
+ * (`resolveTapPerson`), so deleting only the id-matched rows would leave taps
+ * that the export and the dashboard still resolve back to a deleted student.
+ */
+async function tapsBelongingTo(person: Person): Promise<TapRecord[]> {
+  const taps = await tapsTable.toArray();
+
+  return taps.filter(
+    (tap) =>
+      (person.id !== undefined && tap.personId === person.id) ||
+      tap.uid === person.cardUid,
+  );
+}
+
+/** What `deletePerson` would remove, so the operator can be told before asking. */
+export async function previewPersonRemoval(
+  personId: number,
+): Promise<PersonRemoval> {
+  const person = await personsTable.get(personId);
+  if (!person) return { tapCount: 0, sessionCount: 0 };
+
+  const taps = await tapsBelongingTo(person);
+
+  return {
+    tapCount: taps.length,
+    sessionCount: new Set(taps.map((tap) => tap.sessionId)).size,
+  };
+}
+
+/**
+ * Removes a student and every tap that resolves to them.
+ *
+ * The taps go with the record deliberately. Keeping them would leave rows
+ * carrying the student's card UID — a stable identifier for a physical card
+ * that is still in somebody's wallet — which is not an erasure, only a
+ * detached one. The cost is real and the caller has to say so out loud: past
+ * sessions lose those check-ins, so the dashboard's year-to-date figures move.
+ * `previewPersonRemoval` exists so the operator sees that before deciding.
+ *
+ * One transaction over both tables: a half-done removal that dropped the
+ * person and kept the taps would be the exact state this is meant to prevent.
+ */
+export async function deletePerson(personId: number): Promise<PersonRemoval> {
+  return database.transaction('rw', personsTable, tapsTable, async () => {
+    const person = await personsTable.get(personId);
+    if (!person) {
+      throw new Error(`No enrolled student has id ${personId}.`);
+    }
+
+    const taps = await tapsBelongingTo(person);
+    const removal = {
+      tapCount: taps.length,
+      sessionCount: new Set(taps.map((tap) => tap.sessionId)).size,
+    };
+
+    await tapsTable.bulkDelete(
+      taps.map((tap) => tap.id).filter((id): id is number => id !== undefined),
+    );
+    await personsTable.delete(personId);
+
+    return removal;
   });
 }
 

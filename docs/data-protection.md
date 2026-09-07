@@ -79,9 +79,25 @@ control of it the main safeguard:
 
 ## Erasing a student
 
-There is no delete-student function in the app today. If a record has to be
-removed — a withdrawal, or a request from a family — the only routes are
-clearing all local data and re-enrolling, or editing the exported workbook.
-If the school needs a per-student deletion path, say so and it can be built;
-it is a small change, and it is better to know it is needed before a term of
-data exists rather than after.
+The roster page has a **Remove** button on each student. It deletes the student
+record and every attendance tap that resolves to them — both the taps recorded
+against their id and any recorded against their card before it was enrolled.
+Afterwards nothing in the database carries their name, address or card UID, and
+the card can be enrolled again as a new student.
+
+Two things follow from that, and the confirmation dialog says both before
+anything happens:
+
+- **It cannot be undone.** There is no server copy and no recycle bin.
+- **Past attendance changes.** Their check-ins leave finished sessions too, so
+  the dashboard's year-to-date figures and any later export will differ from
+  one taken before the removal. Export first if those numbers have already been
+  reported to anyone.
+
+The taps go deliberately rather than being detached from the student. Keeping
+them would leave rows carrying the UID of a card that is still in somebody's
+wallet, which is a de-linked record, not an erased one.
+
+If the school instead needs a student's *history* retained while their identity
+is removed — a withdrawal rather than an erasure request — that is a different
+operation and is not built. Say so and it can be added.

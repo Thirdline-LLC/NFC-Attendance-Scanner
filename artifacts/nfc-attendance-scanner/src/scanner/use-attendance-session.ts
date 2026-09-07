@@ -164,11 +164,15 @@ export function useAttendanceSession(mode: ScannerMode) {
         ],
       );
       if (!mountedRef.current) return;
+      // The roster does not belong to a session, so it is applied either way.
       personsRef.current = savedPersons;
       setPersons(savedPersons);
-      // A read that began for an earlier session, or before a tap write, is
-      // valid storage data but stale UI data. The write/rotation callback owns
-      // the newer state, so do not replace it with this snapshot.
+      // The taps and the count do belong to one, and this read may be older
+      // than what is on screen in two different ways. If the session rotated
+      // while it was in flight, applying it would put the previous meeting's
+      // taps back under the new session's heading; if a tap committed while it
+      // was in flight, applying it would roll that tap off the count. Either
+      // way the newer writer already left the view in the state it wants.
       if (
         sessionIdRef.current === currentSessionId &&
         tapWriteVersion.current === readTapWriteVersion
@@ -177,6 +181,7 @@ export function useAttendanceSession(mode: ScannerMode) {
         setTaps(savedTaps);
         setAttendanceCount(savedAttendanceCount);
       }
+      // The read landed either way, which is what the status reports.
       applyStorageStatus('ready');
     } catch {
       if (!mountedRef.current) return;
@@ -290,13 +295,35 @@ export function useAttendanceSession(mode: ScannerMode) {
           person = personsRef.current.find((item) => item.cardUid === uid);
         }
         const scannedAt = new Date().toISOString();
+        // Captured before the await so a rotation mid-write cannot land this
+        // tap under the session that replaced the one it was scanned in.
+        const tapSessionId = sessionIdRef.current;
         tapWriteVersion.current += 1;
         const committed = await recordSessionTap({
-          sessionId: sessionIdRef.current,
+          sessionId: tapSessionId,
           uid,
           scannedAt,
           personId: person?.id ?? null,
         });
+
+        // A card can be read at the moment the volunteer starts a new session,
+        // and the write outlives the rotation. The tap is safely stored under
+        // the meeting it belongs to, but the screen now belongs to the next
+        // one: adding it here would show a tap the new session does not have
+        // and a count taken from the old session, so the number on screen
+        // would stop matching `countSessionAttendance` for the session being
+        // run. The rotation deliberately cleared the view; a straggler must
+        // not repopulate it, and announcing a check-in against a count of zero
+        // would only puzzle whoever is watching.
+        if (sessionIdRef.current !== tapSessionId) {
+          if (import.meta.env.DEV) {
+            console.debug('[attendance scan] landed in a rotated-away session', {
+              uid,
+              sessionId: tapSessionId,
+            });
+          }
+          return;
+        }
 
         tapsRef.current = [...tapsRef.current, committed.tap];
         setTaps(tapsRef.current);

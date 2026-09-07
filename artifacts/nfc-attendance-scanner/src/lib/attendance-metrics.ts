@@ -190,13 +190,22 @@ function snapshot(session: SessionAttendance): SessionSnapshot {
   return { date: session.date, attendance: session.attendance };
 }
 
-export function computeYtdSummary(
-  taps: readonly TapRecord[],
+/**
+ * The summary, plus the distinct students behind it, from taps already
+ * narrowed to the school year.
+ *
+ * Split out so `computeDashboardMetrics` can filter the history once and reuse
+ * the student list for the grade breakdown. Both were previously recomputed:
+ * the year-to-date filter formats every tap's Eastern date, and running it
+ * twice over a term's history was the single most expensive thing the
+ * dashboard did.
+ */
+function summarizeYearToDateTaps(
+  ytdTaps: readonly TapRecord[],
   roster: RosterIndex,
   now: string,
   target: number = DEFAULT_ATTENDANCE_TARGET,
-): YtdSummary {
-  const ytdTaps = selectYearToDateTaps(taps, now);
+): { summary: YtdSummary; students: Person[] } {
   const sessions = computeSessionAttendance(ytdTaps, roster);
   const hasSessions = sessions.length > 0;
   const averageAttendance = hasSessions
@@ -211,19 +220,37 @@ export function computeYtdSummary(
   }
   // Sessions are sorted oldest first, so the latest is the last one.
   const latest = hasSessions ? sessions[sessions.length - 1] : null;
+  const students = distinctStudents(ytdTaps, roster);
 
   return {
-    schoolYearStart: schoolYearStart(now),
-    sessions,
-    sessionsCount: sessions.length,
-    hasSessions,
-    averageAttendance,
-    target,
-    percentOfTarget: (averageAttendance / target) * 100,
-    latestSession: latest && snapshot(latest),
-    bestSession: best && snapshot(best),
-    uniqueStudents: distinctStudents(ytdTaps, roster).length,
+    summary: {
+      schoolYearStart: schoolYearStart(now),
+      sessions,
+      sessionsCount: sessions.length,
+      hasSessions,
+      averageAttendance,
+      target,
+      percentOfTarget: (averageAttendance / target) * 100,
+      latestSession: latest && snapshot(latest),
+      bestSession: best && snapshot(best),
+      uniqueStudents: students.length,
+    },
+    students,
   };
+}
+
+export function computeYtdSummary(
+  taps: readonly TapRecord[],
+  roster: RosterIndex,
+  now: string,
+  target: number = DEFAULT_ATTENDANCE_TARGET,
+): YtdSummary {
+  return summarizeYearToDateTaps(
+    selectYearToDateTaps(taps, now),
+    roster,
+    now,
+    target,
+  ).summary;
 }
 
 const CORE_GRADES: readonly GradeBucket[] = ['9', '10', '11', '12'];
@@ -313,12 +340,16 @@ export function computeDashboardMetrics(
   target: number = DEFAULT_ATTENDANCE_TARGET,
 ): DashboardMetrics {
   const roster = indexRoster(persons);
-  const ytdStudents = distinctStudents(selectYearToDateTaps(taps, now), roster);
+  const { summary, students } = summarizeYearToDateTaps(
+    selectYearToDateTaps(taps, now),
+    roster,
+    now,
+  );
 
   return {
     computedAt: now,
-    ytd: computeYtdSummary(taps, roster, now, target),
-    gradeBreakdown: gradeBreakdown(ytdStudents, persons, now),
+    ytd: summary,
+    gradeBreakdown: gradeBreakdown(students, persons, now),
     enrolledStudents: persons.length,
     unidentified: unidentifiedTaps(taps, roster),
   };
