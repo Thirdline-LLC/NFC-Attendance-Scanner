@@ -449,40 +449,45 @@ function RosterRow({
             {maskCardUid(person.cardUid)}
           </span>
         </td>
-        <td className="order-3 mt-1 basis-full sm:order-none sm:mt-0 sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-right">
-          {personId !== undefined ? (
-            <button
-              type="button"
-              onClick={() => onToggle(personId)}
-              // Every row's button reads "Edit", so the name says whose.
-              aria-label={`Edit ${person.firstName} ${person.lastName}`}
-              aria-expanded={isEditing}
-              aria-controls={isEditing ? editorId : undefined}
-              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:w-auto ${
-                isEditing
-                  ? 'border-[hsl(var(--primary)/.7)] bg-[hsl(var(--primary)/.12)] text-[hsl(var(--primary))]'
-                  : 'border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))]'
-              }`}
-              data-testid={`button-edit-person-${personId}`}
-            >
-              <Pencil aria-hidden="true" size={14} />
-              Edit
-            </button>
-          ) : null}
-          {personId !== undefined && onRemove ? (
-            <button
-              type="button"
-              onClick={() => onRemove(person)}
-              // Named, like Edit: every row's button would otherwise read the
-              // same, and this is the one that cannot be undone.
-              aria-label={`Remove ${person.firstName} ${person.lastName}`}
-              className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-xs font-semibold text-[hsl(var(--muted-foreground))] transition hover:border-[hsl(var(--destructive)/.6)] hover:bg-[hsl(var(--destructive)/.08)] hover:text-[hsl(var(--destructive))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:mt-0 sm:ml-1.5 sm:inline-flex sm:w-auto"
-              data-testid={`button-remove-person-${personId}`}
-            >
-              <Trash2 aria-hidden="true" size={14} />
-              Remove
-            </button>
-          ) : null}
+        <td className="order-3 basis-full sm:order-none sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-right">
+          <div
+            className="flex w-full items-center gap-2 sm:inline-flex sm:w-auto"
+            data-testid={`actions-person-${personId ?? 'unsaved'}`}
+          >
+            {personId !== undefined ? (
+              <button
+                type="button"
+                onClick={() => onToggle(personId)}
+                // Every row's button reads "Edit", so the name says whose.
+                aria-label={`Edit ${person.firstName} ${person.lastName}`}
+                aria-expanded={isEditing}
+                aria-controls={isEditing ? editorId : undefined}
+                className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:min-h-0 sm:flex-none ${
+                  isEditing
+                    ? 'border-[hsl(var(--primary)/.7)] bg-[hsl(var(--primary)/.12)] text-[hsl(var(--primary))]'
+                    : 'border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))]'
+                }`}
+                data-testid={`button-edit-person-${personId}`}
+              >
+                <Pencil aria-hidden="true" size={14} />
+                Edit
+              </button>
+            ) : null}
+            {personId !== undefined && onRemove ? (
+              <button
+                type="button"
+                onClick={() => onRemove(person)}
+                // Named, like Edit: every row's button would otherwise read the
+                // same, and this is the one that cannot be undone.
+                aria-label={`Remove ${person.firstName} ${person.lastName}`}
+                className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-xs font-semibold text-[hsl(var(--muted-foreground))] transition hover:border-[hsl(var(--destructive)/.6)] hover:bg-[hsl(var(--destructive)/.08)] hover:text-[hsl(var(--destructive))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:min-h-0 sm:flex-none"
+                data-testid={`button-remove-person-${personId}`}
+              >
+                <Trash2 aria-hidden="true" size={14} />
+                Remove
+              </button>
+            ) : null}
+          </div>
         </td>
       </tr>
       {isEditing && personId !== undefined ? (

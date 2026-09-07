@@ -186,6 +186,34 @@ describe('RosterManager listing', () => {
     ).toBe('button-edit-person-1');
   });
 
+  it('keeps the student actions grouped, named, and usable', async () => {
+    const onRemove = vi.fn<NonNullable<RosterProps['onRemove']>>();
+    const { user } = renderRoster({ onRemove });
+    const row = screen.getByTestId('row-person-1');
+    const actions = within(row).getByTestId('actions-person-1');
+
+    expect(actions.className).toContain('items-center');
+    expect(actions.className).toContain('gap-2');
+    expect(within(actions).getByRole('button', { name: 'Edit Jane Smith' })).toBeTruthy();
+    expect(
+      within(actions).getByRole('button', { name: 'Remove Jane Smith' }),
+    ).toBeTruthy();
+
+    await user.click(
+      within(actions).getByRole('button', { name: 'Remove Jane Smith' }),
+    );
+    expect(onRemove).toHaveBeenCalledWith(janeSmith);
+
+    await user.click(
+      within(actions).getByRole('button', { name: 'Edit Jane Smith' }),
+    );
+    expect(
+      within(actions)
+        .getByRole('button', { name: 'Edit Jane Smith' })
+        .getAttribute('aria-expanded'),
+    ).toBe('true');
+  });
+
   it('counts the roster, singular and plural', () => {
     const { count, rerender } = renderRoster();
     expect(count()).toBe('5 students');
