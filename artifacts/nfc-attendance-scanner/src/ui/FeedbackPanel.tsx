@@ -14,6 +14,15 @@ type FeedbackPanelProps = {
   lastPerson?: Person;
   lastScannedAt: string;
   isSaving: boolean;
+  /**
+   * True once the opening read has confirmed there is nobody on this device.
+   * That is the state a kiosk is in on its very first morning, and the idle
+   * panel is the only thing a volunteer reads before their first tap — so it
+   * has to name the step that has to happen before a card can check anyone
+   * in. The caller keeps the "still loading" case out of it, so a device with
+   * a roster never flashes the first-run wording while the store opens.
+   */
+  rosterEmpty: boolean;
 };
 
 function displayName(person: Person): string {
@@ -36,13 +45,17 @@ export function FeedbackPanel({
   lastPerson,
   lastScannedAt,
   isSaving,
+  rosterEmpty,
 }: FeedbackPanelProps) {
   const personName = lastPerson ? displayName(lastPerson) : '';
+  // Nobody enrolled: every card tapped here would come back "unknown", so the
+  // resting state names the missing step instead of inviting a tap.
+  const firstRun = rosterEmpty && mode === 'checkin';
   const title =
     feedback === 'duplicate'
       ? `${personName || 'Card'} already checked in`
       : feedback === 'unknown'
-        ? `Unknown card ${maskCardUid(lastUid)} — enroll later`
+        ? `Unknown card ${maskCardUid(lastUid)} — tap saved`
         : feedback === 'valid'
           ? 'Check-in recorded'
           : feedback === 'enrollment'
@@ -63,29 +76,35 @@ export function FeedbackPanel({
                           ? 'Card not recorded'
                           : mode === 'enroll'
                             ? 'Ready to enroll'
-                            : 'Ready for next tap';
+                            : firstRun
+                              ? 'No students enrolled yet'
+                              : 'Ready for next tap';
   const detail =
-    feedback === 'valid' || feedback === 'duplicate'
-      ? `${personName} · ${formatTime(lastScannedAt)}`
-      : feedback === 'unknown'
-        ? 'Add this card from Enroll mode'
-        : feedback === 'enrollment'
-          ? 'Complete the student details below'
-          : feedback === 'enrolled'
-            ? `${personName} is ready for check-in`
-            : feedback === 'editing'
-              ? 'Update the enrolled details below'
-              : feedback === 'updated'
-                ? `${personName} is ready for check-in`
-                : feedback === 'existing'
-                  ? `${personName} is already in the local roster`
-                  : feedback === 'invalid'
-                    ? 'The scan did not match a 14-character card ID'
-                    : feedback === 'storage-error'
-                      ? 'Check browser storage and try again'
-                      : feedback === 'storage-unavailable'
-                        ? 'This device is not letting the app save — nothing was stored for this tap'
-                        : 'Hold a card or badge near the reader';
+    feedback === 'duplicate'
+      ? `Already counted at ${formatTime(lastScannedAt)} — no need to tap again`
+      : feedback === 'valid'
+        ? `${personName} · ${formatTime(lastScannedAt)}`
+        : feedback === 'unknown'
+          ? 'Switch to Enroll and tap this card to add the student'
+          : feedback === 'enrollment'
+            ? 'Complete the student details below'
+            : feedback === 'enrolled'
+              ? `${personName} is enrolled — switch to Check-in to record attendance`
+              : feedback === 'editing'
+                ? 'Update the enrolled details below'
+                : feedback === 'updated'
+                  ? `${personName} is saved — switch to Check-in to record attendance`
+                  : feedback === 'existing'
+                    ? `${personName} is already in the local roster`
+                    : feedback === 'invalid'
+                      ? 'The scan did not match a 14-character card ID'
+                      : feedback === 'storage-error'
+                        ? 'Check browser storage and try again'
+                        : feedback === 'storage-unavailable'
+                          ? 'This device is not letting the app save — nothing was stored for this tap'
+                          : firstRun
+                            ? 'Switch to Enroll above, then tap a card to add the first student'
+                            : 'Hold a card or badge near the reader';
   const stateClass =
     feedback === 'valid' || feedback === 'enrolled' || feedback === 'updated'
       ? 'border-[hsl(var(--accent)/.7)] bg-[hsl(var(--accent)/.12)] text-[hsl(var(--accent))]'

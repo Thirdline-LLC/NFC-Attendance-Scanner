@@ -88,6 +88,10 @@ export function ScannerScreen() {
     else if (storageStatus === 'ready') setSawStorageUnavailable(false);
   }, [storageStatus]);
 
+  // Only once the opening read has answered: `persons` is empty while it is in
+  // flight, and a kiosk with a roster must not flash "nobody is enrolled".
+  const rosterEmpty = !isLoading && persons.length === 0;
+
   const showStorageAlert =
     storageStatus === 'unavailable' ||
     (sawStorageUnavailable && storageStatus === 'checking');
@@ -336,9 +340,11 @@ export function ScannerScreen() {
               </p>
             </div>
             <p className="mt-8 max-w-md text-base leading-7 text-[hsl(var(--muted-foreground))] sm:text-lg">
-              {mode === 'checkin'
-                ? 'Keep this station open and let each tap do the work. Attendance stays on this device.'
-                : 'Enroll cards locally once, then switch back to Check-in for attendance.'}
+              {mode === 'enroll'
+                ? 'Enroll cards locally once, then switch back to Check-in for attendance.'
+                : rosterEmpty
+                  ? 'Nobody is enrolled on this device yet. A card has to be enrolled before it can check anyone in: switch to Enroll, tap the card, fill in the student, then switch back to Check-in.'
+                  : 'Keep this station open and let each tap do the work. Attendance stays on this device.'}
             </p>
           </section>
 
@@ -423,6 +429,7 @@ export function ScannerScreen() {
                   lastPerson={lastPerson}
                   lastScannedAt={lastScannedAt}
                   isSaving={isSaving}
+                  rosterEmpty={rosterEmpty}
                 />
               )}
             </div>

@@ -518,3 +518,58 @@ describe('ScannerScreen reader chip', () => {
     expect(chip).toContain('close this dialog');
   });
 });
+
+describe('ScannerScreen first run', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  // The genuine day-one mistake: a station nobody has enrolled on looks ready
+  // for a queue of students, and every card they tap comes back unknown.
+  it('says a card has to be enrolled before it can check anyone in', async () => {
+    renderScanner();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-scan-status').textContent).toBe(
+        'No students enrolled yet',
+      ),
+    );
+    const station = screen.getByTestId('scanner-station').textContent ?? '';
+    expect(station).toContain('Nobody is enrolled on this device yet');
+    expect(station).toContain('switch to Enroll');
+  });
+
+  it('drops the first-run wording once a student is on the device', async () => {
+    await addPerson(knownPerson);
+    renderScanner();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-scan-status').textContent).toBe(
+        'Ready for next tap',
+      ),
+    );
+    expect(screen.getByTestId('scanner-station').textContent).not.toContain(
+      'Nobody is enrolled',
+    );
+  });
+
+  // An empty `persons` mid-read is not an empty device. A kiosk with a term of
+  // students on it must not flash "nobody is enrolled" while the store opens.
+  it('does not claim an empty device while the store is still opening', async () => {
+    vi.spyOn(attendanceStore, 'listPersons').mockReturnValue(
+      new Promise<Person[]>(() => {}),
+    );
+    renderScanner();
+
+    await screen.findByTestId('text-storage-checking');
+    expect(screen.getByTestId('scanner-station').textContent).not.toContain(
+      'Nobody is enrolled',
+    );
+  });
+});
