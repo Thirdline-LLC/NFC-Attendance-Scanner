@@ -7,17 +7,31 @@ import {
   countSessionAttendance,
   DuplicateEmailError,
   listPersons,
-  listScans,
   listSessionIds,
   listSessionTapRecords,
   listTapRecords,
   recordSessionTap,
-  saveScan,
   updatePerson,
 } from './attendance-store';
 import { useAttendanceSession } from '@/scanner/use-attendance-session';
 
 const DATABASE_NAME = 'attendance-scanner-local';
+
+/**
+ * A second connection opened against whatever schema is already on disk, for
+ * the legacy `scans` table the store no longer exposes any helper for.
+ */
+async function withRawDatabase<T>(
+  work: (raw: Dexie) => Promise<T>,
+): Promise<T> {
+  const raw = new Dexie(DATABASE_NAME);
+  await raw.open();
+  try {
+    return await work(raw);
+  } finally {
+    raw.close();
+  }
+}
 const LEGACY_SESSION_ID = 'legacy';
 const EXISTING_SESSION_ID = 'existing-session';
 
@@ -279,13 +293,21 @@ describe('attendance history', () => {
       scannedAt: '2026-09-08T13:00:00.000Z',
       personId: saved.id!,
     });
-    await saveScan({ uid: jane.cardUid, scannedAt: '2026-08-20T13:00:00.000Z' });
+    // Nothing in the app writes `scans` any more, so the only way a row gets
+    // there is an upgraded pre-enrollment database. Seed one the same way.
+    await withRawDatabase((raw) =>
+      raw
+        .table('scans')
+        .put({ uid: jane.cardUid, scannedAt: '2026-08-20T13:00:00.000Z' }),
+    );
 
     await clearAllAttendanceHistory();
 
     expect(await listTapRecords()).toEqual([]);
     expect(await listSessionIds()).toEqual([]);
-    expect(await listScans()).toEqual([]);
+    expect(
+      await withRawDatabase((raw) => raw.table('scans').toArray()),
+    ).toEqual([]);
     // A card's identity outlives its attendance record.
     expect(await listPersons()).toEqual([
       expect.objectContaining({ id: saved.id, cardUid: jane.cardUid }),

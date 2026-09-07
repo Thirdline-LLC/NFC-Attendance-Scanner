@@ -9,7 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Person } from '@/data/attendance-store';
-import { normalizeUid } from '@/lib/scan-format';
+import { maskCardUid, normalizeUid } from '@/lib/scan-format';
 import { normalizeNamePart } from '@/lib/student-email';
 import { EnrollmentForm } from '@/ui/EnrollmentForm';
 
@@ -32,9 +32,7 @@ type RosterManagerProps = {
   initialQuery?: string;
 };
 
-const CARD_MASK = '••••';
-
-/** The four characters shown anywhere a card is named on screen. */
+/** The four characters a search may match; the screen shows them masked. */
 function cardTail(cardUid: string): string {
   return cardUid.slice(-4);
 }
@@ -341,8 +339,7 @@ function RosterRow({
         </td>
         <td className="ml-auto font-mono text-xs font-bold tracking-[0.16em] text-[hsl(var(--foreground))] sm:ml-0 sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-sm">
           <span data-testid={`text-card-tail-${personId ?? 'unsaved'}`}>
-            {CARD_MASK}
-            {cardTail(person.cardUid)}
+            {maskCardUid(person.cardUid)}
           </span>
         </td>
         <td className="order-3 mt-1 basis-full sm:order-none sm:mt-0 sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-right">

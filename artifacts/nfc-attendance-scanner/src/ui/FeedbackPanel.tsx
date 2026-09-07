@@ -4,6 +4,7 @@ import type {
   ScannerMode,
 } from '@/scanner/use-attendance-session';
 import type { Person } from '@/data/attendance-store';
+import { maskCardUid } from '@/lib/scan-format';
 import { StatusIcon } from '@/ui/StatusIcon';
 
 type FeedbackPanelProps = {
@@ -36,13 +37,12 @@ export function FeedbackPanel({
   lastScannedAt,
   isSaving,
 }: FeedbackPanelProps) {
-  const lastFour = lastUid.slice(-4);
   const personName = lastPerson ? displayName(lastPerson) : '';
   const title =
     feedback === 'duplicate'
       ? `${personName || 'Card'} already checked in`
       : feedback === 'unknown'
-        ? `Unknown card ••••${lastFour} — enroll later`
+        ? `Unknown card ${maskCardUid(lastUid)} — enroll later`
         : feedback === 'valid'
           ? 'Check-in recorded'
           : feedback === 'enrollment'
@@ -131,7 +131,7 @@ export function FeedbackPanel({
         </span>
         {lastUid ? (
           <span className="font-mono text-sm font-bold tracking-[0.16em] text-[hsl(var(--foreground))]" data-testid="text-last-uid">
-            •••• {lastFour}
+            {maskCardUid(lastUid)}
           </span>
         ) : (
           <span className="flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))]">

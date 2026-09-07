@@ -48,6 +48,27 @@ export const SEL = {
   dialogSuggested: '[data-testid="button-conflict-suggested"]',
   dialogDismiss: '[data-testid="button-conflict-dismiss"]',
   count: '[data-testid="text-attendance-count"]',
+  // Session rotation: End Session opens the summary, whose "Start New Session"
+  // opens the confirmation dialog. Nothing rotates without the dialog.
+  endSession: '[data-testid="button-end-session"]',
+  summaryNewSession: '[data-testid="button-summary-new-session"]',
+  newSessionDialog: '[data-testid="dialog-new-session"]',
+  newSessionConfirm: '[data-testid="button-dialog-confirm"]',
+  newSessionCancel: '[data-testid="button-dialog-cancel"]',
+  // Routes off the scanner (`/roster`, `/dashboard`) and the links back.
+  linkRoster: '[data-testid="link-roster"]',
+  linkDashboard: '[data-testid="link-dashboard"]',
+  linkScanner: '[data-testid="link-scanner"]',
+  rosterPage: '[data-testid="roster-page"]',
+  rosterSearch: '[data-testid="input-roster-search"]',
+  rosterCount: '[data-testid="text-roster-count"]',
+  rosterTable: '[data-testid="table-roster"]',
+  dashboardPage: '[data-testid="dashboard-page"]',
+  dashboard: '[data-testid="dashboard"]',
+  uniqueStudents: '[data-testid="text-unique-students"]',
+  sessionsCount: '[data-testid="text-sessions-count"]',
+  unidentifiedTaps: '[data-testid="text-unidentified-taps"]',
+  unidentifiedCards: '[data-testid="text-unidentified-cards"]',
 };
 
 export async function launch({ url = APP_URL, shotDir = SHOT_DIR, profile } = {}) {
@@ -168,6 +189,17 @@ export async function launch({ url = APP_URL, shotDir = SHOT_DIR, profile } = {}
       await waitFor(`!!document.querySelector('${SEL.station}')`, 'app boot');
       await sleep(800);
       return app;
+    },
+
+    /**
+     * Follow an in-app link and wait for the page it lands on. Client-side
+     * routing only — a raw Page.navigate to /roster would ask the dev server
+     * for a file that isn't there.
+     */
+    async goto(linkSel, arrivedSel, label = arrivedSel) {
+      await app.click(linkSel);
+      await waitFor(`!!document.querySelector('${arrivedSel}')`, label);
+      await sleep(500);
     },
 
     /** 'checkin' | 'enroll' — the header toggle. */

@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import type { Person } from '@/data/attendance-store';
 import { EmailConflictDialog } from '@/ui/EmailConflictDialog';
 import type { EnrollmentCandidate } from '@/scanner/use-attendance-session';
+import { maskCardUid } from '@/lib/scan-format';
 import {
   deriveStudentEmail,
   findEmailOwner,
@@ -197,7 +198,7 @@ export function EnrollmentForm({
             {isEditing ? 'Edit local enrollment' : 'New local enrollment'}
           </p>
           <p className="mt-2 font-mono text-sm font-bold tracking-[0.16em] text-[hsl(var(--foreground))]">
-            Card ••••{candidate.uid.slice(-4)}
+            Card {maskCardUid(candidate.uid)}
           </p>
         </div>
         <button

@@ -14,6 +14,7 @@ import type {
   SessionSnapshot,
   UnidentifiedCard,
 } from '@/lib/attendance-metrics';
+import { maskCardUid } from '@/lib/scan-format';
 
 type DashboardProps = {
   metrics: DashboardMetrics;
@@ -32,11 +33,6 @@ function formatAverage(value: number): string {
 
 function formatPercent(value: number): string {
   return `${Math.round(value)}%`;
-}
-
-/** The card's last four characters only; the full UID never reaches the screen. */
-function maskUid(uid: string): string {
-  return `••••${uid.slice(-4)}`;
 }
 
 /** `2026-08-01` reads as `2026–27`. */
@@ -354,7 +350,7 @@ function UnidentifiedCardSection({
                 className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] px-3 py-2.5 text-sm"
               >
                 <span className="font-mono font-bold tracking-[0.16em] text-[hsl(var(--foreground))]">
-                  {maskUid(card.uid)}
+                  {maskCardUid(card.uid)}
                 </span>
                 <span className="text-right text-xs text-[hsl(var(--muted-foreground))]">
                   {card.tapCount} {card.tapCount === 1 ? 'tap' : 'taps'}

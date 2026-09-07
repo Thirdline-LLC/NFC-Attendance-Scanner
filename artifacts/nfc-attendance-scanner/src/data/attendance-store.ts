@@ -1,10 +1,5 @@
-import Dexie, { type Table } from 'dexie';
+import Dexie from 'dexie';
 import { findEmailOwner } from '@/lib/student-email';
-
-export type AttendanceScan = {
-  uid: string;
-  scannedAt: string;
-};
 
 export type Person = {
   id?: number;
@@ -26,7 +21,6 @@ export type TapRecord = {
 };
 
 const DATABASE_NAME = 'attendance-scanner-local';
-const FALLBACK_KEY = 'attendance-scanner-local-scans';
 const CURRENT_SESSION_KEY = 'attendance-scanner-current-session';
 const database = new Dexie(DATABASE_NAME);
 database.version(1).stores({ scans: 'uid, scannedAt' });
@@ -55,53 +49,14 @@ database
             : typeof tap.personId === 'number';
       }),
   );
-const scansTable = database.table<AttendanceScan, string>('scans');
+// Pre-enrollment rows from a v1/v2 database. Nothing writes here any more —
+// the table is kept so `clearAllAttendanceHistory` can still purge what an
+// upgraded database carried up, and so the schema versions stay replayable.
+const scansTable = database.table<{ uid: string; scannedAt: string }, string>(
+  'scans',
+);
 const personsTable = database.table<Person, number>('persons');
 const tapsTable = database.table<TapRecord, number>('taps');
-
-function fallbackRead(): AttendanceScan[] {
-  try {
-    const value = localStorage.getItem(FALLBACK_KEY);
-    return value ? (JSON.parse(value) as AttendanceScan[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function fallbackWrite(scans: AttendanceScan[]) {
-  try {
-    localStorage.setItem(FALLBACK_KEY, JSON.stringify(scans));
-  } catch {
-    // Persistence is best-effort if browser storage is unavailable.
-  }
-}
-
-export async function listScans(): Promise<AttendanceScan[]> {
-  try {
-    return await scansTable.orderBy('scannedAt').reverse().toArray();
-  } catch {
-    return fallbackRead().sort(
-      (a, b) => Date.parse(b.scannedAt) - Date.parse(a.scannedAt),
-    );
-  }
-}
-
-export async function saveScan(scan: AttendanceScan): Promise<void> {
-  try {
-    await scansTable.put(scan);
-  } catch {
-    const scans = fallbackRead().filter((item) => item.uid !== scan.uid);
-    fallbackWrite([scan, ...scans]);
-  }
-}
-
-export async function clearScans(): Promise<void> {
-  try {
-    await scansTable.clear();
-  } catch {
-    fallbackWrite([]);
-  }
-}
 
 export async function findPersonByUid(cardUid: string): Promise<Person | undefined> {
   return personsTable.where('cardUid').equals(cardUid).first();

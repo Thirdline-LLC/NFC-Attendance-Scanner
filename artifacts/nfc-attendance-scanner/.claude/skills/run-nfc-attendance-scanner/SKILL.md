@@ -7,6 +7,8 @@ description: Run, start, build, test, drive, or screenshot the NFC attendance sc
 
 A frontend-only React + Vite kiosk app. No backend — enrolled students and
 attendance taps live in the browser's IndexedDB (`attendance-scanner-local`).
+Three routes, all client-side: `/` (scanner), `/roster` (manage students),
+`/dashboard` (year-to-date figures).
 
 There is no `chromium-cli` and no Playwright package in this container, so the
 driver is committed here: `.claude/skills/run-nfc-attendance-scanner/driver.mjs`.
@@ -98,13 +100,30 @@ await app.fillEnrollment({ firstName: 'Jane', lastName: 'Smith', gradYear: 2027 
 console.log(await app.value(SEL.email));  // jsmith27@stjohnschs.org
 await app.saveEnrollment();
 console.log(await app.readRoster());      // reads IndexedDB directly
+await app.goto(SEL.linkRoster, SEL.rosterPage);  // follow an in-app link
 console.log(await app.shot('my-check'));  // png path
 app.close();
 ```
 
 Also on the handle: `evaluate(expr)`, `waitFor(expr, label, ms)`, `fill(sel, v, i)`,
-`click(sel)`, `clickText(label)`, `value(sel)`, `text(sel)`, `exists(sel)`.
-`SEL` holds every `data-testid` the app exposes.
+`click(sel)`, `clickText(label)`, `value(sel)`, `text(sel)`, `exists(sel)`,
+`goto(linkSel, arrivedSel, label)`, `cmd(method, params)` (raw CDP — e.g.
+`Emulation.setDeviceMetricsOverride` to check phone width).
+`SEL` holds every `data-testid` the driver needs.
+
+**Routing is client-side only.** Navigate with `goto` (which clicks a `<Link>`);
+a raw `Page.navigate` to `/roster` asks the dev server for a file that is not
+there.
+
+### Testids by screen
+
+| Screen | Testids |
+|---|---|
+| Scanner `/` | `scanner-station`, `header-scanner`, `input-scanner-hidden`, `text-attendance-count`, `status-scan-feedback`, `text-scan-status`, `text-last-uid`, `button-end-session`, `button-reset-session` (DEV only), `panel-storage-unavailable`, `button-retry-storage`, `text-storage-checking`, `text-storage-footer`, `link-roster`, `link-dashboard` |
+| Enrollment form | `form-enrollment`, `input-email`, `button-regenerate-email`, `text-email-collision`, `button-use-suggested-email`, `dialog-email-conflict`, `input-conflict-email`, `button-conflict-save`, `button-conflict-suggested`, `button-conflict-dismiss` |
+| Session rotation | `button-summary-export`, `button-summary-new-session`, `dialog-new-session`, `text-new-session-counts`, `button-dialog-export`, `button-dialog-confirm`, `button-dialog-cancel` |
+| Roster `/roster` | `roster-page`, `header-roster`, `link-scanner`, `roster-manager`, `input-roster-search`, `button-roster-clear`, `text-roster-count`, `table-roster`, `row-person-<id>`, `text-card-tail-<id>`, `button-edit-person-<id>`, `row-editor-<id>`, `text-roster-loading`, `text-roster-load-error`, `button-roster-retry`, `text-roster-save-error` |
+| Dashboard `/dashboard` | `dashboard-page`, `header-dashboard`, `link-scanner`, `dashboard`, `text-average-attendance`, `text-attendance-target`, `text-percent-of-target`, `text-sessions-count`, `text-unique-students`, `text-enrolled-students`, `list-grade-breakdown`, `text-unidentified-taps`, `text-unidentified-cards`, `list-unidentified-cards`, `text-no-sessions`, `text-local-only`, `button-refresh-dashboard`, `text-dashboard-loading`, `text-dashboard-load-error`, `button-dashboard-retry`, `text-dashboard-stale` |
 
 **Look at the screenshots.** A blank frame means the app never mounted.
 
@@ -117,9 +136,10 @@ pressing Enter *is* a scan. Useless headless — use the driver instead.
 ## Test
 
 ```bash
-pnpm --filter nfc-attendance-scanner test        # vitest, 111 passing
+pnpm --filter nfc-attendance-scanner test        # vitest, 245 passing
 pnpm --filter nfc-attendance-scanner typecheck   # tsc --noEmit
 PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run build
+pnpm --filter @workspace/nfc-attendance-scanner run build:native   # BASE_PATH=./
 ```
 
 There is **no ESLint config** anywhere in this repo. Don't try to lint.
@@ -160,9 +180,20 @@ There is **no ESLint config** anywhere in this repo. Don't try to lint.
   `[data-testid="input-scanner-hidden"]` and dispatch an `Enter` **keydown**.
   The UID must match `^[0-9A-F]{14}$` (`src/lib/scan-format.ts`) or the app
   reports an invalid scan.
-- **Scanning is disabled while the enrollment form or session summary is open.**
-  `ScannerScreen` sets `captureEnabled` false, so a scan mid-enrollment is a
-  silent no-op. Save or cancel first.
+- **Scanning is disabled while the enrollment form, the session summary or the
+  new-session confirmation is open.** `ScannerScreen` sets `captureEnabled`
+  false and the hook drops scans while a summary is up, so a scan mid-dialog is
+  a silent no-op. Save, cancel or confirm first.
+- **A new session does not delete anything.** `End Session` -> `Start New
+  Session` -> confirm only rotates the session id; the previous session's taps
+  stay in IndexedDB, which is what the dashboard counts. Read them with
+  `indexedDB.open('attendance-scanner-local')` -> `taps`.
+- **Enroll-mode scans record no tap.** They open the form only. To make a
+  session appear on the dashboard, check a card in.
+- **A card enrolled after its taps counts retroactively**
+  (`src/lib/tap-identity.ts`), so the dashboard's "unidentified taps" drops to
+  zero once the unknown card is enrolled — the stored `counted` flag is not
+  what it reads.
 - **IndexedDB survives across runs in the same browser profile.** `launch()`
   makes a fresh temp profile each time so the roster starts empty; pass
   `{ profile }` only if you *want* the carry-over, and expect collision

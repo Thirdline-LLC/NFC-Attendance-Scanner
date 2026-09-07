@@ -20,17 +20,63 @@ The scanner has no backend, authentication, analytics, API routes, or database s
 - `artifacts/nfc-attendance-scanner/src/scanner/` — scanner input and session behavior
 - `artifacts/nfc-attendance-scanner/src/data/` — Dexie/IndexedDB persistence
 - `artifacts/nfc-attendance-scanner/src/ui/` — feedback and status presentation
-- `artifacts/nfc-attendance-scanner/src/app/` — router
-- `artifacts/nfc-attendance-scanner/src/lib/` — UID normalization and validation
+- `artifacts/nfc-attendance-scanner/src/app/` — router (`/`, `/roster`, `/dashboard`)
+- `artifacts/nfc-attendance-scanner/src/roster/` — the roster page container
+- `artifacts/nfc-attendance-scanner/src/dashboard/` — the dashboard page container
+- `artifacts/nfc-attendance-scanner/src/lib/scan-format.ts` — UID normalization, validation and on-screen masking
+- `artifacts/nfc-attendance-scanner/src/lib/tap-identity.ts` — resolving a tap to a student
+- `artifacts/nfc-attendance-scanner/src/lib/attendance-metrics.ts` — year-to-date and per-session figures
 - `artifacts/nfc-attendance-scanner/src/lib/attendance-export.ts` — local `.xlsx` export formatting
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- **Attendance history is retained across sessions.** `startNewSession` only
+  rotates the session id (in localStorage) and clears the on-screen view; every
+  tap stays in IndexedDB under the session id it was recorded with, which is
+  what makes per-session and year-to-date figures possible. The only thing that
+  deletes taps is `clearAllAttendanceHistory()`, and nothing in the UI calls it.
+- **A tap resolves to a student by person id, falling back to card UID**
+  (`src/lib/tap-identity.ts`). A tap stores the `personId` known at scan time,
+  which is `null` for a card nobody had enrolled yet; enrolling that card later
+  credits its earlier taps retroactively. The dashboard therefore recomputes
+  attendance from the roster as it stands *now* rather than trusting the
+  `counted` flag frozen at scan time.
+- **Two different storage failures, two different states.** `storageStatus` is
+  `'checking' | 'ready' | 'unavailable' | 'save-failed'`: a store that never
+  opened versus one write that did not land. `'unavailable'` blocks enroll-mode
+  scans (details would have nowhere to land) and survives a session rotation;
+  `'save-failed'` belongs to the session that hit it and clears with it. There
+  is deliberately no silent localStorage fallback — a kiosk that quietly stops
+  persisting is worse than one that says so.
+- **Base path is set per build target.** `vite.config.ts` throws unless `PORT`
+  and `BASE_PATH` are both set. The web build uses `/`; `build:native` uses
+  `./` so the Capacitor bundle resolves assets relative to
+  `capacitor://localhost`. `routerBasename` in `AppRouter.tsx` turns a
+  non-absolute `BASE_URL` into an empty basename — trimming `./` would hand
+  react-router `.`, which matches no location and renders a blank app.
+- **A card UID is hardware identity: never editable, never fully rendered.**
+  One helper, `maskCardUid` in `src/lib/scan-format.ts`, produces the `••••` +
+  last-4 string everywhere a card is named on screen.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+A single-device kiosk for taking attendance with a USB HID NFC reader, which
+types a 14-hex-char card UID and presses Enter into a hidden, always-focused
+input. Three routes:
+
+- `/` — the scanner. Check-in mode records a tap against the current session
+  (repeat taps show as duplicates and do not raise the count; an unknown card
+  is recorded and flagged for later enrollment). Enroll mode opens a form for
+  the scanned card, deriving a `@stjohnschs.org` address from the name and
+  class year and resolving collisions. "End Session" shows the session totals
+  and exports the `.xlsx` that is the actual system of record; starting a new
+  session asks for confirmation first.
+- `/roster` — every student on the device: search by name, email or the last
+  four of a card, and correct a name, class year or email in place. The card a
+  student enrolled with stays theirs.
+- `/dashboard` — year to date (the school year rolls over Aug 1): average
+  attendance against the 50-per-session target, sessions held, unique students,
+  grade breakdown, and the cards that still resolve to nobody.
 
 ## User preferences
 
@@ -38,7 +84,24 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- **`PORT` and `BASE_PATH` are required for `build` too**, not just `dev` —
+  `vite.config.ts` throws without them.
+- **The Replit runner already serves this app on 23205.** Never start a second
+  dev server for the package, and never `pkill -f vite` — it kills every
+  session's server in the container.
+- **`.tsx` test files are typechecked.** `tsconfig.json` excludes `**/*.test.ts`
+  but not `**/*.test.tsx`, so keep component tests type-clean.
+- **Scanner tests must render inside a router.** The scanner header links to
+  `/roster` and `/dashboard`, so `ScannerScreen` needs a `MemoryRouter`.
+- **Scans are ignored while a modal is up.** The enrollment form, the session
+  summary and the new-session confirmation all set `captureEnabled` false, and
+  the hook drops scans while a summary is open. Save or cancel first.
+- **Dashboard tests must seed taps relative to `Date.now()`**, or they fall
+  outside the current school year once the Aug 1 rollover passes.
+- **The `scans` table is legacy.** Nothing writes it any more; it exists so
+  databases upgraded from v1/v2 still have their rows purged by
+  `clearAllAttendanceHistory`. Leave the Dexie version blocks alone — old
+  databases upgrade through them.
 
 ## Pointers
 
