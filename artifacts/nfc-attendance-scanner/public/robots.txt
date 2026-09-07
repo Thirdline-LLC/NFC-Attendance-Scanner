@@ -1,2 +1,4 @@
+# Allow crawlers to fetch the SPA shell so they can observe its noindex directive.
+# This internal operational app must not be included in search results.
 User-agent: *
 Allow: /
