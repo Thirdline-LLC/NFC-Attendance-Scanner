@@ -306,6 +306,12 @@ describe('the scan queue under load', () => {
     expect(hook.result.current.taps).toEqual([]);
     expect(hook.result.current.count).toBe(0);
     await expectCountAgreesWithStore(hook);
+    // Standing down is about the taps and the count only. The read did land,
+    // so the status has to say so — leaving it on 'checking' would strand the
+    // kiosk showing "checking local storage" and refusing to enrol — and the
+    // roster it returned belongs to no session, so it is applied either way.
+    expect(hook.result.current.storageStatus).toBe('ready');
+    expect(hook.result.current.persons).toHaveLength(2);
     // The finished meeting still has its taps.
     expect(await listSessionTapRecords(firstSessionId)).toHaveLength(2);
   });

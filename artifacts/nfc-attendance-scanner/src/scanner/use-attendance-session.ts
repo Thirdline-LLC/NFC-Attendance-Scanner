@@ -159,17 +159,20 @@ export function useAttendanceSession(mode: ScannerMode) {
         ],
       );
       if (!mountedRef.current) return;
-      // The session may have rotated while this read was in flight. What came
-      // back describes a session that is no longer on screen, and applying it
-      // would put the previous meeting's taps and count back under the new
-      // session's heading. The rotation already left the view in the right
-      // state, so there is nothing to do but stand down.
-      if (sessionIdRef.current !== currentSessionId) return;
+      // The roster does not belong to a session, so it is applied either way.
       personsRef.current = savedPersons;
-      tapsRef.current = savedTaps;
       setPersons(savedPersons);
-      setTaps(savedTaps);
-      setAttendanceCount(savedAttendanceCount);
+      // The taps and the count do belong to one. If the session rotated while
+      // this read was in flight, what came back describes a meeting that is no
+      // longer on screen, and applying it would put the previous meeting's
+      // taps and count back under the new session's heading. The rotation
+      // already left the view in the state it wants.
+      if (sessionIdRef.current === currentSessionId) {
+        tapsRef.current = savedTaps;
+        setTaps(savedTaps);
+        setAttendanceCount(savedAttendanceCount);
+      }
+      // The read landed either way, which is what the status reports.
       applyStorageStatus('ready');
     } catch {
       if (!mountedRef.current) return;
