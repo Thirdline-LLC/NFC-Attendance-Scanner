@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
 import {
   listPersons,
+  setAttendanceTarget,
+  getAttendanceTarget,
   listTapRecords,
   type Person,
   type TapRecord,
@@ -38,14 +40,15 @@ export function DashboardPage() {
     setIsLoading(true);
     setLoadFailed(false);
     try {
-      const [taps, persons] = await Promise.all([
+      const [taps, persons, target] = await Promise.all([
         listTapRecords(),
         listPersons(),
+        getAttendanceTarget(),
       ]);
       // The school-year boundary and every grade label hang off `now`, so it is
       // read once here rather than inside the metrics.
       setMetrics(
-        computeDashboardMetrics(taps, persons, new Date().toISOString()),
+        computeDashboardMetrics(taps, persons, new Date().toISOString(), target),
       );
       setHistory({ taps, persons });
     } catch {
@@ -65,6 +68,33 @@ export function DashboardPage() {
    * upgrade stamped `legacy` — reaches the workbook that is the record.
    */
   const [exportResult, setExportResult] = useState<ExportResult>(null);
+
+  /**
+   * Stores a new target and recomputes against it. Only the percentage moves;
+   * the attendance behind it is untouched, which is why this re-derives from
+   * the history already in hand rather than re-reading the store.
+   */
+  const saveTarget = useCallback(
+    async (target: number) => {
+      try {
+        await setAttendanceTarget(target);
+      } catch {
+        return false;
+      }
+      if (history) {
+        setMetrics(
+          computeDashboardMetrics(
+            history.taps,
+            history.persons,
+            new Date().toISOString(),
+            target,
+          ),
+        );
+      }
+      return true;
+    },
+    [history],
+  );
 
   const exportAll = useCallback(async () => {
     if (!history) return;
@@ -183,6 +213,7 @@ export function DashboardPage() {
               isLoading={isLoading}
               onRefresh={() => void load()}
               onExportAll={history ? () => void exportAll() : undefined}
+              onSaveTarget={saveTarget}
             />
             <ExportNotice result={exportResult} />
           </div>

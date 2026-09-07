@@ -344,6 +344,7 @@ export function computeDashboardMetrics(
     selectYearToDateTaps(taps, now),
     roster,
     now,
+    target,
   );
 
   return {

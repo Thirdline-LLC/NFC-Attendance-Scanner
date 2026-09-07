@@ -229,4 +229,77 @@ describe('DashboardPage', () => {
     expect(within(notice).getByTestId('link-scanner-resume')).toBeTruthy();
   });
 
+  it('measures against a target the operator can change', async () => {
+    const { jane } = await seedTwoSessions();
+    expect(jane).toBeTruthy();
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('dashboard');
+
+    // Starts at the default until this kiosk is told what its club looks like.
+    expect(screen.getByTestId('text-attendance-target').textContent).toBe('50');
+    const before = screen.getByTestId('text-average-attendance').textContent;
+
+    await user.click(screen.getByTestId('button-edit-target'));
+    const field = screen.getByTestId('input-attendance-target');
+    await user.clear(field);
+    await user.type(field, '2');
+    await user.click(screen.getByTestId('button-save-target'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-attendance-target').textContent).toBe('2'),
+    );
+    // Only the goal moved; the attendance behind it is untouched.
+    expect(screen.getByTestId('text-average-attendance').textContent).toBe(
+      before,
+    );
+    expect(await attendanceStore.getAttendanceTarget()).toBe(2);
+  });
+
+  it('reloads with the target this kiosk was given', async () => {
+    await seedTwoSessions();
+    await attendanceStore.setAttendanceTarget(12);
+    renderPage();
+    await screen.findByTestId('dashboard');
+
+    expect(screen.getByTestId('text-attendance-target').textContent).toBe('12');
+  });
+
+  it('refuses a target that is not a sensible number', async () => {
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('dashboard');
+
+    await user.click(screen.getByTestId('button-edit-target'));
+    const field = screen.getByTestId('input-attendance-target');
+    await user.clear(field);
+    await user.type(field, '0');
+    await user.click(screen.getByTestId('button-save-target'));
+
+    expect(await screen.findByTestId('text-target-error')).toBeTruthy();
+    // The editor stays open with the typed value, and nothing was stored.
+    expect(screen.getByTestId('input-attendance-target')).toBeTruthy();
+    expect(await attendanceStore.getAttendanceTarget()).toBe(50);
+  });
+
+  it('keeps the editor open when the device will not store it', async () => {
+    await seedTwoSessions();
+    vi.spyOn(attendanceStore, 'setAttendanceTarget').mockRejectedValue(
+      new Error('storage unavailable'),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('dashboard');
+
+    await user.click(screen.getByTestId('button-edit-target'));
+    const field = screen.getByTestId('input-attendance-target');
+    await user.clear(field);
+    await user.type(field, '15');
+    await user.click(screen.getByTestId('button-save-target'));
+
+    expect(await screen.findByTestId('text-target-error')).toBeTruthy();
+    expect(screen.getByTestId('text-attendance-target').textContent).toBe('50');
+  });
+
 });

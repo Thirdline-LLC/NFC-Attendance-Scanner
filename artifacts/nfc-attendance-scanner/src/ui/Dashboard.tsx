@@ -288,6 +288,12 @@ function TargetCard({
         <form
           className="mt-3 flex flex-wrap items-end gap-2"
           onSubmit={submit}
+          // The browser would otherwise block submit on min/max and show its
+          // own transient bubble, so an out-of-range number would produce a
+          // different message depending on the engine — and none of it on a
+          // kiosk where nobody is watching for a tooltip. One validator, one
+          // message, rendered in the form.
+          noValidate
           data-testid="form-attendance-target"
         >
           <label className="grid gap-1.5 text-xs font-semibold text-[hsl(var(--muted-foreground))]">

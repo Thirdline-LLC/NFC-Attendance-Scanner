@@ -5,7 +5,9 @@ import {
   addPerson,
   clearAllAttendanceHistory,
   countSessionAttendance,
+  DEFAULT_ATTENDANCE_TARGET,
   deletePerson,
+  getAttendanceTarget,
   DuplicateEmailError,
   listPersons,
   listSessionIds,
@@ -13,6 +15,7 @@ import {
   listTapRecords,
   previewPersonRemoval,
   recordSessionTap,
+  setAttendanceTarget,
   updatePerson,
 } from './attendance-store';
 import { useAttendanceSession } from '@/scanner/use-attendance-session';
@@ -70,6 +73,68 @@ describe('addPerson', () => {
     });
     expect(second.id).not.toBe(saved.id);
     expect(await listPersons()).toHaveLength(2);
+  });
+});
+
+describe('the attendance target', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  it('falls back to the default until one is set', async () => {
+    expect(await getAttendanceTarget()).toBe(DEFAULT_ATTENDANCE_TARGET);
+  });
+
+  it('stores and returns a club-sized target', async () => {
+    await setAttendanceTarget(12);
+    expect(await getAttendanceTarget()).toBe(12);
+
+    // Setting it again replaces rather than accumulating rows.
+    await setAttendanceTarget(30);
+    expect(await getAttendanceTarget()).toBe(30);
+  });
+
+  it('refuses a target that is not a whole number in range', async () => {
+    for (const bad of [0, -5, 1.5, Number.NaN, 10_001]) {
+      await expect(setAttendanceTarget(bad)).rejects.toThrow(RangeError);
+    }
+    // Nothing was written, so the default still stands.
+    expect(await getAttendanceTarget()).toBe(DEFAULT_ATTENDANCE_TARGET);
+  });
+
+  it('treats an unusable stored value as absent', async () => {
+    await setAttendanceTarget(12);
+    // Simulating a hand-edited or corrupted row: the dashboard must still
+    // render, and showing the default beats refusing to draw.
+    const raw = new Dexie('attendance-scanner-local');
+    raw.version(5).stores({
+      scans: 'uid, scannedAt',
+      persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
+      taps: '++id, uid, scannedAt, personId, sessionId',
+      settings: 'key',
+    });
+    await raw.open();
+    await raw.table('settings').put({ key: 'attendance-target', value: 'nope' });
+    raw.close();
+
+    expect(await getAttendanceTarget()).toBe(DEFAULT_ATTENDANCE_TARGET);
+  });
+
+  it('survives an upgrade from a database that had no settings table', async () => {
+    const legacy = new Dexie('attendance-scanner-local');
+    legacy.version(4).stores({
+      scans: 'uid, scannedAt',
+      persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
+      taps: '++id, uid, scannedAt, personId, sessionId',
+    });
+    await legacy.open();
+    legacy.close();
+
+    // v5 adds the table; an existing kiosk must open and read the default.
+    expect(await getAttendanceTarget()).toBe(DEFAULT_ATTENDANCE_TARGET);
+    await setAttendanceTarget(25);
+    expect(await getAttendanceTarget()).toBe(25);
   });
 });
 
