@@ -163,6 +163,28 @@ describe('ScannerScreen session summary', () => {
     );
   });
 
+  it('shows the meeting date and time from the completed session', async () => {
+    await renderWithSummaryOpen();
+
+    const [tap] = await listTapRecords();
+    expect(screen.getByTestId('text-session-meeting').textContent).toBe(
+      `Meeting date and time: ${attendanceExport.formatMeetingDateTime(tap.scannedAt)}`,
+    );
+  });
+
+  it('shows a meeting date and time for an empty session', async () => {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+
+    await user.click(screen.getByTestId('button-end-session'));
+
+    await screen.findByTestId('dialog-session-summary');
+    expect(screen.getByTestId('text-session-meeting').textContent).toMatch(
+      /^Meeting date and time: \w+ \d+, \d{4}, \d{1,2}:\d{2} (AM|PM)$/,
+    );
+  });
+
   it('goes back to scanning without rotating the session', async () => {
     const user = await renderWithSummaryOpen();
     const sessionIdBefore = (await listTapRecords())[0].sessionId;

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { formatMeetingDateTime } from '@/lib/attendance-export';
 import type { SessionSummary as SessionSummaryData } from '@/scanner/use-attendance-session';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
@@ -97,6 +98,13 @@ export function SessionSummary({
           Taps from this session stay saved on this device. Starting a new
           session begins a fresh count without deleting them; the dashboard
           exports every session ever recorded here.
+        </p>
+        <p
+          className="mt-4 text-sm font-semibold leading-snug text-[hsl(var(--foreground))]"
+          data-testid="text-session-meeting"
+        >
+          Meeting date and time:{' '}
+          {formatMeetingDateTime(summary.sessionStartedAt)}
         </p>
         <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <SummaryMetric label="Unique attendance" value={summary.uniqueAttendance} />

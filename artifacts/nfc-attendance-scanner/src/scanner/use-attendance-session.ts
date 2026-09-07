@@ -58,6 +58,7 @@ export type SessionMetrics = {
 };
 
 export type SessionSummary = SessionMetrics & {
+  sessionStartedAt: string;
   endedAt: string;
 };
 
@@ -487,11 +488,16 @@ export function useAttendanceSession(mode: ScannerMode) {
   const endSession = useCallback(() => {
     const summary = {
       ...calculateMetrics(tapsRef.current),
+      // Snapshot the meeting identity with the results. The summary can stay
+      // open while the clock advances, so deriving this in the dialog would
+      // make an empty session appear to have started when it was reviewed.
+      sessionStartedAt:
+        tapsRef.current[0]?.scannedAt ?? sessionStartedAt,
       endedAt: new Date().toISOString(),
     };
     sessionSummaryRef.current = summary;
     setSessionSummary(summary);
-  }, []);
+  }, [sessionStartedAt]);
 
   /**
    * Closes the summary and nothing else. End Session is one tap away from the
