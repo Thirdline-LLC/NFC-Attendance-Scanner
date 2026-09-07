@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  BarChart3,
   Database,
   Download,
   FileSpreadsheet,
@@ -10,6 +12,7 @@ import {
   ShieldCheck,
   UserPlus,
   UserRoundCheck,
+  Users,
 } from 'lucide-react';
 import { exportAttendanceWorkbook } from '@/lib/attendance-export';
 import {
@@ -20,6 +23,11 @@ import { EnrollmentForm } from '@/ui/EnrollmentForm';
 import { FeedbackPanel } from '@/ui/FeedbackPanel';
 import { NewSessionDialog } from '@/ui/NewSessionDialog';
 import { SessionSummary } from '@/ui/SessionSummary';
+
+// Matches the mode pills and the status chip beside them, so the header reads
+// as one row of controls rather than links bolted onto it.
+const NAV_PILL_CLASS =
+  'flex items-center gap-1.5 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]';
 
 export function ScannerScreen() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -205,6 +213,22 @@ export function ScannerScreen() {
                 }}
               />
             </div>
+            <Link
+              to="/roster"
+              className={NAV_PILL_CLASS}
+              data-testid="link-roster"
+            >
+              <Users aria-hidden="true" size={14} />
+              Students
+            </Link>
+            <Link
+              to="/dashboard"
+              className={NAV_PILL_CLASS}
+              data-testid="link-dashboard"
+            >
+              <BarChart3 aria-hidden="true" size={14} />
+              Dashboard
+            </Link>
             <div className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">
               <span className="relative flex size-2">
                 <span className="signal-breathe absolute inline-flex size-full rounded-full bg-[hsl(var(--accent))]" />

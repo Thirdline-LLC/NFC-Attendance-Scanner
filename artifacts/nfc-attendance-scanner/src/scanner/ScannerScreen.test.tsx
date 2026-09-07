@@ -7,12 +7,22 @@ import {
   waitFor,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as attendanceStore from '@/data/attendance-store';
 import { addPerson, listTapRecords, type Person } from '@/data/attendance-store';
 import * as attendanceExport from '@/lib/attendance-export';
 import { ScannerScreen } from './ScannerScreen';
+
+/** The header links out to the roster and dashboard, so the screen needs a router. */
+function renderScanner() {
+  return render(
+    <MemoryRouter>
+      <ScannerScreen />
+    </MemoryRouter>,
+  );
+}
 
 const knownUid = '04A1B2C3D4E5F6';
 
@@ -46,7 +56,7 @@ describe('ScannerScreen storage recovery', () => {
       .spyOn(attendanceStore, 'listPersons')
       .mockRejectedValue(new Error('storage unavailable'));
     const user = userEvent.setup();
-    render(<ScannerScreen />);
+    renderScanner();
 
     const panel = await screen.findByTestId('panel-storage-unavailable');
     expect(panel.getAttribute('role')).toBe('alert');
@@ -70,7 +80,7 @@ describe('ScannerScreen storage recovery', () => {
         releaseRead = resolve;
       }),
     );
-    render(<ScannerScreen />);
+    renderScanner();
 
     expect(await screen.findByTestId('text-storage-checking')).toBeTruthy();
     expect(screen.queryByText('Tap to check in')).toBeNull();
@@ -91,7 +101,7 @@ describe('ScannerScreen storage recovery', () => {
     vi.spyOn(attendanceStore, 'listPersons').mockRejectedValue(
       new Error('storage unavailable'),
     );
-    render(<ScannerScreen />);
+    renderScanner();
 
     const footer = await screen.findByTestId('text-storage-footer');
     expect(footer.textContent).toBe('Storage unavailable');
@@ -103,7 +113,7 @@ describe('ScannerScreen storage recovery', () => {
       new Error('write failed'),
     );
     const user = userEvent.setup();
-    render(<ScannerScreen />);
+    renderScanner();
     await waitFor(() =>
       expect(screen.getByText('Tap to check in')).toBeTruthy(),
     );
@@ -132,7 +142,7 @@ describe('ScannerScreen new-session confirmation', () => {
   /** One counted tap on this session, which is what the dialog is warning about. */
   async function renderWithOneTap() {
     const user = userEvent.setup();
-    render(<ScannerScreen />);
+    renderScanner();
     await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
     await scanCard(user, knownUid);
     await waitFor(() =>
