@@ -26,7 +26,22 @@ export type ScanFeedback =
   | 'editing'
   | 'updated'
   | 'existing'
-  | 'storage-error';
+  | 'storage-error'
+  | 'storage-unavailable';
+
+/**
+ * How local storage is doing, which the kiosk has to distinguish because the
+ * two failures need different words and different actions from the operator.
+ *
+ * - `checking` — the opening read is in flight.
+ * - `ready` — IndexedDB answered; scans are being saved.
+ * - `unavailable` — the store could not be opened or read at all (private
+ *   browsing, blocked site data, a full disk). Nothing can be saved until
+ *   something changes on the device, so enrollment is held back entirely.
+ * - `save-failed` — the store opened, but a write did not land. The next
+ *   successful write clears it.
+ */
+export type StorageStatus = 'checking' | 'ready' | 'unavailable' | 'save-failed';
 
 export type EnrollmentCandidate = {
   uid: string;
@@ -76,8 +91,10 @@ export function useAttendanceSession(mode: ScannerMode) {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [storageError, setStorageError] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus>('checking');
   const feedbackTimer = useRef<number | undefined>(undefined);
+  const mountedRef = useRef(true);
+  const storageStatusRef = useRef<StorageStatus>('checking');
   const queue = useRef(Promise.resolve());
   const modeRef = useRef(mode);
   const sessionIdRef = useRef(sessionId);
@@ -110,34 +127,59 @@ export function useAttendanceSession(mode: ScannerMode) {
     sessionSummaryRef.current = sessionSummary;
   }, [sessionSummary]);
 
-  useEffect(() => {
-    let mounted = true;
+  /** Keeps the ref other callbacks read in step with the rendered state. */
+  const applyStorageStatus = useCallback((next: StorageStatus) => {
+    storageStatusRef.current = next;
+    setStorageStatus(next);
+  }, []);
+
+  /**
+   * Reads this session back out of IndexedDB. Used for the opening load and
+   * again by `retryStorage`, so the recovery path cannot drift from the one
+   * that runs at boot.
+   *
+   * A failure deliberately leaves `persons`, `taps` and any open enrollment
+   * candidate exactly as they were: a store that has gone away momentarily
+   * must not also wipe what the operator is looking at.
+   */
+  const loadSession = useCallback(async () => {
+    applyStorageStatus('checking');
     const currentSessionId = sessionIdRef.current;
-    Promise.all([
-      listPersons(),
-      listSessionTapRecords(currentSessionId),
-      countSessionAttendance(currentSessionId),
-    ])
-      .then(([savedPersons, savedTaps, savedAttendanceCount]) => {
-        if (!mounted) return;
-        personsRef.current = savedPersons;
-        tapsRef.current = savedTaps;
-        setPersons(savedPersons);
-        setTaps(savedTaps);
-        setAttendanceCount(savedAttendanceCount);
-      })
-      .catch(() => {
-        if (mounted) setStorageError(true);
-      })
-      .finally(() => {
-        if (mounted) setIsLoading(false);
-      });
+
+    try {
+      const [savedPersons, savedTaps, savedAttendanceCount] = await Promise.all(
+        [
+          listPersons(),
+          listSessionTapRecords(currentSessionId),
+          countSessionAttendance(currentSessionId),
+        ],
+      );
+      if (!mountedRef.current) return;
+      personsRef.current = savedPersons;
+      tapsRef.current = savedTaps;
+      setPersons(savedPersons);
+      setTaps(savedTaps);
+      setAttendanceCount(savedAttendanceCount);
+      applyStorageStatus('ready');
+    } catch {
+      if (!mountedRef.current) return;
+      applyStorageStatus('unavailable');
+    } finally {
+      // Only ever falls; a retry reports itself through the status instead, so
+      // the attendance count does not drop back to a skeleton mid-shift.
+      if (mountedRef.current) setIsLoading(false);
+    }
+  }, [applyStorageStatus]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadSession();
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
     };
-  }, []);
+  }, [loadSession]);
 
   const announce = useCallback((nextFeedback: ScanFeedback, duration = 3200) => {
     setFeedback(nextFeedback);
@@ -161,7 +203,27 @@ export function useAttendanceSession(mode: ScannerMode) {
       if (sessionSummaryRef.current) return;
       if (modeRef.current === 'enroll') {
         if (candidateRef.current) return;
-        const existing = await findPersonByUid(uid);
+        // Opening the form would invite details that have nowhere to land, so
+        // the card is acknowledged and the operator is told why instead.
+        if (
+          storageStatusRef.current === 'unavailable' ||
+          storageStatusRef.current === 'checking'
+        ) {
+          setLastUid(uid);
+          setLastScannedAt(new Date().toISOString());
+          announce('storage-unavailable');
+          return;
+        }
+
+        let existing: Person | undefined;
+        try {
+          existing = await findPersonByUid(uid);
+        } catch {
+          // A failed read means the store itself is gone, not one bad write.
+          applyStorageStatus('unavailable');
+          announce('storage-unavailable');
+          return;
+        }
         setLastUid(uid);
         setLastScannedAt(new Date().toISOString());
         if (existing) {
@@ -192,7 +254,7 @@ export function useAttendanceSession(mode: ScannerMode) {
         setLastUid(uid);
         setLastPerson(person);
         setLastScannedAt(scannedAt);
-        setStorageError(false);
+        applyStorageStatus('ready');
         const nextFeedback = person
           ? committed.priorCounted
             ? 'duplicate'
@@ -209,11 +271,15 @@ export function useAttendanceSession(mode: ScannerMode) {
           });
         }
       } catch {
-        setStorageError(true);
+        // A store that never opened stays 'unavailable'; this is not the
+        // milder "one write missed" case, and the retry affordance must stay.
+        if (storageStatusRef.current !== 'unavailable') {
+          applyStorageStatus('save-failed');
+        }
         announce('storage-error');
       }
     },
-    [announce],
+    [announce, applyStorageStatus],
   );
 
   const handleScan = useCallback(
@@ -274,16 +340,20 @@ export function useAttendanceSession(mode: ScannerMode) {
         setLastPerson(person);
         setLastUid(candidate.uid);
         setEnrollmentCandidate(null);
-        setStorageError(false);
+        applyStorageStatus('ready');
         announce(candidate.person ? 'updated' : 'enrolled', 1800);
       } catch {
-        setStorageError(true);
+        // The candidate is deliberately left open: EnrollmentForm keeps the
+        // typed details on screen so the save can simply be tried again.
+        if (storageStatusRef.current !== 'unavailable') {
+          applyStorageStatus('save-failed');
+        }
         announce('storage-error');
       } finally {
         setIsSaving(false);
       }
     },
-    [announce],
+    [announce, applyStorageStatus],
   );
 
   const endSession = useCallback(() => {
@@ -321,11 +391,15 @@ export function useAttendanceSession(mode: ScannerMode) {
     setLastUid('');
     setLastPerson(undefined);
     setLastScannedAt('');
-    // A storage failure belongs to the scan that hit it; a fresh session
-    // starts clean and the next failed write will raise it again.
-    setStorageError(false);
+    // A failed write belongs to the session that hit it, so that notice goes
+    // with it; the next failure will raise it again. A store that cannot be
+    // opened at all is not fixed by rotating a session id, so 'unavailable'
+    // deliberately survives.
+    if (storageStatusRef.current === 'save-failed') {
+      applyStorageStatus('ready');
+    }
     announce('ready');
-  }, [announce]);
+  }, [announce, applyStorageStatus]);
 
   const cancelEnrollment = useCallback(() => {
     candidateRef.current = null;
@@ -337,6 +411,14 @@ export function useAttendanceSession(mode: ScannerMode) {
   }, [announce]);
 
   const metrics = useMemo(() => calculateMetrics(taps), [taps]);
+
+  /**
+   * The old single boolean, kept so components that only need "is something
+   * wrong" — the enrollment form's save banner — stay unchanged. Anything that
+   * has to tell the two failures apart reads `storageStatus`.
+   */
+  const storageError =
+    storageStatus === 'unavailable' || storageStatus === 'save-failed';
 
   return {
     sessionId,
@@ -352,7 +434,9 @@ export function useAttendanceSession(mode: ScannerMode) {
     count: attendanceCount,
     isLoading,
     isSaving,
+    storageStatus,
     storageError,
+    retryStorage: loadSession,
     handleScan,
     enrollPerson,
     cancelEnrollment,
