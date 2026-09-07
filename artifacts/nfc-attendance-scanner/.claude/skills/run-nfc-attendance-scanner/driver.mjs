@@ -24,7 +24,9 @@ const CHROMIUM =
   process.env.CHROMIUM_BIN ||
   process.env.REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE ||
   '/repl/tools/bin/chromium';
-const APP_URL = process.env.APP_URL || 'http://localhost:5173/';
+// 23205 is the artifact's own port (.replit-artifact `localPort`), i.e. the
+// server the Replit runner already has up. Override with APP_URL.
+const APP_URL = process.env.APP_URL || 'http://localhost:23205/';
 const SHOT_DIR = process.env.SHOT_DIR || '/tmp/nfc-scanner-shots';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

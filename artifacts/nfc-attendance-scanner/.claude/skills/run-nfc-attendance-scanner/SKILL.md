@@ -22,12 +22,30 @@ All commands were run in this container and worked.
 Nothing to install. Chromium is already at `/repl/tools/bin/chromium`; the
 driver also accepts `$REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE` or `$CHROMIUM_BIN`.
 
-## Start the dev server
+## Use the dev server that is already running
 
-`vite.config.ts` **throws** unless both `PORT` and `BASE_PATH` are set.
+The Replit artifact runner serves this app itself, on **port 23205**
+(`.replit-artifact`: `localPort = 23205`, `PORT = "23205"`). Check for it before
+starting anything:
 
 ```bash
-PORT=5173 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run dev
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:23205/   # 200 => use it
+```
+
+If it answers 200, drive that one. **Do not start a second dev server for this
+package** — see the duplicate-server gotcha below.
+
+The runner's server is what `https://$REPLIT_DEV_DOMAIN` proxies, so that URL is
+what you hand to a human who wants to click it.
+
+### Only if 23205 is down
+
+`vite.config.ts` **throws** unless both `PORT` and `BASE_PATH` are set. Use the
+artifact's own port so the preview URL keeps working and so `strictPort` fails
+loudly instead of silently giving you a duplicate:
+
+```bash
+PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run dev
 ```
 
 Start it as a persistent background process — a plain `&` from a one-shot shell
@@ -35,13 +53,14 @@ gets reaped between commands. Wait for it before driving:
 
 ```bash
 for i in $(seq 1 25); do
-  [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/)" = "200" ] \
+  [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:23205/)" = "200" ] \
     && { echo "up"; break; }; sleep 1
 done
 ```
 
-Port 5173 is declared in `.replit`, so the app is also reachable publicly at
-`https://$REPLIT_DEV_DOMAIN` — hand that to a human who wants to click it.
+`Port 23205 is already in use` means the runner's server is up after all — stop
+yours and use theirs. The driver defaults to `http://localhost:23205/`; point it
+elsewhere with `APP_URL`.
 
 ## Run (agent path)
 
@@ -98,15 +117,31 @@ pressing Enter *is* a scan. Useless headless — use the driver instead.
 ## Test
 
 ```bash
-pnpm --filter nfc-attendance-scanner test        # vitest, 105 passing
+pnpm --filter nfc-attendance-scanner test        # vitest, 111 passing
 pnpm --filter nfc-attendance-scanner typecheck   # tsc --noEmit
-PORT=5173 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run build
+PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run build
 ```
 
 There is **no ESLint config** anywhere in this repo. Don't try to lint.
 
 ## Gotchas
 
+- **Never run a second dev server for this package.** The artifact runner owns
+  one on 23205. A second one (the old version of this skill said 5173) competes
+  with it, and tearing yours down — session teardown, or any broad
+  `pkill -f vite` — kills the runner's too. What the user then sees is the red
+  *"Your NFC Attendance Scanner artifact crashed"* panel ending in:
+
+  ```
+   ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  ... dev: `vite --config vite.config.ts --host 0.0.0.0`
+  Command failed with signal "SIGTERM"
+  ```
+
+  That is **not a crash**. Vite reached `ready` and printed no error; `SIGTERM`
+  means something outside killed it, and pnpm reports any non-zero child exit
+  that way. Nothing is wrong with the app — restart the artifact. Confirm by
+  running `pnpm run build`, `pnpm run typecheck` and `pnpm run test`; all three
+  pass on a healthy tree.
 - **`pkill -f "<pattern>"` will kill the shell running it** when the pattern
   appears in that shell's own command line. A command starting
   `pkill -f "remote-debugging-port=9222"; chromium ... &` terminates *itself*
@@ -144,6 +179,8 @@ There is **no ESLint config** anywhere in this repo. Don't try to lint.
 |---|---|
 | `PORT environment variable is required but was not provided.` | Set both `PORT` and `BASE_PATH` on the dev/build command. |
 | A command dies instantly with `exit 144` and no output | It probably began with `pkill -f "..."` matching its own command line. Use `killall <name>` instead. |
+| Preview shows *artifact crashed* with `SIGTERM` after Vite says `ready` | Not a crash — something killed the runner's server, usually a duplicate dev server being torn down. Restart the artifact. |
+| `Port 23205 is already in use` | The runner's server is up. Don't start your own; drive `http://localhost:23205/`. |
 | `timed out waiting for: app boot` | Dev server isn't up. `curl` returns `000`. Restart it as a persistent background process. |
 | Roster isn't empty / a collision fires on the first enrollment | Reused browser profile. Drop `profile` so `launch()` makes a fresh one. |
 | `no element for <sel>[n]` | The form isn't open yet. `await app.waitFor(...)` on `SEL.form` after scanning. |
