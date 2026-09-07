@@ -37,18 +37,34 @@ database
     taps:
       '++id, uid, scannedAt, personId, sessionId, counted, [sessionId+uid+counted], [sessionId+counted]',
   })
-  .upgrade((transaction) =>
-    transaction
+  .upgrade((transaction) => {
+    // `counted` means "this is the tap that counts this card toward this
+    // session", which is why `recordSessionTap` sets it on the first tap of a
+    // card in a session and on none of the repeats. Migrated rows have to obey
+    // the same rule. Stamping every identified tap `true` broke it: a v1/v2
+    // database predates sessions entirely, so all of its taps land in the one
+    // `'legacy'` session, and a student who tapped at ten meetings arrived
+    // there counted ten times over — one card, one session, ten units of
+    // attendance. The first tap of each card wins, in primary-key order,
+    // which is the order they were recorded in.
+    const countedKeys = new Set<string>();
+
+    return transaction
       .table('taps')
       .toCollection()
       .modify((tap: Partial<TapRecord>) => {
         tap.sessionId = tap.sessionId ?? 'legacy';
+        // A UID cannot contain a NUL, so the two halves cannot run together.
+        const key = `${tap.sessionId}\u0000${tap.uid}`;
         tap.counted =
           typeof tap.counted === 'boolean'
             ? tap.counted
-            : typeof tap.personId === 'number';
-      }),
-  );
+            : typeof tap.personId === 'number' && !countedKeys.has(key);
+        // A row that already carried the flag claims the card too, so a
+        // migrated tap after it is a repeat rather than a second count.
+        if (tap.counted) countedKeys.add(key);
+      });
+  });
 // `counted` is a boolean, and IndexedDB has no boolean key type: the index and
 // the two compound indexes v3 declared over it could never hold a single
 // entry. They are dropped rather than re-encoded as 0/1 because nothing

@@ -482,12 +482,16 @@ describe('exporting migrated records', () => {
 
     const taps = await listTapRecords();
     const persons = await listPersons();
-    // Confirms the version-3 migration ran on these rows before export.
+    // Confirms the version-3 migration ran on these rows before export. Only
+    // Jordan's first tap counts: a version-2 database had no sessions, so all
+    // four land in the one 'legacy' session and a card counts once there,
+    // however many meetings its taps actually spanned. The export below still
+    // shows all four, on their own meeting dates.
     expect(taps.map((tap) => [tap.sessionId, tap.counted])).toEqual([
       ['legacy', true],
       ['legacy', false],
       ['legacy', false],
-      ['legacy', true],
+      ['legacy', false],
     ]);
 
     const rows = buildAttendanceRows(taps, persons);
