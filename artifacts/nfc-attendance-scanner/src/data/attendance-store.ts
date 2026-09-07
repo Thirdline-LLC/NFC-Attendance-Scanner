@@ -22,6 +22,7 @@ export type TapRecord = {
 
 const DATABASE_NAME = 'attendance-scanner-local';
 const CURRENT_SESSION_KEY = 'attendance-scanner-current-session';
+const SESSION_STARTED_AT_PREFIX = 'attendance-scanner-session-started-at:';
 const database = new Dexie(DATABASE_NAME);
 database.version(1).stores({ scans: 'uid, scannedAt' });
 database.version(2).stores({
@@ -399,6 +400,26 @@ export function getOrCreateSessionId(): string {
     return sessionId;
   } catch {
     return makeSessionId();
+  }
+}
+
+/**
+ * Keeps a readable start time for a session that has not received a tap yet.
+ * Once a session has taps, the scanner uses the earliest tap as its meeting
+ * time, which is also what the dashboard and export data can identify.
+ */
+export function getOrCreateSessionStartedAt(sessionId: string): string {
+  const storageKey = `${SESSION_STARTED_AT_PREFIX}${sessionId}`;
+
+  try {
+    const stored = localStorage.getItem(storageKey);
+    if (stored && !Number.isNaN(Date.parse(stored))) return stored;
+
+    const startedAt = new Date().toISOString();
+    localStorage.setItem(storageKey, startedAt);
+    return startedAt;
+  } catch {
+    return new Date().toISOString();
   }
 }
 

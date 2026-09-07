@@ -5,6 +5,7 @@ import {
   createNewSessionId,
   DuplicateEmailError,
   findPersonByUid,
+  getOrCreateSessionStartedAt,
   getOrCreateSessionId,
   listPersons,
   listSessionTapRecords,
@@ -78,6 +79,9 @@ function calculateMetrics(taps: TapRecord[]): SessionMetrics {
 
 export function useAttendanceSession(mode: ScannerMode) {
   const [sessionId, setSessionId] = useState(() => getOrCreateSessionId());
+  const [sessionStartedAt, setSessionStartedAt] = useState(() =>
+    getOrCreateSessionStartedAt(sessionId),
+  );
   const [persons, setPersons] = useState<Person[]>([]);
   const [taps, setTaps] = useState<TapRecord[]>([]);
   const [attendanceCount, setAttendanceCount] = useState(0);
@@ -514,8 +518,10 @@ export function useAttendanceSession(mode: ScannerMode) {
    */
   const startNewSession = useCallback(async () => {
     const nextSessionId = createNewSessionId();
+    const nextSessionStartedAt = getOrCreateSessionStartedAt(nextSessionId);
     sessionIdRef.current = nextSessionId;
     setSessionId(nextSessionId);
+    setSessionStartedAt(nextSessionStartedAt);
     tapsRef.current = [];
     setTaps([]);
     setAttendanceCount(0);
@@ -557,6 +563,10 @@ export function useAttendanceSession(mode: ScannerMode) {
 
   return {
     sessionId,
+    // A session with taps is identified by its first tap everywhere else in
+    // the app. The persisted fallback keeps the confirmation useful before
+    // the first tap, including after a page reload.
+    sessionStartedAt: taps[0]?.scannedAt ?? sessionStartedAt,
     persons,
     taps,
     feedback,

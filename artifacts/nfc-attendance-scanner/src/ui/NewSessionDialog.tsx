@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { AlertTriangle, Download, RotateCcw } from 'lucide-react';
 import type { SessionMetrics } from '@/scanner/use-attendance-session';
+import { formatMeetingDateTime } from '@/lib/attendance-export';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
 
 type NewSessionDialogProps = {
   /** This session's figures, so the operator sees what is about to leave the screen. */
   metrics: SessionMetrics;
+  /** The session's first tap, or its persisted start time before any tap. */
+  sessionStartedAt: string;
   /** Runs the same export the summary offers. Deliberately leaves the dialog open. */
   onExport: () => void;
   /** What that export did, so "Export first" can be seen to have worked. */
@@ -28,6 +31,7 @@ function plural(count: number, noun: string): string {
  */
 export function NewSessionDialog({
   metrics,
+  sessionStartedAt,
   onExport,
   exportResult = null,
   onConfirm,
@@ -101,6 +105,12 @@ export function NewSessionDialog({
             >
               This session has {plural(metrics.totalTaps, 'tap')} and{' '}
               {metrics.uniqueAttendance} checked in.
+            </p>
+            <p
+              className="mt-2 text-sm font-semibold leading-snug text-[hsl(var(--foreground))]"
+              data-testid="text-new-session-meeting"
+            >
+              Meeting date and time: {formatMeetingDateTime(sessionStartedAt)}
             </p>
           </div>
         </div>

@@ -88,6 +88,17 @@ export function formatMeetingDate(timestamp: string): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+export function formatMeetingDateTime(timestamp: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: EXPORT_TIME_ZONE,
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+}
+
 /**
  * Commencement dates, keyed by graduating class, as Eastern-local calendar
  * dates (`YYYY-MM-DD`). A class reads as Alumni the day after the date listed

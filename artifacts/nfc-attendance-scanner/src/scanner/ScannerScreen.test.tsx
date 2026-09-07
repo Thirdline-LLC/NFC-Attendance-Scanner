@@ -383,6 +383,10 @@ describe('ScannerScreen new-session confirmation', () => {
     expect(screen.getByTestId('text-new-session-counts').textContent).toBe(
       'This session has 1 tap and 1 checked in.',
     );
+    const [tap] = await listTapRecords();
+    expect(screen.getByTestId('text-new-session-meeting').textContent).toBe(
+      `Meeting date and time: ${attendanceExport.formatMeetingDateTime(tap.scannedAt)}`,
+    );
     // Nothing rotated on the way here.
     expect(screen.getByTestId('text-attendance-count').textContent).toBe('1');
   });
@@ -394,6 +398,22 @@ describe('ScannerScreen new-session confirmation', () => {
 
     expect(await screen.findByTestId('dialog-new-session')).toBeTruthy();
     expect(screen.getByTestId('text-attendance-count').textContent).toBe('1');
+  });
+
+  it('identifies an empty session before the first tap', async () => {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+
+    await user.click(screen.getByTestId('button-reset-session'));
+
+    expect(await screen.findByTestId('dialog-new-session')).toBeTruthy();
+    expect(screen.getByTestId('text-new-session-counts').textContent).toBe(
+      'This session has 0 taps and 0 checked in.',
+    );
+    expect(screen.getByTestId('text-new-session-meeting').textContent).toMatch(
+      /^Meeting date and time: \w+ \d+, \d{4}, \d{1,2}:\d{2} (AM|PM)$/,
+    );
   });
 
   it('holds the scanner while the dialog is open and hands it back on cancel', async () => {

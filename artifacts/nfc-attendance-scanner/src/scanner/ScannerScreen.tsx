@@ -41,6 +41,7 @@ export function ScannerScreen() {
   const [exportResult, setExportResult] = useState<ExportResult>(null);
   const {
     count,
+    sessionStartedAt,
     feedback,
     lastUid,
     lastPerson,
@@ -513,6 +514,7 @@ export function ScannerScreen() {
       {isConfirmingNewSession && (
         <NewSessionDialog
           exportResult={exportResult}
+          sessionStartedAt={sessionStartedAt}
           metrics={metrics}
           onExport={() => void handleExport()}
           onConfirm={() => void handleConfirmNewSession()}
