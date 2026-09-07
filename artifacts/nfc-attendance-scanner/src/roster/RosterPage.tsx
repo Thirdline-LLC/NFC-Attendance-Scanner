@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
 import {
+  AlertTriangle,
+  ArrowLeft,
+  BarChart3,
+  RotateCcw,
+  Trash2,
+  Users,
+} from 'lucide-react';
+import {
+  deletePerson,
   DuplicateEmailError,
   listPersons,
+  previewPersonRemoval,
   updatePerson,
   type Person,
+  type PersonRemoval,
 } from '@/data/attendance-store';
+import { RemoveStudentDialog } from '@/ui/RemoveStudentDialog';
 import { RosterManager, type PersonChanges } from '@/ui/RosterManager';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 
@@ -25,6 +36,57 @@ export function RosterPage() {
   // is the only way to resolve it; every other failure is just "it did not
   // save" and is shown by the open editor instead.
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
+  // The student a removal has been asked about, and what it would cost. The
+  // cost is read from the store rather than guessed, because the page never
+  // loads taps and the operator is about to be asked to accept losing them.
+  const [pendingRemoval, setPendingRemoval] = useState<Person | null>(null);
+  const [removalCost, setRemovalCost] = useState<PersonRemoval | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [removalError, setRemovalError] = useState(false);
+  const [removedNotice, setRemovedNotice] = useState<string | null>(null);
+
+  const askToRemove = useCallback((person: Person) => {
+    setRemovedNotice(null);
+    setRemovalError(false);
+    setRemovalCost(null);
+    setPendingRemoval(person);
+    if (person.id === undefined) return;
+    // Not awaited: the dialog opens straight away and says "checking…" until
+    // this lands, rather than the button hanging with nothing on screen.
+    void previewPersonRemoval(person.id)
+      .then(setRemovalCost)
+      .catch(() => setRemovalCost({ tapCount: 0, sessionCount: 0 }));
+  }, []);
+
+  const cancelRemoval = useCallback(() => {
+    setPendingRemoval(null);
+    setRemovalCost(null);
+  }, []);
+
+  const confirmRemoval = useCallback(async () => {
+    const person = pendingRemoval;
+    if (!person || person.id === undefined) return;
+
+    setIsRemoving(true);
+    setRemovalError(false);
+    try {
+      const removed = await deletePerson(person.id);
+      setPersons((current) => current.filter((item) => item.id !== person.id));
+      setRemovedNotice(
+        removed.tapCount === 0
+          ? `Removed ${person.firstName} ${person.lastName}.`
+          : `Removed ${person.firstName} ${person.lastName} and ${removed.tapCount} tap${removed.tapCount === 1 ? '' : 's'}.`,
+      );
+      setPendingRemoval(null);
+      setRemovalCost(null);
+    } catch {
+      // The dialog stays open: nothing was removed, and closing it would read
+      // as if something had been.
+      setRemovalError(true);
+    } finally {
+      setIsRemoving(false);
+    }
+  }, [pendingRemoval]);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -134,6 +196,35 @@ export function RosterPage() {
           </p>
         ) : null}
 
+        {removedNotice ? (
+          <p
+            className="station-enter flex items-start gap-2.5 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] px-4 py-3 text-sm text-[hsl(var(--muted-foreground))]"
+            role="status"
+            data-testid="text-roster-removed"
+          >
+            <Trash2 aria-hidden="true" className="mt-0.5 shrink-0" size={16} />
+            <span>
+              {removedNotice} This cannot be undone; their card can be enrolled
+              again as a new student.
+            </span>
+          </p>
+        ) : null}
+
+        {removalError ? (
+          <p
+            className="station-enter flex items-start gap-2.5 rounded-2xl border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--destructive)/.09)] px-4 py-3 text-sm text-[hsl(var(--destructive))]"
+            role="alert"
+            data-testid="text-roster-remove-error"
+          >
+            <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0" size={16} />
+            <span>
+              <strong className="font-semibold">Nothing was removed.</strong>{' '}
+              The device would not save the change, so the student and their
+              attendance are both still here. Try again.
+            </span>
+          </p>
+        ) : null}
+
         {loadFailed ? (
           <section
             className="station-enter rounded-[1.7rem] border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--card)/.88)] p-5 sm:p-7"
@@ -179,10 +270,21 @@ export function RosterPage() {
               isSaving={isSaving}
               saveError={saveError}
               onEditorChange={clearSaveNotices}
+              onRemove={askToRemove}
             />
           </div>
         )}
       </div>
+
+      {pendingRemoval ? (
+        <RemoveStudentDialog
+          person={pendingRemoval}
+          removal={removalCost}
+          isRemoving={isRemoving}
+          onConfirm={() => void confirmRemoval()}
+          onCancel={cancelRemoval}
+        />
+      ) : null}
     </main>
   );
 }

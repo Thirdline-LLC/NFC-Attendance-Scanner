@@ -5,11 +5,13 @@ import {
   addPerson,
   clearAllAttendanceHistory,
   countSessionAttendance,
+  deletePerson,
   DuplicateEmailError,
   listPersons,
   listSessionIds,
   listSessionTapRecords,
   listTapRecords,
+  previewPersonRemoval,
   recordSessionTap,
   updatePerson,
 } from './attendance-store';
@@ -68,6 +70,133 @@ describe('addPerson', () => {
     });
     expect(second.id).not.toBe(saved.id);
     expect(await listPersons()).toHaveLength(2);
+  });
+});
+
+describe('deletePerson', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  const jane = {
+    cardUid: '04A1B2C3D4E5F6',
+    firstName: 'Jane',
+    lastName: 'Smith',
+    gradYear: 2027,
+    email: 'jsmith27@stjohnschs.org',
+    enrolledAt: '2026-09-01T12:00:00.000Z',
+  };
+  const bob = {
+    cardUid: '04FFEEDDCCBB99',
+    firstName: 'Bob',
+    lastName: 'Nolan',
+    gradYear: 2028,
+    email: 'bnolan28@stjohnschs.org',
+    enrolledAt: '2026-09-01T12:01:00.000Z',
+  };
+
+  it('removes the student and every tap that resolves to them', async () => {
+    const saved = await addPerson(jane);
+    const other = await addPerson(bob);
+    await recordSessionTap({
+      sessionId: 's1',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-02T13:00:00.000Z',
+      personId: saved.id as number,
+    });
+    await recordSessionTap({
+      sessionId: 's2',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-03T13:00:00.000Z',
+      personId: saved.id as number,
+    });
+    await recordSessionTap({
+      sessionId: 's2',
+      uid: bob.cardUid,
+      scannedAt: '2026-09-03T13:05:00.000Z',
+      personId: other.id as number,
+    });
+
+    const removed = await deletePerson(saved.id as number);
+
+    expect(removed).toEqual({ tapCount: 2, sessionCount: 2 });
+    expect((await listPersons()).map((p) => p.email)).toEqual([bob.email]);
+    // Bob is untouched: a removal must take exactly one student with it.
+    const remaining = await listTapRecords();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].uid).toBe(bob.cardUid);
+  });
+
+  it('takes the taps recorded before the card was ever enrolled', async () => {
+    // These carry personId null and are matched to their student by UID, so an
+    // id-only delete would leave rows the export still resolves to them.
+    await recordSessionTap({
+      sessionId: 's1',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-02T13:00:00.000Z',
+      personId: null,
+    });
+    const saved = await addPerson(jane);
+
+    const removed = await deletePerson(saved.id as number);
+
+    expect(removed.tapCount).toBe(1);
+    expect(await listTapRecords()).toEqual([]);
+  });
+
+  it('leaves nothing carrying the removed card', async () => {
+    const saved = await addPerson(jane);
+    await recordSessionTap({
+      sessionId: 's1',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-02T13:00:00.000Z',
+      personId: saved.id as number,
+    });
+
+    await deletePerson(saved.id as number);
+
+    // The card is still in somebody's wallet; a row carrying its UID would be
+    // a detached record, not an erased one.
+    const everything = JSON.stringify([
+      await listPersons(),
+      await listTapRecords(),
+    ]);
+    expect(everything).not.toContain(jane.cardUid);
+    expect(everything).not.toContain('jsmith27');
+  });
+
+  it('frees the card and the address for a fresh enrolment', async () => {
+    const saved = await addPerson(jane);
+    await deletePerson(saved.id as number);
+
+    // &cardUid is unique and the store rejects a duplicate address, so a
+    // removal that left either behind would block re-enrolling the card.
+    const reEnrolled = await addPerson({ ...jane, firstName: 'Janet' });
+
+    expect(reEnrolled.id).not.toBe(saved.id);
+    expect(await listPersons()).toHaveLength(1);
+  });
+
+  it('reports the cost before anything is removed', async () => {
+    const saved = await addPerson(jane);
+    await recordSessionTap({
+      sessionId: 's1',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-02T13:00:00.000Z',
+      personId: saved.id as number,
+    });
+
+    const preview = await previewPersonRemoval(saved.id as number);
+
+    expect(preview).toEqual({ tapCount: 1, sessionCount: 1 });
+    // A preview must not be a removal.
+    expect(await listPersons()).toHaveLength(1);
+    expect(await listTapRecords()).toHaveLength(1);
+  });
+
+  it('refuses an id that is not enrolled', async () => {
+    await expect(deletePerson(999)).rejects.toThrow('999');
   });
 });
 

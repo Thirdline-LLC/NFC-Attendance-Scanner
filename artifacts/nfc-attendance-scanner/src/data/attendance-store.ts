@@ -143,6 +143,81 @@ export async function updatePerson(
  * `use-attendance-session.ts`), so this is the whole history a dashboard or
  * export works from, not just the session on screen.
  */
+/** What removing a student would take with them. */
+export type PersonRemoval = {
+  tapCount: number;
+  sessionCount: number;
+};
+
+/**
+ * Every tap that belongs to a student, by either route the app uses to match
+ * one: the `personId` stored at scan time, and the card itself.
+ *
+ * Both are needed. A card tapped before it was enrolled is stored with a null
+ * `personId` and is matched to its student retroactively by UID
+ * (`resolveTapPerson`), so deleting only the id-matched rows would leave taps
+ * that the export and the dashboard still resolve back to a deleted student.
+ */
+async function tapsBelongingTo(person: Person): Promise<TapRecord[]> {
+  const taps = await tapsTable.toArray();
+
+  return taps.filter(
+    (tap) =>
+      (person.id !== undefined && tap.personId === person.id) ||
+      tap.uid === person.cardUid,
+  );
+}
+
+/** What `deletePerson` would remove, so the operator can be told before asking. */
+export async function previewPersonRemoval(
+  personId: number,
+): Promise<PersonRemoval> {
+  const person = await personsTable.get(personId);
+  if (!person) return { tapCount: 0, sessionCount: 0 };
+
+  const taps = await tapsBelongingTo(person);
+
+  return {
+    tapCount: taps.length,
+    sessionCount: new Set(taps.map((tap) => tap.sessionId)).size,
+  };
+}
+
+/**
+ * Removes a student and every tap that resolves to them.
+ *
+ * The taps go with the record deliberately. Keeping them would leave rows
+ * carrying the student's card UID — a stable identifier for a physical card
+ * that is still in somebody's wallet — which is not an erasure, only a
+ * detached one. The cost is real and the caller has to say so out loud: past
+ * sessions lose those check-ins, so the dashboard's year-to-date figures move.
+ * `previewPersonRemoval` exists so the operator sees that before deciding.
+ *
+ * One transaction over both tables: a half-done removal that dropped the
+ * person and kept the taps would be the exact state this is meant to prevent.
+ */
+export async function deletePerson(personId: number): Promise<PersonRemoval> {
+  return database.transaction('rw', personsTable, tapsTable, async () => {
+    const person = await personsTable.get(personId);
+    if (!person) {
+      throw new Error(`No enrolled student has id ${personId}.`);
+    }
+
+    const taps = await tapsBelongingTo(person);
+    const removal = {
+      tapCount: taps.length,
+      sessionCount: new Set(taps.map((tap) => tap.sessionId)).size,
+    };
+
+    await tapsTable.bulkDelete(
+      taps.map((tap) => tap.id).filter((id): id is number => id !== undefined),
+    );
+    await personsTable.delete(personId);
+
+    return removal;
+  });
+}
+
 export async function listTapRecords(): Promise<TapRecord[]> {
   return tapsTable.orderBy('scannedAt').toArray();
 }

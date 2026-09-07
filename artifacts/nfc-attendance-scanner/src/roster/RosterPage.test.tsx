@@ -215,4 +215,100 @@ describe('RosterPage', () => {
     ).toBe('/');
   });
 
+  it('will not remove a student without asking, and says what it costs', async () => {
+    const saved = await addPerson(jane);
+    await attendanceStore.recordSessionTap({
+      sessionId: 's1',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-02T13:00:00.000Z',
+      personId: saved.id as number,
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-manager');
+
+    await user.click(screen.getByTestId(`button-remove-person-${saved.id}`));
+
+    const dialog = await screen.findByTestId('dialog-remove-student');
+    expect(dialog.textContent).toContain('Jane Smith');
+    await waitFor(() =>
+      expect(screen.getByTestId('text-removal-cost').textContent).toContain(
+        '1 tap',
+      ),
+    );
+    // Asking is not doing.
+    expect(await listPersons()).toHaveLength(1);
+  });
+
+  it('keeps the student when the operator backs out', async () => {
+    const saved = await addPerson(jane);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-manager');
+
+    await user.click(screen.getByTestId(`button-remove-person-${saved.id}`));
+    await screen.findByTestId('dialog-remove-student');
+    await user.click(screen.getByTestId('button-remove-cancel'));
+
+    expect(screen.queryByTestId('dialog-remove-student')).toBeNull();
+    expect(await listPersons()).toHaveLength(1);
+    expect(screen.getByTestId(`row-person-${saved.id}`)).toBeTruthy();
+  });
+
+  it('removes the student and their taps once confirmed', async () => {
+    const saved = await addPerson(jane);
+    await attendanceStore.recordSessionTap({
+      sessionId: 's1',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-02T13:00:00.000Z',
+      personId: saved.id as number,
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-manager');
+
+    await user.click(screen.getByTestId(`button-remove-person-${saved.id}`));
+    await screen.findByTestId('dialog-remove-student');
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('button-remove-confirm').hasAttribute('disabled'),
+      ).toBe(false),
+    );
+    await user.click(screen.getByTestId('button-remove-confirm'));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('dialog-remove-student')).toBeNull(),
+    );
+    expect(await listPersons()).toEqual([]);
+    expect(await attendanceStore.listTapRecords()).toEqual([]);
+    expect(screen.queryByTestId(`row-person-${saved.id}`)).toBeNull();
+    expect(screen.getByTestId('text-roster-removed').textContent).toContain(
+      'Jane Smith',
+    );
+  });
+
+  it('keeps everything and says so when the removal cannot be written', async () => {
+    const saved = await addPerson(jane);
+    vi.spyOn(attendanceStore, 'deletePerson').mockRejectedValue(
+      new Error('storage unavailable'),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-manager');
+
+    await user.click(screen.getByTestId(`button-remove-person-${saved.id}`));
+    await screen.findByTestId('dialog-remove-student');
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('button-remove-confirm').hasAttribute('disabled'),
+      ).toBe(false),
+    );
+    await user.click(screen.getByTestId('button-remove-confirm'));
+
+    // The dialog stays: closing it would read as if something had happened.
+    expect(await screen.findByTestId('text-roster-remove-error')).toBeTruthy();
+    expect(screen.getByTestId('dialog-remove-student')).toBeTruthy();
+    expect(await listPersons()).toHaveLength(1);
+  });
+
 });

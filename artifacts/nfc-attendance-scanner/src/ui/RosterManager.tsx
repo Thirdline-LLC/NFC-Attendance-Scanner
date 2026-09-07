@@ -2,6 +2,7 @@ import { useId, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Pencil,
+  Trash2,
   Search,
   UserPlus,
   UserRoundSearch,
@@ -35,6 +36,12 @@ type RosterManagerProps = {
    * it: this is how it learns to drop it.
    */
   onEditorChange?: (personId: number | null) => void;
+  /**
+   * Asks the container to remove a student. Optional: the roster is useful
+   * read-only, and the container owns the confirmation, since only it knows
+   * what the removal would cost.
+   */
+  onRemove?: (person: Person) => void;
   initialQuery?: string;
 };
 
@@ -182,6 +189,7 @@ export function RosterManager({
   isSaving,
   saveError,
   onEditorChange,
+  onRemove,
   initialQuery = '',
 }: RosterManagerProps) {
   const headingId = useId();
@@ -366,6 +374,7 @@ export function RosterManager({
                   saveError={saveError}
                   onToggle={toggleEditing}
                   onSave={saveRow}
+                  onRemove={onRemove}
                 />
               ))}
             </tbody>
@@ -395,6 +404,7 @@ type RosterRowProps = {
   saveError: boolean;
   onToggle: (personId: number) => void;
   onSave: (personId: number, changes: PersonChanges) => Promise<void>;
+  onRemove?: (person: Person) => void;
 };
 
 function RosterRow({
@@ -405,6 +415,7 @@ function RosterRow({
   saveError,
   onToggle,
   onSave,
+  onRemove,
 }: RosterRowProps) {
   const editorId = useId();
   // Rows come from Dexie, which always assigns an id; the guard only keeps the
@@ -456,6 +467,20 @@ function RosterRow({
             >
               <Pencil aria-hidden="true" size={14} />
               Edit
+            </button>
+          ) : null}
+          {personId !== undefined && onRemove ? (
+            <button
+              type="button"
+              onClick={() => onRemove(person)}
+              // Named, like Edit: every row's button would otherwise read the
+              // same, and this is the one that cannot be undone.
+              aria-label={`Remove ${person.firstName} ${person.lastName}`}
+              className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-xs font-semibold text-[hsl(var(--muted-foreground))] transition hover:border-[hsl(var(--destructive)/.6)] hover:bg-[hsl(var(--destructive)/.08)] hover:text-[hsl(var(--destructive))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:mt-0 sm:ml-1.5 sm:inline-flex sm:w-auto"
+              data-testid={`button-remove-person-${personId}`}
+            >
+              <Trash2 aria-hidden="true" size={14} />
+              Remove
             </button>
           ) : null}
         </td>
