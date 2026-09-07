@@ -119,6 +119,31 @@ Then, in Xcode:
 4. Work through
    [Three things to check on a real device](#three-things-to-check-on-a-real-device).
    The export check is the one that can lose a term of attendance; do it first.
+5. Before the first TestFlight or App Store upload, **generate the privacy
+   report** — Product → Archive → Generate Privacy Report — and compare it
+   against `ios/App/App/PrivacyInfo.xcprivacy` (see below). This is the step
+   that gets discovered at upload time if it is skipped.
+
+### The privacy manifest
+
+`ios/App/App/PrivacyInfo.xcprivacy` exists and is wired into the App target's
+Resources build phase, so it ships in the bundle. It declares:
+
+- **No tracking**, no tracking domains.
+- **No collected data types.** Apple's "collection" means data sent off the
+  device; this app sends none. It holds student names, school addresses, grade
+  years and card UIDs, all of which stay in local storage — see
+  `docs/data-protection.md`. The Excel export leaves only when a person shares
+  it, which is the operator acting rather than the app collecting.
+- **One accessed API**: `NSPrivacyAccessedAPICategoryFileTimestamp`, reason
+  `C617.1`, required by `@capacitor/filesystem`, which is what writes the
+  workbook.
+
+What has *not* been verified, because it needs Xcode: that Apple accepts this
+as complete. The generated privacy report aggregates this manifest with every
+SDK's own, and if a dependency needs a category not listed here, that report is
+where it shows up. Add what it names — do not guess, and do not declare
+categories the app does not use, since each one is a claim Apple can check.
 
 Android is the same shape: `pnpm exec cap open android`, let Gradle sync, then
 Run. A debug build is enough for every check below; signing only matters for
@@ -126,7 +151,13 @@ distribution, and the keystore must stay out of this repo (`android/.gitignore`
 has `*.jks` and `*.keystore` uncommented for exactly that reason).
 
 **Nothing in this list has been run.** Every step above is written from the
-project as it stands on disk here, not from a session that did it.
+project as it stands on disk here, not from a session that did it. What *has*
+been verified in this container, and can be re-checked here at any time: both
+platform folders hold the current bundle byte-for-byte, `Info.plist` carries
+both Files-app keys, `PrivacyInfo.xcprivacy` parses as a plist and is
+referenced from the Resources build phase, the Android manifest parses with
+`allowBackup="false"` and the legacy storage permissions, and `cap sync`
+completes without touching any of it.
 
 ## App identity: the name, the icon and the splash
 
@@ -430,10 +461,11 @@ What is left:
   because on API 24–29 the plugin needs them and would otherwise fail on
   Android 7–10; and `android:allowBackup` is now `false`, since the generated
   default would have made the roster eligible for Android Auto Backup.
-- **A privacy manifest for iOS.** `@capacitor/filesystem` requires
-  `PrivacyInfo.xcprivacy` declaring `NSPrivacyAccessedAPICategoryFileTimestamp`
-  with reason `C617.1` for App Store or TestFlight submission. It is not in
-  `ios/` yet; add it before the first upload, or discover it at rejection.
+- **The privacy manifest is written and wired**
+  (`ios/App/App/PrivacyInfo.xcprivacy`, in the Resources build phase). What is
+  left is confirming Apple agrees it is complete, which only the archive-time
+  privacy report can say — see
+  [The privacy manifest](#the-privacy-manifest).
 - **Everything in [Three things to check on a real device](#three-things-to-check-on-a-real-device)**,
   which is still entirely unrun.
 
