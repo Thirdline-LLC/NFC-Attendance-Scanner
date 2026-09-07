@@ -51,3 +51,14 @@ Thumbs.db
 
 # Claude Code worktrees (per-session isolation)
 .claude/worktrees/
+
+# ── Student data — NEVER commit. Master Key v1.0 §5.3.6 ──
+# Real student UIDs, names and emails stay out of this repo.
+# Synthetic fixtures only (04AA0000000001 …).
+*.xlsx
+*.xls
+*.csv
+.env
+.env.*
+/exports
+exports/
