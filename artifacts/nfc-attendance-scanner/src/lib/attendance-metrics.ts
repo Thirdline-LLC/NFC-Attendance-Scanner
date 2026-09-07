@@ -2,8 +2,8 @@ import type { Person, TapRecord } from '@/data/attendance-store';
 import {
   currentSeniorGradYear,
   deriveGrade,
-  formatMeetingDate,
 } from '@/lib/attendance-export';
+import { formatSessionDate } from '@/lib/session-formatting';
 import {
   indexRoster,
   resolveTapPerson,
@@ -111,7 +111,7 @@ export function selectYearToDateTaps(
   const start = schoolYearStart(now);
 
   // Both sides are Eastern `YYYY-MM-DD`, so a string compare is a date compare.
-  return taps.filter((tap) => formatMeetingDate(tap.scannedAt) >= start);
+  return taps.filter((tap) => formatSessionDate(tap.scannedAt) >= start);
 }
 
 /**
@@ -170,7 +170,7 @@ export function computeSessionAttendance(
 
     return {
       sessionId,
-      date: formatMeetingDate(startedAt),
+      date: formatSessionDate(startedAt),
       startedAt,
       // Counted against the roster as it stands now, not from the stored
       // `counted` flag. That flag was decided at scan time and cannot see a

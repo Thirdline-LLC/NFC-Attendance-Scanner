@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AlertTriangle, Download, RotateCcw } from 'lucide-react';
 import type { SessionMetrics } from '@/scanner/use-attendance-session';
-import { formatMeetingDateTime } from '@/lib/attendance-export';
+import { formatSessionDateTime } from '@/lib/session-formatting';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
 
@@ -110,7 +110,7 @@ export function NewSessionDialog({
               className="mt-2 text-sm font-semibold leading-snug text-[hsl(var(--foreground))]"
               data-testid="text-new-session-meeting"
             >
-              Meeting date and time: {formatMeetingDateTime(sessionStartedAt)}
+              Meeting date and time: {formatSessionDateTime(sessionStartedAt)}
             </p>
           </div>
         </div>

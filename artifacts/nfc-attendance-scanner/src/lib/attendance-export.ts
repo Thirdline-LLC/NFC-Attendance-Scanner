@@ -5,8 +5,19 @@ import {
   deliverWorkbook,
   type DeliveredExport,
 } from '@/lib/workbook-delivery';
+import {
+  formatSessionDate,
+  formatSessionDateTime,
+  formatSessionTimestamp,
+  formatSessionYearMonth,
+} from '@/lib/session-formatting';
 
-const EXPORT_TIME_ZONE = 'America/New_York';
+// Keep the established export names for workbook callers while the shared
+// session formatter owns the timezone and boundary contract.
+export {
+  formatSessionDate as formatMeetingDate,
+  formatSessionDateTime as formatMeetingDateTime,
+};
 
 /** One worksheet row. The keys are the column headers, verbatim. */
 export type AttendanceRow = {
@@ -34,69 +45,8 @@ const EXPORT_COLUMNS: (keyof AttendanceRow)[] = [
  */
 export const UNKNOWN_CARD_NAME = 'Unknown card';
 
-/**
- * Building an `Intl.DateTimeFormat` costs far more than using one, and these
- * two are used per tap: the export formats every row twice over and
- * `deriveGrade` reaches for the second one again. Constructed per call, a
- * 5,000-tap export spent ~1.3 s building formatters; held here it is ~60 ms.
- *
- * Lazily, not at module load: a runtime without `America/New_York` in its ICU
- * data should fail on the first export rather than on importing the module,
- * which would take the whole app down instead of one button.
- */
-let easternTimestampFormat: Intl.DateTimeFormat | undefined;
-let easternYearMonthFormat: Intl.DateTimeFormat | undefined;
-
-function timestampFormat(): Intl.DateTimeFormat {
-  easternTimestampFormat ??= new Intl.DateTimeFormat('en-US', {
-    timeZone: EXPORT_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    // `hourCycle` is pinned rather than left to `hour12: false` alone, which
-    // some ICU builds read as h24 and render midnight as hour 24.
-    hourCycle: 'h23',
-  });
-  return easternTimestampFormat;
-}
-
-function yearMonthFormat(): Intl.DateTimeFormat {
-  easternYearMonthFormat ??= new Intl.DateTimeFormat('en-US', {
-    timeZone: EXPORT_TIME_ZONE,
-    year: 'numeric',
-    month: 'numeric',
-  });
-  return easternYearMonthFormat;
-}
-
-function formatEasternParts(timestamp: string): Record<string, string> {
-  const parts = timestampFormat().formatToParts(new Date(timestamp));
-
-  return Object.fromEntries(parts.map(({ type, value }) => [type, value]));
-}
-
 export function formatExportTimestamp(timestamp: string): string {
-  const parts = formatEasternParts(timestamp);
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
-}
-
-export function formatMeetingDate(timestamp: string): string {
-  const parts = formatEasternParts(timestamp);
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-export function formatMeetingDateTime(timestamp: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: EXPORT_TIME_ZONE,
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
+  return formatSessionTimestamp(timestamp);
 }
 
 /**
@@ -149,10 +99,11 @@ export function commencementDate(
 export function currentSeniorGradYear(
   timestamp = new Date().toISOString(),
 ): number {
-  const easternDate = yearMonthFormat().formatToParts(new Date(timestamp));
-  const year = Number(easternDate.find((part) => part.type === 'year')?.value);
+  const { year: easternYear, month: easternMonth } =
+    formatSessionYearMonth(timestamp);
+  const year = Number(easternYear);
   // Intl months are 1-indexed, so August is 8.
-  const month = Number(easternDate.find((part) => part.type === 'month')?.value);
+  const month = Number(easternMonth);
 
   return month >= 8 ? year + 1 : year;
 }
@@ -172,7 +123,7 @@ export function hasGraduated(
   if (date === null) return false;
 
   // Both sides are Eastern `YYYY-MM-DD`, so a string compare is a date compare.
-  return formatMeetingDate(timestamp) > date;
+  return formatSessionDate(timestamp) > date;
 }
 
 export function deriveGrade(
@@ -232,7 +183,7 @@ export function buildAttendanceRows(
     return {
       Timestamp: formatExportTimestamp(tap.scannedAt),
       'Card UID': tap.uid,
-      'Meeting Date': formatMeetingDate(tap.scannedAt),
+      'Meeting Date': formatSessionDate(tap.scannedAt),
       Name: person ? formatPersonName(person) : UNKNOWN_CARD_NAME,
       Email: person?.email ?? '',
       Grade: person ? deriveGrade(person.gradYear, tap.scannedAt) : '',
@@ -274,7 +225,7 @@ export function buildAttendanceWorkbook(
   return {
     // The date is Eastern (the meeting's own day); the stamp is UTC, and is
     // only there to keep two exports on one day from colliding.
-    filename: `attendance-${formatMeetingDate(timestamp)}-${exportStamp}.xlsx`,
+    filename: `attendance-${formatSessionDate(timestamp)}-${exportStamp}.xlsx`,
     workbook,
   };
 }

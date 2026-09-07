@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { formatMeetingDateTime } from '@/lib/attendance-export';
+import { formatSessionDateTime } from '@/lib/session-formatting';
 import type { SessionMetrics } from '@/scanner/use-attendance-session';
 import { NewSessionDialog } from './NewSessionDialog';
 
@@ -52,7 +52,7 @@ describe('NewSessionDialog', () => {
       'This session has 15 taps and 12 checked in.',
     );
     expect(screen.getByTestId('text-new-session-meeting').textContent).toBe(
-      `Meeting date and time: ${formatMeetingDateTime(sessionStartedAt)}`,
+      `Meeting date and time: ${formatSessionDateTime(sessionStartedAt)}`,
     );
     // The whole point of the confirmation: retained, but not visible here.
     expect(dialog.textContent).toContain('stay saved on this device');
@@ -75,7 +75,7 @@ describe('NewSessionDialog', () => {
       'This session has 0 taps and 0 checked in.',
     );
     expect(screen.getByTestId('text-new-session-meeting').textContent).toBe(
-      `Meeting date and time: ${formatMeetingDateTime(sessionStartedAt)}`,
+      `Meeting date and time: ${formatSessionDateTime(sessionStartedAt)}`,
     );
   });
 

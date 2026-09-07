@@ -15,6 +15,10 @@ import type {
   SessionSnapshot,
   UnidentifiedCard,
 } from '@/lib/attendance-metrics';
+import {
+  formatSessionDateLabel,
+  formatSessionLastSeen,
+} from '@/lib/session-formatting';
 import { maskCardUid } from '@/lib/scan-format';
 import {
   isValidAttendanceTarget,
@@ -41,7 +45,6 @@ type DashboardProps = {
   onSaveTarget?: (target: number) => Promise<boolean>;
 };
 
-const DISPLAY_TIME_ZONE = 'America/New_York';
 /** Enough to act on without scrolling on a phone; the count says the rest. */
 const MAX_LISTED_CARDS = 5;
 
@@ -58,26 +61,6 @@ function formatPercent(value: number): string {
 function formatSchoolYear(schoolYearStart: string): string {
   const startYear = Number(schoolYearStart.slice(0, 4));
   return `${startYear}–${String(startYear + 1).slice(-2)}`;
-}
-
-/** An Eastern `YYYY-MM-DD` shown as `Sep 10, 2026`, without a time-zone shift. */
-function formatSessionDate(date: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'UTC',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(`${date}T12:00:00Z`));
-}
-
-function formatLastSeen(timestamp: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: DISPLAY_TIME_ZONE,
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
 }
 
 export function Dashboard({
@@ -408,7 +391,7 @@ function SessionStat({
         {session.attendance}
       </dd>
       <dd className="text-xs text-[hsl(var(--muted-foreground))]">
-        {formatSessionDate(session.date)}
+        {formatSessionDateLabel(session.date)}
       </dd>
     </div>
   );
@@ -508,7 +491,7 @@ function UnidentifiedCardSection({
                 </span>
                 <span className="text-right text-xs text-[hsl(var(--muted-foreground))]">
                   {card.tapCount} {card.tapCount === 1 ? 'tap' : 'taps'}
-                  <span className="block">Last seen {formatLastSeen(card.lastSeenAt)}</span>
+                  <span className="block">Last seen {formatSessionLastSeen(card.lastSeenAt)}</span>
                 </span>
               </li>
             ))}
