@@ -432,17 +432,32 @@ function RosterRow({
         data-testid={`row-person-${personId ?? 'unsaved'}`}
       >
         <td className="min-w-0 font-semibold text-[hsl(var(--foreground))] [overflow-wrap:anywhere] sm:px-4 sm:py-3">
-          <CompactValue value={person.firstName} className="sm:max-w-[12rem]" />
+          <CompactValue
+            value={person.firstName}
+            label="first name"
+            testId={`button-reveal-first-name-${personId ?? 'unsaved'}`}
+            className="sm:max-w-[12rem]"
+          />
         </td>
         <td className="min-w-0 font-semibold text-[hsl(var(--foreground))] [overflow-wrap:anywhere] sm:px-4 sm:py-3">
-          <CompactValue value={person.lastName} className="sm:max-w-[16rem]" />
+          <CompactValue
+            value={person.lastName}
+            label="last name"
+            testId={`button-reveal-last-name-${personId ?? 'unsaved'}`}
+            className="sm:max-w-[16rem]"
+          />
         </td>
         <td className="order-1 basis-full text-[hsl(var(--muted-foreground))] sm:order-none sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-[hsl(var(--foreground))]">
           <span className="sm:hidden">Class of </span>
           {person.gradYear}
         </td>
         <td className="order-2 min-w-0 basis-full text-[hsl(var(--muted-foreground))] [overflow-wrap:anywhere] sm:order-none sm:basis-auto sm:px-4 sm:py-3 sm:text-[hsl(var(--foreground))]">
-          <CompactValue value={person.email} className="sm:max-w-[20rem]" />
+          <CompactValue
+            value={person.email}
+            label="email address"
+            testId={`button-reveal-email-${personId ?? 'unsaved'}`}
+            className="sm:max-w-[20rem]"
+          />
         </td>
         <td className="ml-auto font-mono text-xs font-bold tracking-[0.16em] text-[hsl(var(--foreground))] sm:ml-0 sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-sm">
           <span data-testid={`text-card-tail-${personId ?? 'unsaved'}`}>
@@ -514,19 +529,48 @@ function RosterRow({
 
 function CompactValue({
   value,
+  label,
+  testId,
   className,
 }: {
   value: string;
+  label: string;
+  testId: string;
   className?: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const expandable = value.length > 24;
+  const compactClassName = `block max-w-full [overflow-wrap:anywhere] ${
+    expanded ? '' : 'line-clamp-2'
+  } ${className ?? ''}`;
+
+  if (!expandable) {
+    return (
+      <span
+        className={`${compactClassName} line-clamp-2`}
+        title={value}
+        aria-label={value}
+      >
+        {value}
+      </span>
+    );
+  }
+
   return (
-    <span
-      className={`block max-w-full line-clamp-2 [overflow-wrap:anywhere] ${className ?? ''}`}
+    <button
+      type="button"
+      onClick={() => setExpanded((current) => !current)}
+      tabIndex={-1}
+      aria-expanded={expanded}
+      aria-label={`${label}: ${value}. ${
+        expanded ? `Collapse ${label}` : `Show full ${label}`
+      }`}
+      className={`${compactClassName} cursor-pointer text-left decoration-dotted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]`}
       title={value}
-      aria-label={value}
+      data-testid={testId}
     >
       {value}
-    </span>
+    </button>
   );
 }
 

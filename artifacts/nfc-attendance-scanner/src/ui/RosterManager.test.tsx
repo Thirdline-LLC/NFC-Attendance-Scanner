@@ -275,6 +275,40 @@ describe('RosterManager listing', () => {
     expect((remove as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('reveals exceptionally long names and email addresses on tap', async () => {
+    const { user } = renderRoster({ persons: [longNamedPerson] });
+    const row = screen.getByTestId('row-person-7');
+    const lastName = within(row).getByTestId('button-reveal-last-name-7');
+    const email = within(row).getByTestId('button-reveal-email-7');
+
+    expect(lastName.getAttribute('aria-expanded')).toBe('false');
+    expect(email.getAttribute('aria-expanded')).toBe('false');
+    expect(lastName.className).toContain('line-clamp-2');
+    expect(email.className).toContain('line-clamp-2');
+
+    await user.click(lastName);
+    await user.click(email);
+
+    expect(lastName.getAttribute('aria-expanded')).toBe('true');
+    expect(email.getAttribute('aria-expanded')).toBe('true');
+    expect(lastName.className).not.toContain('line-clamp-2');
+    expect(email.className).not.toContain('line-clamp-2');
+    expect(lastName.textContent).toBe(longNamedPerson.lastName);
+    expect(email.textContent).toBe(longNamedPerson.email);
+
+    await user.click(lastName);
+    expect(lastName.getAttribute('aria-expanded')).toBe('false');
+    expect(lastName.className).toContain('line-clamp-2');
+  });
+
+  it('does not add reveal controls for compact values', () => {
+    renderRoster();
+
+    expect(screen.queryByTestId('button-reveal-first-name-1')).toBeNull();
+    expect(screen.queryByTestId('button-reveal-last-name-1')).toBeNull();
+    expect(screen.queryByTestId('button-reveal-email-1')).toBeNull();
+  });
+
   it('keeps Edit and Remove in keyboard order and activates both keys', async () => {
     const onRemove = vi.fn<NonNullable<RosterProps['onRemove']>>();
     const { user } = renderRoster({ onRemove });
