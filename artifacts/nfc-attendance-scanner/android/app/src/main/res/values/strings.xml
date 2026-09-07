@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SJC Attendance</string>
+    <string name="title_activity_main">SJC Attendance</string>
+    <string name="package_name">org.stjohnschs.attendance</string>
+    <string name="custom_url_scheme">org.stjohnschs.attendance</string>
+</resources>
