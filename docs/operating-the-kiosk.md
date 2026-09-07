@@ -68,8 +68,11 @@ session. Second taps never raise it.
    - On a laptop it goes to that computer's **Downloads** folder. The message
      says to go and check — please actually check, because if the download was
      blocked nothing tells the app.
-   - On the tablet app it is saved to the device's **Documents** and a share
-     sheet opens. Send it to yourself or to Drive from there.
+   - On the tablet app it should say it saved to the device's **Documents**
+     and open a share sheet — send it to yourself or to Drive from there. If
+     it instead says the file was handed to the browser, stop and report it:
+     the tablet build has not been tested on a real device yet, and that
+     wording means the export did not go where it should.
 4. **Email or upload the file the same day.** It is the only copy that leaves
    the device.
 5. If another meeting follows, press **Start New Session** and confirm. That
@@ -86,6 +89,12 @@ To get everything ever recorded, not just today: **Dashboard** →
   The card itself cannot be changed.
 - **Dashboard** — attendance for the school year, and a count of cards that
   still belong to nobody.
+
+  Each row also has a **Remove** button. It deletes the student *and every tap
+  they have ever made on this device*, cannot be undone, and changes the
+  numbers on the Dashboard. Only use it if a student has to be erased — export
+  the day's file first, and read what the confirmation box tells you before
+  pressing it.
 
 Both of them say, in a grey bar at the top: *"Cards are not being recorded
 while this page is open."* That is true. **Go back to the scanner before the

@@ -523,6 +523,41 @@ describe('check-in outcomes', () => {
   });
 });
 
+describe('a repeat tap', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('reports when the student was counted, not when they tapped again', async () => {
+    await addPerson(existingPerson);
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+
+    await act(async () => {
+      await result.current.handleScan(existingUid);
+    });
+    const countedAt = result.current.lastCountedAt;
+    expect(countedAt).toBe(result.current.lastScannedAt);
+
+    // Some time later the same card is tapped again. The panel promises a
+    // time, so it has to be the check-in's, not this one's.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await act(async () => {
+      await result.current.handleScan(existingUid);
+    });
+
+    expect(result.current.feedback).toBe('duplicate');
+    expect(result.current.lastCountedAt).toBe(countedAt);
+    expect(result.current.lastScannedAt).not.toBe(countedAt);
+  });
+});
+
 describe('storage recovery', () => {
   beforeEach(async () => {
     localStorage.clear();

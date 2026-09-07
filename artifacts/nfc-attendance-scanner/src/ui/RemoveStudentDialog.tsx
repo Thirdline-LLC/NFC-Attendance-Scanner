@@ -10,6 +10,10 @@ type RemoveStudentDialogProps = {
   person: Person;
   /** What goes with them, so the cost is on screen before the decision. */
   removal: PersonRemoval | null;
+  /** True when the check for what this would cost could not be run. */
+  costUnknown?: boolean;
+  /** True when a confirmed removal failed to write. */
+  failed?: boolean;
   isRemoving: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -32,6 +36,8 @@ function plural(count: number, noun: string): string {
 export function RemoveStudentDialog({
   person,
   removal,
+  costUnknown = false,
+  failed = false,
   isRemoving,
   onConfirm,
   onCancel,
@@ -94,7 +100,13 @@ export function RemoveStudentDialog({
           className="mt-4 text-sm leading-6 text-[hsl(var(--muted-foreground))]"
           data-testid="text-removal-cost"
         >
-          {removal === null ? (
+          {costUnknown ? (
+            <>
+              This device would not say how much attendance {name} has, so
+              removing them may delete more than you expect. Only continue if
+              you are sure.
+            </>
+          ) : removal === null ? (
             'Checking what this would remove…'
           ) : removal.tapCount === 0 ? (
             <>
@@ -116,6 +128,21 @@ export function RemoveStudentDialog({
           Their card can be enrolled again afterwards, as a new student.
         </p>
 
+        {failed ? (
+          <p
+            className="mt-5 flex items-start gap-2.5 rounded-xl border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--destructive)/.09)] px-3 py-2.5 text-sm text-[hsl(var(--destructive))]"
+            role="alert"
+            data-testid="text-remove-failed"
+          >
+            <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0" size={16} />
+            <span>
+              <strong className="font-semibold">Nothing was removed.</strong>{' '}
+              The device would not save the change, so {name} and their
+              attendance are both still here. Try again.
+            </span>
+          </p>
+        ) : null}
+
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
           <button
             ref={cancelRef}
@@ -129,7 +156,7 @@ export function RemoveStudentDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={isRemoving || removal === null}
+            disabled={isRemoving || (removal === null && !costUnknown)}
             className="flex items-center justify-center gap-2 rounded-xl bg-[hsl(var(--destructive))] px-4 py-3 text-sm font-bold text-[hsl(var(--destructive-foreground))] transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-wait disabled:opacity-60"
             data-testid="button-remove-confirm"
           >

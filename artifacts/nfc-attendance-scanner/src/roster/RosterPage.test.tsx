@@ -305,10 +305,32 @@ describe('RosterPage', () => {
     );
     await user.click(screen.getByTestId('button-remove-confirm'));
 
-    // The dialog stays: closing it would read as if something had happened.
-    expect(await screen.findByTestId('text-roster-remove-error')).toBeTruthy();
+    // The dialog stays, and says so inside itself: the page-level alert was
+    // painted behind the dialog's own overlay, where nobody could read it.
+    expect(await screen.findByTestId('text-remove-failed')).toBeTruthy();
     expect(screen.getByTestId('dialog-remove-student')).toBeTruthy();
     expect(await listPersons()).toHaveLength(1);
+  });
+
+  it('does not claim a student has no attendance when the check failed', async () => {
+    const saved = await addPerson(jane);
+    vi.spyOn(attendanceStore, 'previewPersonRemoval').mockRejectedValue(
+      new Error('storage unavailable'),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-manager');
+
+    await user.click(screen.getByTestId(`button-remove-person-${saved.id}`));
+
+    // Substituting a zero cost would have said "has no attendance on this
+    // device" before an irreversible delete, which is a different claim from
+    // "we could not look".
+    const cost = await screen.findByTestId('text-removal-cost');
+    await waitFor(() =>
+      expect(cost.textContent).toMatch(/would not say|not sure|may delete more/i),
+    );
+    expect(cost.textContent).not.toMatch(/no attendance on this device/i);
   });
 
 });

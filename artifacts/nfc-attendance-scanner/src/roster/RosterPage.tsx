@@ -43,24 +43,31 @@ export function RosterPage() {
   const [removalCost, setRemovalCost] = useState<PersonRemoval | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
   const [removalError, setRemovalError] = useState(false);
+  // The cost check failed, which is not the same as "no attendance": telling
+  // the operator a student has none when we could not look would understate an
+  // irreversible action.
+  const [costUnknown, setCostUnknown] = useState(false);
   const [removedNotice, setRemovedNotice] = useState<string | null>(null);
 
   const askToRemove = useCallback((person: Person) => {
     setRemovedNotice(null);
     setRemovalError(false);
     setRemovalCost(null);
+    setCostUnknown(false);
     setPendingRemoval(person);
     if (person.id === undefined) return;
     // Not awaited: the dialog opens straight away and says "checking…" until
     // this lands, rather than the button hanging with nothing on screen.
     void previewPersonRemoval(person.id)
       .then(setRemovalCost)
-      .catch(() => setRemovalCost({ tapCount: 0, sessionCount: 0 }));
+      .catch(() => setCostUnknown(true));
   }, []);
 
   const cancelRemoval = useCallback(() => {
     setPendingRemoval(null);
     setRemovalCost(null);
+    setCostUnknown(false);
+    setRemovalError(false);
   }, []);
 
   const confirmRemoval = useCallback(async () => {
@@ -280,6 +287,8 @@ export function RosterPage() {
         <RemoveStudentDialog
           person={pendingRemoval}
           removal={removalCost}
+          costUnknown={costUnknown}
+          failed={removalError}
           isRemoving={isRemoving}
           onConfirm={() => void confirmRemoval()}
           onCancel={cancelRemoval}

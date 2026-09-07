@@ -13,6 +13,8 @@ type FeedbackPanelProps = {
   lastUid: string;
   lastPerson?: Person;
   lastScannedAt: string;
+  /** When a repeat tap's student was actually counted; falls back to the tap. */
+  lastCountedAt?: string;
   isSaving: boolean;
   /**
    * True once the opening read has confirmed there is nobody on this device.
@@ -44,6 +46,7 @@ export function FeedbackPanel({
   lastUid,
   lastPerson,
   lastScannedAt,
+  lastCountedAt = '',
   isSaving,
   rosterEmpty,
 }: FeedbackPanelProps) {
@@ -81,7 +84,7 @@ export function FeedbackPanel({
                               : 'Ready for next tap';
   const detail =
     feedback === 'duplicate'
-      ? `Already counted at ${formatTime(lastScannedAt)} — no need to tap again`
+      ? `Already counted at ${formatTime(lastCountedAt || lastScannedAt)} — no need to tap again`
       : feedback === 'valid'
         ? `${personName} · ${formatTime(lastScannedAt)}`
         : feedback === 'unknown'

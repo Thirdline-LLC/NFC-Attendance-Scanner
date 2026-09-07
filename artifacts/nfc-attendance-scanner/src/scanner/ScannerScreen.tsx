@@ -45,6 +45,7 @@ export function ScannerScreen() {
     lastUid,
     lastPerson,
     lastScannedAt,
+    lastCountedAt,
     enrollmentCandidate,
     sessionSummary,
     metrics,
@@ -441,6 +442,7 @@ export function ScannerScreen() {
                   lastUid={lastUid}
                   lastPerson={lastPerson}
                   lastScannedAt={lastScannedAt}
+                  lastCountedAt={lastCountedAt}
                   isSaving={isSaving}
                   rosterEmpty={rosterEmpty}
                 />

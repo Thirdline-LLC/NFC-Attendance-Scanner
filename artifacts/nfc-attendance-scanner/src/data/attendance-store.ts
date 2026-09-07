@@ -343,6 +343,8 @@ export async function recordSessionTap(input: {
 }): Promise<{
   tap: TapRecord;
   priorCounted: boolean;
+  /** When this card was actually counted, for a repeat tap to report. */
+  priorCountedAt: string | null;
   attendanceCount: number;
 }> {
   return database.transaction('rw', tapsTable, async () => {
@@ -359,6 +361,7 @@ export async function recordSessionTap(input: {
     return {
       tap: { ...tap, id },
       priorCounted: Boolean(prior),
+      priorCountedAt: prior?.scannedAt ?? null,
       attendanceCount,
     };
   });

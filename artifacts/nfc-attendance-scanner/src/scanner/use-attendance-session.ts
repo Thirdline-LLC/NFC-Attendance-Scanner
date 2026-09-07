@@ -85,6 +85,10 @@ export function useAttendanceSession(mode: ScannerMode) {
   const [lastUid, setLastUid] = useState('');
   const [lastPerson, setLastPerson] = useState<Person | undefined>();
   const [lastScannedAt, setLastScannedAt] = useState('');
+  // When a repeat tap's student was actually counted. `lastScannedAt` is the
+  // repeat's own clock reading, so reporting that would tell the operator the
+  // student checked in a moment ago whenever they tap again.
+  const [lastCountedAt, setLastCountedAt] = useState('');
   const [enrollmentCandidate, setEnrollmentCandidate] =
     useState<EnrollmentCandidate | null>(null);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(
@@ -347,6 +351,7 @@ export function useAttendanceSession(mode: ScannerMode) {
         setLastUid(uid);
         setLastPerson(person);
         setLastScannedAt(scannedAt);
+        setLastCountedAt(committed.priorCountedAt ?? scannedAt);
         // Only the milder failure clears on a good write. A store that never
         // opened has still never been read, so 'unavailable' keeps its panel
         // and its Retry button and asks for the read instead; the status only
@@ -558,6 +563,7 @@ export function useAttendanceSession(mode: ScannerMode) {
     lastUid,
     lastPerson,
     lastScannedAt,
+    lastCountedAt,
     enrollmentCandidate,
     sessionSummary,
     metrics,

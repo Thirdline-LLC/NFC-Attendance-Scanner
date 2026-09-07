@@ -21,14 +21,23 @@ identifier issued by anyone but the school.
 ## What leaves the device
 
 **Nothing, on its own.** The app has no server, no account system, and no
-analytics. There is no code in it capable of making a network request: no
-`fetch`, no `XMLHttpRequest`, no `WebSocket`, no `sendBeacon`, no HTTP client
-of any kind. Fonts are bundled rather than fetched, so the app makes zero
-network requests even at startup. This is verifiable — from
-`artifacts/nfc-attendance-scanner`:
+analytics. Nothing in it initiates a network request: no `fetch`, no
+`XMLHttpRequest`, no `WebSocket`, no `sendBeacon` and no HTTP client is called
+anywhere in the source. Fonts are bundled rather than fetched, so the app makes
+zero network requests even at startup.
+
+One precision, because the stronger claim would be false: the shipped bundle
+does *contain* a `fetch` call, in `@capacitor/core`'s HTTP plugin, which the
+native build pulls in for the file and share plugins. Nothing in this app calls
+it. The honest statement is that no code path here reaches the network, not
+that the bundle is incapable of it.
+
+Both are verifiable — from `artifacts/nfc-attendance-scanner`:
 
 ```bash
 grep -rnE '\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|axios' src --include=*.ts --include=*.tsx
+# and, on the built bundle, the only HTTP code that ships (Capacitor's, unused):
+grep -oF 'fetch(' dist/public/assets/index-*.js
 ```
 
 Data leaves only when a person deliberately exports it, and then only to
@@ -44,6 +53,11 @@ The app's *source code* was written with the help of an AI coding assistant.
 That is a development tool, in the same category as a compiler or an editor,
 and it is not part of what gets installed on a device. No real student record
 was ever used in that work: every name in the test suite is invented.
+
+On Android the app declares `android:allowBackup="false"`, so the roster and
+attendance are not eligible for Android Auto Backup to a Google account. That
+default was on in the generated project and would have sent exactly the data
+this document says stays local.
 
 ## The exported workbook is the real exposure
 

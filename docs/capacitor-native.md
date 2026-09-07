@@ -419,11 +419,21 @@ iOS actually honours them — that needs a device.
 
 What is left:
 
-- **Android scoping.** On modern Android `Directory.Documents` is app-scoped
-  storage, not the shared Documents folder. The share step is what gets the
-  workbook somewhere durable; do not tell an operator to "look in Documents".
-  There is no plist-style switch for this; it is a wording problem, not a
-  configuration one.
+- **Android storage, stated correctly.** An earlier version of this section had
+  it backwards. `Directory.Documents` resolves through
+  `Environment.getExternalStoragePublicDirectory(DIRECTORY_DOCUMENTS)` — the
+  *shared* Documents folder, not app-private storage. What Android 11+ scopes
+  is reading: the app can only see files it created there. So an operator can
+  be told to look in Documents; they will find the export, and not much else.
+  Two consequences that are configuration, not wording:
+  `WRITE_/READ_EXTERNAL_STORAGE` are now declared with `maxSdkVersion="29"`,
+  because on API 24–29 the plugin needs them and would otherwise fail on
+  Android 7–10; and `android:allowBackup` is now `false`, since the generated
+  default would have made the roster eligible for Android Auto Backup.
+- **A privacy manifest for iOS.** `@capacitor/filesystem` requires
+  `PrivacyInfo.xcprivacy` declaring `NSPrivacyAccessedAPICategoryFileTimestamp`
+  with reason `C617.1` for App Store or TestFlight submission. It is not in
+  `ios/` yet; add it before the first upload, or discover it at rejection.
 - **Everything in [Three things to check on a real device](#three-things-to-check-on-a-real-device)**,
   which is still entirely unrun.
 
@@ -473,8 +483,8 @@ end:
    report success — the file is already written — and the file must be in
    Documents.
 5. Find it without the sheet: iOS, the Files app, which needs the `Info.plist`
-   keys named above; Android, via the share target, since Documents is
-   app-scoped.
+   keys named above; Android, the shared Documents folder, where the app can
+   see the files it wrote.
 6. Attach a debugger to the WebView (Safari → Develop → the device, or
    `chrome://inspect`) and watch for a rejected `Filesystem.writeFile`. That
    one throws, so it should be visible rather than silent.
