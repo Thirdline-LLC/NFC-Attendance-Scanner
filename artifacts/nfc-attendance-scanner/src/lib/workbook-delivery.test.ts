@@ -5,6 +5,7 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
+import { buildAttendanceWorkbook } from './attendance-export';
 import { deliverWorkbook } from './workbook-delivery';
 
 // `XLSX.writeFile` is a module export, which ESM will not let vi.spyOn touch —
@@ -36,6 +37,51 @@ const share = vi.mocked(Share.share);
 const browserDownload = vi.mocked(XLSX.writeFile);
 
 const SAVED_URI = 'file:///Documents/attendance-2026-09-06-x.xlsx';
+const DEVICE_PERSONS = [
+  {
+    id: 1,
+    cardUid: '04A1B2C3D4E5F6',
+    firstName: 'Jordan',
+    lastName: 'Lee',
+    gradYear: 2027,
+    email: 'jlee27@stjohnschs.org',
+    enrolledAt: '2026-09-01T10:00:00.000Z',
+  },
+  {
+    id: 2,
+    cardUid: '04F6E5D4C3B2A1',
+    firstName: 'Priya',
+    lastName: 'Nair',
+    gradYear: 2028,
+    email: 'pnair28@stjohnschs.org',
+    enrolledAt: '2026-09-02T10:00:00.000Z',
+  },
+] as const;
+const DEVICE_TAPS = [
+  {
+    uid: DEVICE_PERSONS[0].cardUid,
+    scannedAt: '2026-09-15T16:00:00.000Z',
+    personId: DEVICE_PERSONS[0].id,
+    sessionId: 'device-check',
+    counted: true,
+  },
+  {
+    // A migrated tap has no person id, but its card is now enrolled and must
+    // resolve to the current roster entry when the export is built.
+    uid: DEVICE_PERSONS[1].cardUid,
+    scannedAt: '2026-09-15T16:05:00.000Z',
+    personId: null,
+    sessionId: 'legacy',
+    counted: false,
+  },
+  {
+    uid: '0011223344AABB',
+    scannedAt: '2026-09-15T16:10:00.000Z',
+    personId: null,
+    sessionId: 'device-check',
+    counted: false,
+  },
+] as const;
 
 function aWorkbook() {
   const worksheet = XLSX.utils.json_to_sheet([{ Name: 'Jordan Lee' }]);
@@ -121,3 +167,90 @@ describe('deliverWorkbook on a device', () => {
     await expect(deliverWorkbook(aWorkbook())).rejects.toThrow('no space');
   });
 });
+
+describe.each(['iOS', 'Android'] as const)(
+  'native workbook bytes on %s',
+  (platform) => {
+    const deviceDocuments = new Map<string, string>();
+
+    beforeEach(() => {
+      isNative.mockReturnValue(true);
+      canShare.mockResolvedValue({ value: true });
+      share.mockResolvedValue({ activityType: '' });
+      writeFile.mockImplementation(async ({ path, data }) => {
+        deviceDocuments.set(path, data);
+        return { uri: `file:///Documents/${path}` };
+      });
+    });
+
+    it('reopens the saved xlsx with known, migrated, and unknown-card rows', async () => {
+      const { filename, workbook } = buildAttendanceWorkbook(
+        DEVICE_TAPS,
+        DEVICE_PERSONS,
+        new Date('2026-09-15T17:00:00.000Z'),
+      );
+
+      const delivered = await deliverWorkbook({ filename, workbook });
+
+      expect(delivered.delivery).toBe('file');
+      expect(delivered.uri).toBe(`file:///Documents/${filename}`);
+      expect(deviceDocuments.has(filename)).toBe(true);
+
+      const savedBase64 = deviceDocuments.get(filename);
+      expect(savedBase64).toBeDefined();
+      const reopened = XLSX.read(savedBase64, { type: 'base64' });
+      const rows = XLSX.utils.sheet_to_json(reopened.Sheets.Attendance, {
+        defval: '',
+      });
+
+      expect(rows).toEqual([
+        {
+          Timestamp: '2026-09-15 12:00:00',
+          'Card UID': DEVICE_PERSONS[0].cardUid,
+          'Meeting Date': '2026-09-15',
+          Name: 'Jordan Lee',
+          Email: 'jlee27@stjohnschs.org',
+          Grade: '12',
+        },
+        {
+          Timestamp: '2026-09-15 12:05:00',
+          'Card UID': DEVICE_PERSONS[1].cardUid,
+          'Meeting Date': '2026-09-15',
+          Name: 'Priya Nair',
+          Email: 'pnair28@stjohnschs.org',
+          Grade: '11',
+        },
+        {
+          Timestamp: '2026-09-15 12:10:00',
+          'Card UID': '0011223344AABB',
+          'Meeting Date': '2026-09-15',
+          Name: 'Unknown card',
+          Email: '',
+          Grade: '',
+        },
+      ]);
+
+      // Keep the target in the test name: Capacitor uses this same native
+      // filesystem/share branch on both platforms, while the actual device
+      // check is still performed separately on an iPhone and an Android phone.
+      expect(platform).toMatch(/iOS|Android/);
+    });
+
+    it('keeps the saved workbook available after the share sheet is dismissed', async () => {
+      share.mockRejectedValue(new Error('Share canceled'));
+      const { filename, workbook } = buildAttendanceWorkbook(
+        DEVICE_TAPS,
+        DEVICE_PERSONS,
+        new Date('2026-09-15T17:00:00.000Z'),
+      );
+
+      const delivered = await deliverWorkbook({ filename, workbook });
+
+      expect(delivered.delivery).toBe('file');
+      expect(deviceDocuments.get(filename)).toBeDefined();
+      expect(
+        XLSX.read(deviceDocuments.get(filename)!, { type: 'base64' }).SheetNames,
+      ).toEqual(['Attendance']);
+    });
+  },
+);

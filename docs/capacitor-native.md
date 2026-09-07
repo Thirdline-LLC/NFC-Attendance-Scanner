@@ -426,6 +426,23 @@ because it can; a download tells the operator to go and check, because it
 cannot. That is the "say on screen whether it worked" requirement, and it is
 done on both platforms.
 
+The native delivery test also reopens the exact base64 string passed to
+`Filesystem.writeFile` as an `.xlsx`. It runs the same fixture under both native
+labels and checks three rows: a current known card (Jordan Lee, grade 12), a
+formerly-unresolved/migrated card that now resolves to Priya Nair (grade 11),
+and an unknown card (`0011223344AABB`) with the `Unknown card` name and blank
+student fields. A second case rejects the share call and reopens the saved
+bytes, proving that dismissing the sheet does not erase the file. Run it with:
+
+```bash
+pnpm --filter @workspace/nfc-attendance-scanner test -- src/lib/workbook-delivery.test.ts
+```
+
+This is a byte-level native bridge check, not a substitute for an iPhone or
+Android run: this container has neither Xcode/Android Studio nor physical
+devices, so the system share sheets and Files/Documents apps remain an explicit
+manual check below.
+
 #### Still to do on a real device
 
 The code is written and unit-tested. It has never run on iOS or Android,
@@ -501,7 +518,11 @@ device by design.
 it first, with a throwaway session on a real build. A native build no longer
 depends on the browser download at all — it writes the file itself and opens
 the share sheet — so what this checks is that the written path works end to
-end:
+end. Use the same three rows as the automated fixture: Jordan Lee on
+`04A1B2C3D4E5F6`, Priya Nair on `04F6E5D4C3B2A1` from a pre-enrollment/migrated
+tap, and unknown card `0011223344AABB`. The opened workbook must contain all
+three rows with meeting date `2026-09-15`, grades `12`, `11`, and blank for
+the unknown card, respectively.
 
 1. Check a card in, press **End Session**, press **Export**.
 2. A share sheet should appear. The on-screen notice should read *"Saved
@@ -520,6 +541,11 @@ end:
 6. Attach a debugger to the WebView (Safari → Develop → the device, or
    `chrome://inspect`) and watch for a rejected `Filesystem.writeFile`. That
    one throws, so it should be visible rather than silent.
+
+Repeat steps 1–5 on both an iPhone/iPad build and an Android build. Record the
+OS version, app build, and whether the dismissed-share copy was found in
+Files/Documents. Do not call this native export verified until the workbook
+opens successfully on both platforms and the unknown-card row is present.
 
 Until this has been run on a build someone will actually use, treat the
 "the .xlsx is the system of record" line as proven for the web app only.
