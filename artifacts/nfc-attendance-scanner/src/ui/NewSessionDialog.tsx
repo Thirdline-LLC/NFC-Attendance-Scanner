@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { AlertTriangle, Download, RotateCcw } from 'lucide-react';
 import type { SessionMetrics } from '@/scanner/use-attendance-session';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
+import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
 
 type NewSessionDialogProps = {
   /** This session's figures, so the operator sees what is about to leave the screen. */
@@ -33,9 +34,11 @@ export function NewSessionDialog({
   onCancel,
 }: NewSessionDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   // Whatever had the keyboard when the question was asked — usually "Start New
   // Session" in the summary underneath.
   const previouslyFocused = useRef<Element | null>(null);
+  useModalFocusTrap(dialogRef);
 
   // Least destructive button first: a stray Enter on a kiosk must not rotate.
   // Focus is handed back on the way out, because the summary may still be open
@@ -71,6 +74,7 @@ export function NewSessionDialog({
     // Scrolls, and centres through the child's `m-auto`, so no button can end
     // up off-screen on a short viewport. See SessionSummary for the why.
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-[hsl(var(--background)/.86)] px-5 py-8 backdrop-blur-sm"
       role="alertdialog"
       aria-modal="true"

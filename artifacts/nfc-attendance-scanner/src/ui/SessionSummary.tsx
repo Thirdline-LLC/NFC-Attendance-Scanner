@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import type { SessionSummary as SessionSummaryData } from '@/scanner/use-attendance-session';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
+import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
 
 type SessionSummaryProps = {
   summary: SessionSummaryData;
@@ -28,9 +29,11 @@ export function SessionSummary({
   isCovered = false,
 }: SessionSummaryProps) {
   const dismissRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   // Whatever had focus when End Session was pressed, so closing the summary
   // hands the keyboard back rather than dropping it on the body.
   const previouslyFocused = useRef<Element | null>(null);
+  useModalFocusTrap(dialogRef, !isCovered);
 
   // Claiming aria-modal while leaving focus on the page behind is a lie to a
   // screen reader, so the least destructive control takes it — and a stray
@@ -74,6 +77,7 @@ export function SessionSummary({
     // zero when there is no room to share, so the panel simply scrolls.
     <div className="fixed inset-0 z-20 flex overflow-y-auto overscroll-contain bg-[hsl(var(--background)/.88)] px-5 py-8 backdrop-blur-sm">
       <section
+        ref={dialogRef}
         className="m-auto w-full max-w-xl rounded-[1.7rem] border border-[hsl(var(--primary)/.55)] bg-[hsl(var(--card))] p-6 shadow-[0_24px_90px_hsl(211_55%_5%/.5)] sm:p-8"
         role="dialog"
         aria-modal="true"

@@ -4,6 +4,7 @@ import { AlertTriangle, Trash2 } from 'lucide-react';
 import type { Person } from '@/data/attendance-store';
 import type { PersonRemoval } from '@/data/attendance-store';
 import { maskCardUid } from '@/lib/scan-format';
+import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
 
 type RemoveStudentDialogProps = {
   person: Person;
@@ -36,7 +37,9 @@ export function RemoveStudentDialog({
   onCancel,
 }: RemoveStudentDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const previouslyFocused = useRef<Element | null>(null);
+  useModalFocusTrap(dialogRef);
 
   // Least destructive button first: a stray Enter on a kiosk must not erase a
   // student. Focus goes back to whatever asked, which is the row's own button.
@@ -69,6 +72,7 @@ export function RemoveStudentDialog({
   return (
     <div className="fixed inset-0 z-30 flex overflow-y-auto bg-[hsl(var(--background)/.88)] px-5 py-8 backdrop-blur-sm">
       <section
+        ref={dialogRef}
         className="m-auto w-full max-w-lg rounded-[1.7rem] border border-[hsl(var(--destructive)/.55)] bg-[hsl(var(--card))] p-6 shadow-[0_24px_90px_hsl(211_55%_5%/.5)] sm:p-8"
         role="alertdialog"
         aria-modal="true"
