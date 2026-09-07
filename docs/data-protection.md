@@ -47,8 +47,12 @@ was ever used in that work: every name in the test suite is invented.
 
 ## The exported workbook is the real exposure
 
-The `.xlsx` export contains student names, school email addresses and grade
-levels in plain text. It is the app's system of record by design — the point is
+The `.xlsx` export contains, for every tap: the student's name, school email
+address and grade level, the card's full UID, and the timestamp — all in plain
+text. The card UID is masked everywhere on screen but deliberately complete
+here, because the export is the record and a masked identifier could not be
+reconciled later. That makes the file more identifying than any single screen
+in the app. It is the app's system of record by design — the point is
 that attendance survives a lost device — but it is also the only way this data
 travels.
 
