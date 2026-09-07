@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>SJC Attendance</title>
+  <!--
+    The contactless tap mark: three arcs, no fill and no lettering, so it still
+    reads at 48px. Colours are the kiosk's own tokens from src/index.css,
+    background hsl(211 56% 12%) and primary hsl(42 92% 67%).
+  -->
+  <g transform="translate(-1.1,-46.9) scale(1.183)" fill="none" stroke="#F8CA5D" stroke-width="30" stroke-linecap="round">
+    <path d="M222.3 137.8 A150 150 0 0 1 222.3 374.2"/>
+    <path d="M188.5 181.1 A95 95 0 0 1 188.5 330.9"/>
+    <path d="M154.6 224.5 A40 40 0 0 1 154.6 287.5"/>
+  </g>
+</svg>
