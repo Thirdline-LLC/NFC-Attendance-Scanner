@@ -200,4 +200,19 @@ describe('RosterPage', () => {
       'Jane',
     );
   });
+
+  it('warns that cards are not being recorded while this page is open', async () => {
+    await addPerson(jane);
+    renderPage();
+
+    // The reader types into whatever has focus, and here that is nothing, so
+    // a tap at the desk is swallowed. Saying so is the only honest option.
+    const notice = await screen.findByTestId('text-scans-paused');
+    expect(notice.textContent).toContain('not');
+    expect(notice.textContent).toMatch(/not being recorded/i);
+    expect(
+      within(notice).getByTestId('link-scanner-resume').getAttribute('href'),
+    ).toBe('/');
+  });
+
 });

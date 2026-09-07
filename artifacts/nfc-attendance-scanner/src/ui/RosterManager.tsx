@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Pencil,
@@ -52,20 +52,64 @@ function cardTail(cardUid: string): string {
  * The reader types one character at a time, so waiting for the whole value to
  * be a valid UID is always too late: every prefix up to thirteen characters
  * rested in the field first, and a UID pasted next to other text never
- * collapsed at all. Instead no run of hex characters is ever allowed past four
- * anywhere in the value — the same four `maskCardUid` shows — so the longest
- * card fragment that can exist in the DOM is the tail the rows already print.
+ * collapsed at all. So runs are collapsed wherever they appear, to the same
+ * four characters `maskCardUid` shows.
  *
- * The cost is that an all-hex word ("deface", "deedee") is cut to its last
- * four too. It still finds its student: name, email and card matching are all
- * substring matches, so "edee" finds Deedee exactly as "deedee" did.
+ * What counts as a run has to be narrow, though, because hex letters are just
+ * a-f and ordinary words are full of them. Collapsing every run of five cut
+ * "Rebecca" down to "RECCA" — not a substring of the name, so the student
+ * became unfindable. Three rules keep cards out without eating names:
+ *
+ * - five or more hex characters including a digit. Names never carry digits,
+ *   and a scanned UID reaches five characters with one almost at once.
+ * - seven or more regardless, which catches the leading letters of a UID whose
+ *   digits come late. English has no seven-letter word inside [a-f]; the
+ *   longest that turn up are six ("deface", "facade"), which stay searchable.
+ * - any further hex arriving onto a run already cut, which is what holds the
+ *   ceiling at four: once a card is being typed, the letters still to come are
+ *   part of it. See `withoutCardRuns`.
  */
 const CARD_RUN = /[0-9a-fA-F]{5,}/g;
+const TRAILING_RUN = /[0-9a-fA-F]{5,}$/;
 
-function withoutCardRuns(value: string): string {
-  // Upper-cased because what survives is a card tail, printed the way the
-  // rows print theirs; every matcher compares case-insensitively anyway.
-  return value.replace(CARD_RUN, (run) => cardTail(run.toUpperCase()));
+/**
+ * A run long enough to be card input on its own evidence: it carries a digit,
+ * which no name does, or it is longer than any English word inside [a-f] (the
+ * longest that turn up are six — "deface", "facade").
+ */
+function isCardRun(run: string): boolean {
+  return run.length >= 7 || /\d/.test(run);
+}
+
+/**
+ * Collapses card input out of the search value, returning whether it did.
+ *
+ * `continuing` is the previous call's answer, and it is what makes four
+ * characters a hard ceiling. A reader types one character at a time, so once
+ * the run has been cut, the characters still arriving belong to the same card
+ * — even the stretch of a UID that happens to be all letters, which nothing in
+ * the value itself would give away. Ending the run (a space, a letter outside
+ * [a-f]) drops the flag, and the next word is treated as a name again.
+ */
+function withoutCardRuns(
+  value: string,
+  continuing = false,
+): { value: string; capped: boolean } {
+  let capped = false;
+  // Upper-cased because what survives is a card tail, printed the way the rows
+  // print theirs; every matcher compares case-insensitively anyway.
+  const collapse = (run: string) => {
+    capped = true;
+    return cardTail(run.toUpperCase());
+  };
+
+  let next = value.replace(CARD_RUN, (run) =>
+    isCardRun(run) ? collapse(run) : run,
+  );
+
+  if (continuing) next = next.replace(TRAILING_RUN, collapse);
+
+  return { value: next, capped };
 }
 
 /**
@@ -144,7 +188,16 @@ export function RosterManager({
   const searchId = useId();
   // Collapsed on the way in as well: nothing may put a card into the field,
   // however it arrives.
-  const [query, setQuery] = useState(() => withoutCardRuns(initialQuery));
+  const [query, setQuery] = useState(() => withoutCardRuns(initialQuery).value);
+  // Whether the last keystroke cut a card run, so the rest of the same burst
+  // keeps being cut even where it reads like a word.
+  const cardRunCapped = useRef(false);
+
+  const search = (raw: string) => {
+    const { value, capped } = withoutCardRuns(raw, cardRunCapped.current);
+    cardRunCapped.current = capped;
+    setQuery(value);
+  };
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const sorted = useMemo(() => [...persons].sort(compareByName), [persons]);
@@ -217,7 +270,7 @@ export function RosterManager({
             id={searchId}
             type="search"
             value={query}
-            onChange={(event) => setQuery(withoutCardRuns(event.target.value))}
+            onChange={(event) => search(event.target.value)}
             placeholder="Name, email, or the last 4 of a card"
             className="w-full appearance-none rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] py-3 pl-10 pr-11 text-base font-normal text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)] sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
             autoComplete="off"
@@ -228,7 +281,10 @@ export function RosterManager({
           {query !== '' ? (
             <button
               type="button"
-              onClick={() => setQuery('')}
+              onClick={() => {
+                cardRunCapped.current = false;
+                setQuery('');
+              }}
               aria-label="Clear search"
               className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
               data-testid="button-roster-clear"

@@ -65,6 +65,19 @@ const bobSmith: Person = {
   enrolledAt: '2026-09-01T12:04:00.000Z',
 };
 
+// "Rebecca" hides the six-character hex run "ebecca", and "Facade" is six of
+// them on its own. Both must stay searchable: the rule that keeps card digits
+// out of the field cannot be allowed to eat ordinary names.
+const rebeccaFacade: Person = {
+  id: 6,
+  cardUid: '04C0FFEE001122',
+  firstName: 'Rebecca',
+  lastName: 'Facade',
+  gradYear: 2028,
+  email: 'rfacade28@stjohnschs.org',
+  enrolledAt: '2026-09-01T12:05:00.000Z',
+};
+
 // Deliberately not in display order.
 const roster: Person[] = [
   janeSmith,
@@ -296,6 +309,40 @@ describe('RosterManager search', () => {
     expect(search.value).toBe('jE5F6');
     expect(document.body.innerHTML).not.toContain('04A1B2C3D4E5F6');
     expect(screen.getByTestId('text-roster-no-match')).toBeTruthy();
+  });
+
+  it('still finds a name that hides a run of hex letters', async () => {
+    const { user, search, rowIds } = renderRoster({
+      persons: [...roster, rebeccaFacade],
+    });
+
+    // Collapsing every five-character run cut this to "RECCA", which is not a
+    // substring of "Rebecca", so she could not be found at all.
+    await user.type(search, 'Rebecca');
+
+    expect(search.value).toBe('Rebecca');
+    expect(rowIds()).toEqual(['row-person-6']);
+  });
+
+  it('still finds a surname that is nothing but hex letters', async () => {
+    const { user, search, rowIds } = renderRoster({
+      persons: [...roster, rebeccaFacade],
+    });
+
+    await user.type(search, 'Facade');
+
+    expect(search.value).toBe('Facade');
+    expect(rowIds()).toEqual(['row-person-6']);
+  });
+
+  it('collapses a run of hex letters long enough to be a card, not a word', async () => {
+    const { user, search } = renderRoster();
+
+    // Seven is past the longest English word inside [a-f], so a run this long
+    // is the leading letters of a UID whose digits have not arrived yet.
+    await user.type(search, 'deadbee');
+
+    expect(search.value).toBe('DBEE');
   });
 
   it('leaves a short all-hex query to the names rather than to card tails', async () => {

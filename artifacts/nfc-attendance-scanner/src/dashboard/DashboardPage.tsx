@@ -13,6 +13,7 @@ import {
   type DashboardMetrics,
 } from '@/lib/attendance-metrics';
 import { Dashboard } from '@/ui/Dashboard';
+import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 
 /**
  * The container behind `Dashboard`: it reads the whole tap history and the
@@ -105,6 +106,8 @@ export function DashboardPage() {
             </Link>
           </div>
         </header>
+
+        <ScansPausedNotice />
 
         {/* A refresh that fails keeps the numbers already on screen; they are
             still true, only older than the button implied. */}

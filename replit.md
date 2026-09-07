@@ -70,9 +70,13 @@ The scanner has no backend, authentication, analytics, API routes, or database s
   One helper, `maskCardUid` in `src/lib/scan-format.ts`, produces the `••••` +
   last-4 string everywhere a card is named on screen. The roster search box is
   the one field a whole UID can be typed into — tapping a card with it focused
-  types all fourteen characters, one at a time — so no run of hex characters is
-  allowed past four anywhere in its value, which is the longest fragment the
-  rows already print. The tail searches identically.
+  types all fourteen characters, one at a time — so a card run is cut to four
+  there, the longest fragment the rows already print, and the tail searches
+  identically. Hex letters are only a-f, so the rule cannot be "cut every run
+  of five": that turned "Rebecca" into "RECCA" and lost her. A run is card
+  input if it carries a digit, if it is longer than any English word inside
+  [a-f], or if it extends a run already cut — that last is what holds the
+  ceiling at four once a reader has started typing.
 
 ## Product
 
@@ -90,8 +94,10 @@ input. Three routes:
   for confirmation first.
 - `/roster` — every student on the device: search by name, email or the last
   four of a card, and correct a name, class year or email in place. The card a
-  student enrolled with stays theirs.
-- `/dashboard` — year to date (the school year rolls over Aug 1): average
+  student enrolled with stays theirs. Cards are not recorded while this page is
+  open, and it says so.
+- `/dashboard` — same warning that cards are not being recorded here. Year to
+  date (the school year rolls over Aug 1): average
   attendance against the 50-per-session target, sessions held, unique students,
   grade breakdown, and the cards that still resolve to nobody — those last
   figures are all-time, not year-to-date, and say so on the card. Its "Export

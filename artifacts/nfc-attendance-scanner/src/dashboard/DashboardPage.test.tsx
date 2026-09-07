@@ -200,4 +200,13 @@ describe('DashboardPage', () => {
     // Still true, only older than the button implied.
     expect(screen.getByTestId('text-sessions-count').textContent).toBe('2');
   });
+
+  it('warns that cards are not being recorded while this page is open', async () => {
+    renderPage();
+
+    const notice = await screen.findByTestId('text-scans-paused');
+    expect(notice.textContent).toMatch(/not being recorded/i);
+    expect(within(notice).getByTestId('link-scanner-resume')).toBeTruthy();
+  });
+
 });

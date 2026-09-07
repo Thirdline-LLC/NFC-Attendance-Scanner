@@ -8,6 +8,7 @@ import {
   type Person,
 } from '@/data/attendance-store';
 import { RosterManager, type PersonChanges } from '@/ui/RosterManager';
+import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 
 /**
  * The container behind `RosterManager`: it owns the roster read, the write and
@@ -116,6 +117,8 @@ export function RosterPage() {
             </Link>
           </div>
         </header>
+
+        <ScansPausedNotice />
 
         {duplicateMessage ? (
           <p
