@@ -271,7 +271,7 @@ export function RosterManager({
             type="search"
             value={query}
             onChange={(event) => search(event.target.value)}
-            placeholder="Name, email, or the last 4 of a card"
+            placeholder="Name, email, or last 4 of card"
             className="w-full appearance-none rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] py-3 pl-10 pr-11 text-base font-normal text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)] sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
             autoComplete="off"
             autoCapitalize="off"

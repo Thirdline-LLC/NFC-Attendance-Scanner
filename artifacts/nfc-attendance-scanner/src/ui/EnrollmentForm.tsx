@@ -19,6 +19,13 @@ type EnrollmentFormProps = {
   roster: Person[];
   isSaving: boolean;
   storageError: boolean;
+  /**
+   * A save that failed for a reason storage cannot explain — an address that
+   * turned out to belong to somebody else. Shown in place of the storage
+   * banner, because "check browser storage and try again" would send the
+   * operator after the wrong problem.
+   */
+  saveErrorMessage?: string;
   onSave: (details: {
     firstName: string;
     lastName: string;
@@ -57,6 +64,7 @@ export function EnrollmentForm({
   roster,
   isSaving,
   storageError,
+  saveErrorMessage = '',
   onSave,
   onCancel,
 }: EnrollmentFormProps) {
@@ -213,7 +221,20 @@ export function EnrollmentForm({
           Cancel
         </button>
       </div>
-      {storageError ? (
+      {saveErrorMessage ? (
+        <div
+          className="mb-4 flex items-start gap-2.5 rounded-xl border border-[hsl(var(--destructive)/.45)] bg-[hsl(var(--destructive)/.08)] px-3 py-2.5 text-sm text-[hsl(var(--destructive))]"
+          role="alert"
+          data-testid="text-enrollment-save-error"
+        >
+          <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0" size={16} />
+          <span>
+            <strong className="font-semibold">Not saved.</strong>{' '}
+            {saveErrorMessage} Pick a different address; your other details are
+            still here.
+          </span>
+        </div>
+      ) : storageError ? (
         <div
           className="mb-4 flex items-start gap-2.5 rounded-xl border border-[hsl(var(--destructive)/.45)] bg-[hsl(var(--destructive)/.08)] px-3 py-2.5 text-sm text-[hsl(var(--destructive))]"
           role="alert"

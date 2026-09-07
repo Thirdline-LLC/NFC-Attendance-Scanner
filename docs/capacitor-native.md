@@ -381,10 +381,11 @@ for `https://` and so enumerated the survivors wrongly. What matches is inert,
 in four groups:
 
 - **XML namespaces**, the overwhelming majority — SheetJS's OOXML and
-  OpenDocument identifiers (`schemas.openxmlformats.org`, `purl.org/dc`,
-  `openoffice.org`) and the browser's own (`w3.org/2000/svg`,
-  `w3.org/1999/xhtml`). Namespaces are names, not addresses; nothing resolves
-  them.
+  OpenDocument identifiers (`schemas.openxmlformats.org`,
+  `schemas.microsoft.com`, `purl.oclc.org`, `purl.org/dc`,
+  `docs.oasis-open.org`, `openoffice.org`) and the browser's own
+  (`w3.org/2000/svg`, `w3.org/1999/xhtml`). Namespaces are names, not
+  addresses; nothing resolves them.
 - **Links printed into error messages**: React's `reactjs.org/docs/error-decoder`,
   `reactrouter.com/...`, Dexie's `bit.ly/2kdckMn` (in its "Transaction committed
   too early" text) and SheetJS's `tinyurl.com/y2uuvskb`. They are shown to a

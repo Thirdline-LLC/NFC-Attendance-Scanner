@@ -23,6 +23,12 @@
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);
+  /* Every heading carries `font-display`. It resolved to nothing once the
+     remote Space Grotesk import went away, so the headings silently used the
+     body face; pointing it at that same stack makes the class honest without
+     changing a pixel. Swap this one line to give the headings their own face
+     — and add the woff2 beside the others, since nothing is fetched. */
+  --font-display: var(--app-font-sans);
 }
 
 :root {

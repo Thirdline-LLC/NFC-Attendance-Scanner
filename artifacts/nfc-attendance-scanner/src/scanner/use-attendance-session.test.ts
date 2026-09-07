@@ -635,6 +635,62 @@ describe('storage recovery', () => {
     expect(await countSessionAttendance(result.current.sessionId)).toBe(2);
   });
 
+  it('tells a taken address apart from a storage failure', async () => {
+    await addPerson(existingPerson);
+    // The form checks collisions against the roster it was handed, so reaching
+    // the store's guard means that copy was stale — a second kiosk tab, say.
+    vi.spyOn(attendanceStore, 'addPerson').mockRejectedValue(
+      new attendanceStore.DuplicateEmailError({
+        ...existingPerson,
+        id: 1,
+      }),
+    );
+    const { result } = renderHook(() => useAttendanceSession('enroll'));
+    await waitForReady(result);
+    await act(async () => {
+      await result.current.handleScan(newUid);
+    });
+
+    await act(async () => {
+      await result.current.enrollPerson({
+        firstName: 'Avery',
+        lastName: 'Chen',
+        gradYear: 2028,
+        email: existingPerson.email,
+      });
+    });
+
+    // Storage is fine; blaming it sends the operator after the wrong problem,
+    // and retrying the same address could only fail again.
+    expect(result.current.storageStatus).toBe('ready');
+    expect(result.current.storageError).toBe(false);
+    expect(result.current.saveErrorMessage).toContain(existingPerson.email);
+    // The typed details stay on screen so the address can be changed.
+    expect(result.current.enrollmentCandidate).not.toBeNull();
+  });
+
+  it('does not invite a retry that cannot work while the store is unreadable', async () => {
+    await addPerson(existingPerson);
+    vi.spyOn(attendanceStore, 'listPersons').mockRejectedValue(
+      new Error('storage unavailable'),
+    );
+    vi.spyOn(attendanceStore, 'recordSessionTap').mockRejectedValue(
+      new Error('storage unavailable'),
+    );
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+    expect(result.current.storageStatus).toBe('unavailable');
+
+    await act(async () => {
+      await result.current.handleScan(existingUid);
+    });
+
+    // 'storage-error' reads "check browser storage and try again"; there is
+    // nothing to retry here, and the card was not recorded.
+    expect(result.current.feedback).toBe('storage-unavailable');
+    expect(result.current.storageStatus).toBe('unavailable');
+  });
+
   it('flags a tap that did not save and clears it on the next good tap', async () => {
     await addPerson(existingPerson);
     vi.spyOn(attendanceStore, 'recordSessionTap').mockRejectedValueOnce(

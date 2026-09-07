@@ -54,6 +54,7 @@ export function ScannerScreen() {
     isSaving,
     storageError,
     storageStatus,
+    saveErrorMessage,
     retryStorage,
     handleScan,
     enrollPerson,
@@ -410,6 +411,7 @@ export function ScannerScreen() {
                   roster={persons}
                   isSaving={isSaving}
                   storageError={storageError}
+                  saveErrorMessage={saveErrorMessage}
                   onSave={handleEnrollPerson}
                   onCancel={handleCancelEnrollment}
                 />

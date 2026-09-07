@@ -154,6 +154,9 @@ export async function listTapRecords(): Promise<TapRecord[]> {
  * what a "recent sessions" list wants. Walks the `scannedAt` index instead of
  * loading every tap, since history is retained indefinitely.
  */
+// Nothing calls this yet: the dashboard derives its sessions from the taps it
+// already reads. Kept because it is the cheap way to ask "which sessions exist"
+// without loading every tap, and it is covered by tests.
 export async function listSessionIds(): Promise<string[]> {
   // A Set keeps insertion order, which here is first-tap order.
   const sessionIds = new Set<string>();

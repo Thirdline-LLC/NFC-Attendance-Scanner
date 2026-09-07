@@ -3,6 +3,7 @@ import {
   addPerson,
   countSessionAttendance,
   createNewSessionId,
+  DuplicateEmailError,
   findPersonByUid,
   getOrCreateSessionId,
   listPersons,
@@ -92,6 +93,9 @@ export function useAttendanceSession(mode: ScannerMode) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [storageStatus, setStorageStatus] = useState<StorageStatus>('checking');
+  // A save that failed for a reason storage cannot explain, phrased for the
+  // enrollment form rather than the feedback panel the form is covering.
+  const [saveErrorMessage, setSaveErrorMessage] = useState('');
   const feedbackTimer = useRef<number | undefined>(undefined);
   const mountedRef = useRef(true);
   const storageStatusRef = useRef<StorageStatus>('checking');
@@ -311,12 +315,16 @@ export function useAttendanceSession(mode: ScannerMode) {
           });
         }
       } catch {
-        // A store that never opened stays 'unavailable'; this is not the
-        // milder "one write missed" case, and the retry affordance must stay.
-        if (storageStatusRef.current !== 'unavailable') {
+        // A store that never opened stays 'unavailable': this is not the
+        // milder "one write missed" case, the retry affordance must stay, and
+        // "try again" is advice that cannot work. 'storage-unavailable' says
+        // the card was not recorded, which is the part that matters.
+        if (storageStatusRef.current === 'unavailable') {
+          announce('storage-unavailable');
+        } else {
           applyStorageStatus('save-failed');
+          announce('storage-error');
         }
-        announce('storage-error');
       }
     },
     [announce, applyStorageStatus, loadSession],
@@ -344,6 +352,7 @@ export function useAttendanceSession(mode: ScannerMode) {
       const candidate = candidateRef.current;
       if (!candidate) return;
 
+      setSaveErrorMessage('');
       setIsSaving(true);
       try {
         const existing = await findPersonByUid(candidate.uid);
@@ -382,9 +391,22 @@ export function useAttendanceSession(mode: ScannerMode) {
         setEnrollmentCandidate(null);
         applyStorageStatus('ready');
         announce(candidate.person ? 'updated' : 'enrolled', 1800);
-      } catch {
-        // The candidate is deliberately left open: EnrollmentForm keeps the
-        // typed details on screen so the save can simply be tried again.
+      } catch (error) {
+        // The candidate is deliberately left open in both branches:
+        // EnrollmentForm keeps the typed details on screen.
+        if (error instanceof DuplicateEmailError) {
+          // The address belongs to somebody else. Nothing is wrong with
+          // storage, so saying "check browser storage and try again" would
+          // send the operator after the wrong problem — and retrying the same
+          // address can only fail again. The form's own collision check runs
+          // against the roster it was handed, so reaching here means that copy
+          // was stale: a second kiosk tab, or a roster read that has not
+          // landed yet.
+          setSaveErrorMessage(error.message);
+          announce('existing');
+          return;
+        }
+        setSaveErrorMessage('');
         if (storageStatusRef.current !== 'unavailable') {
           applyStorageStatus('save-failed');
         }
@@ -487,6 +509,7 @@ export function useAttendanceSession(mode: ScannerMode) {
     isSaving,
     storageStatus,
     storageError,
+    saveErrorMessage,
     retryStorage: refreshFromStore,
     handleScan,
     enrollPerson,

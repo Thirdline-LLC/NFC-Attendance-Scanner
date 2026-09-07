@@ -4,9 +4,16 @@ A frontend-only kiosk screen for recording HID NFC attendance scans locally in t
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/nfc-attendance-scanner run dev` — run the scanner preview
-- `pnpm --filter @workspace/nfc-attendance-scanner run typecheck` — typecheck the scanner
-- `pnpm --filter @workspace/nfc-attendance-scanner run build` — build the scanner for production
+The Replit runner already serves the scanner on port 23205; check with
+`curl -s -o /dev/null -w '%{http_code}\n' http://localhost:23205/` before
+starting anything. `vite.config.ts` throws unless both `PORT` and `BASE_PATH`
+are set — including for `build`.
+
+- `pnpm --filter @workspace/nfc-attendance-scanner run test` — vitest
+- `pnpm --filter @workspace/nfc-attendance-scanner run typecheck` — tsc --noEmit
+- `PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run build` — production build
+- `pnpm --filter @workspace/nfc-attendance-scanner run build:native` — the Capacitor bundle (sets both itself)
+- `PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run dev` — only if 23205 is down
 
 The scanner has no backend, authentication, analytics, API routes, or database server. Scan records are stored in the browser with Dexie/IndexedDB.
 
