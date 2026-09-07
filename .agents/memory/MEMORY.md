@@ -1,1 +1,2 @@
 - [Enrollment recovery](enrollment-recovery.md) — failed roster writes preserve retryable details, show storage errors, and never claim success early.
+- [Fresh attendance state](fresh-attendance-state.md) — startup and recovery reads must not overwrite newer taps or a rotated session on screen.

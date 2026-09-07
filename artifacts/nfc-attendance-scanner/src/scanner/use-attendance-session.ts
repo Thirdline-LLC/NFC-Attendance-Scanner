@@ -100,6 +100,10 @@ export function useAttendanceSession(mode: ScannerMode) {
   const mountedRef = useRef(true);
   const storageStatusRef = useRef<StorageStatus>('checking');
   const queue = useRef(Promise.resolve());
+  // Opening/recovery reads can overlap a physical tap. If their snapshot was
+  // taken before that write, it must not roll the fresh count and tap list back
+  // off the screen when the read eventually resolves.
+  const tapWriteVersion = useRef(0);
   const modeRef = useRef(mode);
   const sessionIdRef = useRef(sessionId);
   const personsRef = useRef<Person[]>([]);
@@ -149,6 +153,7 @@ export function useAttendanceSession(mode: ScannerMode) {
   const loadSession = useCallback(async () => {
     applyStorageStatus('checking');
     const currentSessionId = sessionIdRef.current;
+    const readTapWriteVersion = tapWriteVersion.current;
 
     try {
       const [savedPersons, savedTaps, savedAttendanceCount] = await Promise.all(
@@ -160,10 +165,18 @@ export function useAttendanceSession(mode: ScannerMode) {
       );
       if (!mountedRef.current) return;
       personsRef.current = savedPersons;
-      tapsRef.current = savedTaps;
       setPersons(savedPersons);
-      setTaps(savedTaps);
-      setAttendanceCount(savedAttendanceCount);
+      // A read that began for an earlier session, or before a tap write, is
+      // valid storage data but stale UI data. The write/rotation callback owns
+      // the newer state, so do not replace it with this snapshot.
+      if (
+        sessionIdRef.current === currentSessionId &&
+        tapWriteVersion.current === readTapWriteVersion
+      ) {
+        tapsRef.current = savedTaps;
+        setTaps(savedTaps);
+        setAttendanceCount(savedAttendanceCount);
+      }
       applyStorageStatus('ready');
     } catch {
       if (!mountedRef.current) return;
@@ -277,6 +290,7 @@ export function useAttendanceSession(mode: ScannerMode) {
           person = personsRef.current.find((item) => item.cardUid === uid);
         }
         const scannedAt = new Date().toISOString();
+        tapWriteVersion.current += 1;
         const committed = await recordSessionTap({
           sessionId: sessionIdRef.current,
           uid,

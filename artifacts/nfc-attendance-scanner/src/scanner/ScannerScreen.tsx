@@ -206,6 +206,12 @@ export function ScannerScreen() {
     (event: React.PointerEvent<HTMLElement>) => {
       if (!captureEnabledRef.current) return;
       const target = event.target as Element | null;
+      if (target?.closest('[data-scanner-mode-button], [data-scanner-nav]')) {
+        // Scanner controls must not move focus away from the hidden reader.
+        // Their click/default navigation still runs after pointer-down.
+        event.preventDefault();
+        return;
+      }
       if (
         target?.closest(
           'a, button, input, select, textarea, [contenteditable="true"], [tabindex]',
@@ -213,6 +219,11 @@ export function ScannerScreen() {
       ) {
         return;
       }
+      // The reader input is intentionally hidden, so letting the browser run
+      // its default focus/selection behavior on page text can blur the reader
+      // after this handler returns. Prevent that only for non-controls: links,
+      // buttons and editable fields still need their native interaction.
+      event.preventDefault();
       focusScanner();
       window.setTimeout(focusScanner, 0);
     },
@@ -288,6 +299,7 @@ export function ScannerScreen() {
               to="/roster"
               className={NAV_PILL_CLASS}
               data-testid="link-roster"
+              data-scanner-nav
             >
               <Users aria-hidden="true" size={14} />
               Students
@@ -296,6 +308,7 @@ export function ScannerScreen() {
               to="/dashboard"
               className={NAV_PILL_CLASS}
               data-testid="link-dashboard"
+              data-scanner-nav
             >
               <BarChart3 aria-hidden="true" size={14} />
               Dashboard
@@ -520,6 +533,7 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
+        data-scanner-mode-button
       className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${active ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'}`}
       aria-pressed={active}
     >

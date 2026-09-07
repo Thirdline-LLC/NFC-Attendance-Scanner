@@ -16,6 +16,7 @@ import {
   countSessionAttendance,
   listPersons,
   listSessionIds,
+  listSessionTapRecords,
   listTapRecords,
   type Person,
 } from '@/data/attendance-store';
@@ -437,6 +438,51 @@ describe('check-in outcomes', () => {
     await act(async () => {
       releaseRead([{ ...existingPerson, id: saved.id }]);
     });
+  });
+
+  it('does not let an older opening read roll back a committed tap', async () => {
+    const saved = await addPerson(existingPerson);
+    let releaseTapRead: () => void = () => undefined;
+    const tapReadGate = new Promise<void>((resolve) => {
+      releaseTapRead = resolve;
+    });
+    const listTapsSpy = vi
+      .spyOn(attendanceStore, 'listSessionTapRecords')
+      .mockImplementation(async () => {
+        await tapReadGate;
+        return [];
+      });
+    const countSpy = vi
+      .spyOn(attendanceStore, 'countSessionAttendance')
+      .mockImplementation(async () => {
+        await tapReadGate;
+        return 0;
+      });
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+
+    await waitFor(() => expect(listTapsSpy).toHaveBeenCalledTimes(1));
+    const scanning = result.current.handleScan(existingUid);
+    await waitFor(async () => {
+      expect(await listTapRecords()).toHaveLength(1);
+    });
+    expect(result.current.count).toBe(1);
+    expect(result.current.taps[0]).toMatchObject({
+      uid: existingUid,
+      personId: saved.id,
+      counted: true,
+    });
+
+    releaseTapRead();
+    await act(async () => {
+      await scanning;
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // The opening read returned the pre-tap empty snapshot, but it must not
+    // erase the tap the kiosk already showed as committed.
+    expect(result.current.count).toBe(1);
+    expect(result.current.taps).toHaveLength(1);
+    expect(await listTapRecords()).toHaveLength(1);
   });
 
   it('writes nothing for a read that is not a 14-hex UID', async () => {
