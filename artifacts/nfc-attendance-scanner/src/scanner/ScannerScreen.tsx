@@ -174,6 +174,9 @@ export function ScannerScreen() {
 
   const handleConfirmNewSession = useCallback(async () => {
     setIsConfirmingNewSession(false);
+    // The export notice belongs to the session being left. Do not let its
+    // filename make a later session look exported before it has been saved.
+    setExportResult(null);
     await startNewSession();
     window.setTimeout(() => {
       if (captureEnabledRef.current) inputRef.current?.focus();

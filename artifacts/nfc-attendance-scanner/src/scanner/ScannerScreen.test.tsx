@@ -446,6 +446,27 @@ describe('ScannerScreen new-session confirmation', () => {
     expect(stored[0].sessionId).toBe(sessionIdBefore);
   });
 
+  it('does not carry an old export notice into the next session', async () => {
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockResolvedValue({
+      filename: 'attendance-2026-09-07-20260907T000000Z.xlsx',
+      delivery: 'download',
+    });
+    const user = await renderWithOneTap();
+
+    await user.click(screen.getByTestId('button-reset-session'));
+    await user.click(await screen.findByTestId('button-dialog-export'));
+    expect(screen.getByTestId('text-export-saved')).toBeTruthy();
+
+    await user.click(screen.getByTestId('button-dialog-confirm'));
+    await waitFor(() =>
+      expect(screen.getByTestId('text-attendance-count').textContent).toBe('0'),
+    );
+
+    await user.click(screen.getByTestId('button-end-session'));
+    await screen.findByTestId('dialog-session-summary');
+    expect(screen.queryByTestId('text-export-saved')).toBeNull();
+  });
+
   it('exports from inside the dialog without answering the question', async () => {
     const exportSpy = vi
       .spyOn(attendanceExport, 'exportAttendanceWorkbook')
