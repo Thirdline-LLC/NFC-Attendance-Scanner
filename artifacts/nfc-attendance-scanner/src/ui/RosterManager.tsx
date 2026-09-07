@@ -432,17 +432,17 @@ function RosterRow({
         data-testid={`row-person-${personId ?? 'unsaved'}`}
       >
         <td className="min-w-0 font-semibold text-[hsl(var(--foreground))] [overflow-wrap:anywhere] sm:px-4 sm:py-3">
-          {person.firstName}
+          <CompactValue value={person.firstName} className="sm:max-w-[12rem]" />
         </td>
         <td className="min-w-0 font-semibold text-[hsl(var(--foreground))] [overflow-wrap:anywhere] sm:px-4 sm:py-3">
-          {person.lastName}
+          <CompactValue value={person.lastName} className="sm:max-w-[16rem]" />
         </td>
         <td className="order-1 basis-full text-[hsl(var(--muted-foreground))] sm:order-none sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-[hsl(var(--foreground))]">
           <span className="sm:hidden">Class of </span>
           {person.gradYear}
         </td>
         <td className="order-2 min-w-0 basis-full text-[hsl(var(--muted-foreground))] [overflow-wrap:anywhere] sm:order-none sm:basis-auto sm:px-4 sm:py-3 sm:text-[hsl(var(--foreground))]">
-          {person.email}
+          <CompactValue value={person.email} className="sm:max-w-[20rem]" />
         </td>
         <td className="ml-auto font-mono text-xs font-bold tracking-[0.16em] text-[hsl(var(--foreground))] sm:ml-0 sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-sm">
           <span data-testid={`text-card-tail-${personId ?? 'unsaved'}`}>
@@ -509,6 +509,24 @@ function RosterRow({
         </tr>
       ) : null}
     </>
+  );
+}
+
+function CompactValue({
+  value,
+  className,
+}: {
+  value: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`block max-w-full line-clamp-2 [overflow-wrap:anywhere] ${className ?? ''}`}
+      title={value}
+      aria-label={value}
+    >
+      {value}
+    </span>
   );
 }
 

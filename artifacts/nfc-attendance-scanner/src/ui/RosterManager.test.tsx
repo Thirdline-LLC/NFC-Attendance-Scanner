@@ -247,6 +247,18 @@ describe('RosterManager listing', () => {
     expect(
       within(row).getByText(longNamedPerson.lastName).closest('td')?.className,
     ).toContain('[overflow-wrap:anywhere]');
+    expect(
+      within(row).getByText(longNamedPerson.firstName).className,
+    ).toContain('line-clamp-2');
+    expect(
+      within(row).getByText(longNamedPerson.firstName).getAttribute('title'),
+    ).toBe(longNamedPerson.firstName);
+    expect(
+      within(row).getByText(longNamedPerson.email).className,
+    ).toContain('line-clamp-2');
+    expect(
+      within(row).getByText(longNamedPerson.email).getAttribute('title'),
+    ).toBe(longNamedPerson.email);
 
     // The action group has a full-width mobile layout and an inline desktop
     // layout, with the same spacing and sufficiently large touch targets.
