@@ -533,5 +533,21 @@ describe('exporting migrated records', () => {
     for (const row of rows) {
       expect(row.Name).not.toMatch(UID_PATTERN);
     }
+
+    // Exercise the public export seam, not just its pure row builder. The
+    // unknown-card row must survive workbook creation alongside every migrated
+    // tap; otherwise a teacher can lose a legacy record even though the rows
+    // look correct before SheetJS receives them.
+    const writeFile = vi.mocked(XLSX.writeFile);
+    writeFile.mockClear();
+    await expect(exportAttendanceWorkbook(taps, persons)).resolves.toMatchObject({
+      delivery: 'download',
+    });
+
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    const [workbook] = writeFile.mock.calls[0];
+    expect(
+      XLSX.utils.sheet_to_json(workbook.Sheets.Attendance, { defval: '' }),
+    ).toEqual(rows);
   });
 });
