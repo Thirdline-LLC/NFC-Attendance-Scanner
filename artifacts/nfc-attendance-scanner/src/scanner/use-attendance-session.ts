@@ -159,6 +159,12 @@ export function useAttendanceSession(mode: ScannerMode) {
         ],
       );
       if (!mountedRef.current) return;
+      // The session may have rotated while this read was in flight. What came
+      // back describes a session that is no longer on screen, and applying it
+      // would put the previous meeting's taps and count back under the new
+      // session's heading. The rotation already left the view in the right
+      // state, so there is nothing to do but stand down.
+      if (sessionIdRef.current !== currentSessionId) return;
       personsRef.current = savedPersons;
       tapsRef.current = savedTaps;
       setPersons(savedPersons);
@@ -277,12 +283,32 @@ export function useAttendanceSession(mode: ScannerMode) {
           person = personsRef.current.find((item) => item.cardUid === uid);
         }
         const scannedAt = new Date().toISOString();
+        const tapSessionId = sessionIdRef.current;
         const committed = await recordSessionTap({
-          sessionId: sessionIdRef.current,
+          sessionId: tapSessionId,
           uid,
           scannedAt,
           personId: person?.id ?? null,
         });
+
+        // A card can be read at the moment the volunteer starts a new session,
+        // and the write outlives the rotation. The tap is safely stored under
+        // the meeting it belongs to, but the screen now belongs to the next
+        // one: adding it here would show a tap the new session does not have
+        // and a count taken from the old session, so the number on screen
+        // would stop matching `countSessionAttendance` for the session being
+        // run. The rotation deliberately cleared the view; a straggler must
+        // not repopulate it, and announcing a check-in against a count of zero
+        // would only puzzle whoever is watching.
+        if (sessionIdRef.current !== tapSessionId) {
+          if (import.meta.env.DEV) {
+            console.debug('[attendance scan] landed in a rotated-away session', {
+              uid,
+              sessionId: tapSessionId,
+            });
+          }
+          return;
+        }
 
         tapsRef.current = [...tapsRef.current, committed.tap];
         setTaps(tapsRef.current);
