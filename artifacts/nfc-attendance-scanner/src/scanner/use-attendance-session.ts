@@ -239,7 +239,21 @@ export function useAttendanceSession(mode: ScannerMode) {
       }
 
       try {
-        const person = personsRef.current.find((item) => item.cardUid === uid);
+        // The store is asked who the card belongs to, not the in-memory
+        // roster: `personsRef` is a snapshot that is still empty while the
+        // opening read is in flight, so a card tapped during boot was written
+        // as an unknown card, uncounted, and the volunteer was told to enroll
+        // a student who is already enrolled. One lookup on the `&cardUid`
+        // index is cheap enough to run on every tap and cannot disagree with
+        // the store the tap is about to land in.
+        let person: Person | undefined;
+        try {
+          person = await findPersonByUid(uid);
+        } catch {
+          // A read that fails must not cost the tap: fall back to whatever the
+          // last successful read left behind and still write the row.
+          person = personsRef.current.find((item) => item.cardUid === uid);
+        }
         const scannedAt = new Date().toISOString();
         const committed = await recordSessionTap({
           sessionId: sessionIdRef.current,
@@ -254,7 +268,15 @@ export function useAttendanceSession(mode: ScannerMode) {
         setLastUid(uid);
         setLastPerson(person);
         setLastScannedAt(scannedAt);
-        applyStorageStatus('ready');
+        // Only the milder failure clears on a good write. A store that never
+        // opened has still never been read, so 'unavailable' keeps its panel
+        // and its Retry button and asks for the read instead; the status only
+        // goes green once that read actually lands.
+        if (storageStatusRef.current === 'save-failed') {
+          applyStorageStatus('ready');
+        } else if (storageStatusRef.current === 'unavailable') {
+          void loadSession();
+        }
         const nextFeedback = person
           ? committed.priorCounted
             ? 'duplicate'
@@ -279,7 +301,7 @@ export function useAttendanceSession(mode: ScannerMode) {
         announce('storage-error');
       }
     },
-    [announce, applyStorageStatus],
+    [announce, applyStorageStatus, loadSession],
   );
 
   const handleScan = useCallback(

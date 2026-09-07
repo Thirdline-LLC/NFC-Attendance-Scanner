@@ -29,10 +29,25 @@ export function NewSessionDialog({
   onCancel,
 }: NewSessionDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  // Whatever had the keyboard when the question was asked — usually "Start New
+  // Session" in the summary underneath.
+  const previouslyFocused = useRef<Element | null>(null);
 
   // Least destructive button first: a stray Enter on a kiosk must not rotate.
+  // Focus is handed back on the way out, because the summary may still be open
+  // behind this: it claims aria-modal, and cancelling used to drop the keyboard
+  // on <body> inside it — ScannerScreen only refocuses the reader once every
+  // overlay is gone.
   useEffect(() => {
+    previouslyFocused.current = document.activeElement;
     cancelRef.current?.focus();
+
+    return () => {
+      const previous = previouslyFocused.current;
+      if (previous instanceof HTMLElement && document.contains(previous)) {
+        previous.focus();
+      }
+    };
   }, []);
 
   // On the window rather than the dialog: the scanner's hidden input and the
@@ -49,14 +64,16 @@ export function NewSessionDialog({
   }, [onCancel]);
 
   return (
+    // Scrolls, and centres through the child's `m-auto`, so no button can end
+    // up off-screen on a short viewport. See SessionSummary for the why.
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-[hsl(var(--background)/.86)] px-5 py-8 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-[hsl(var(--background)/.86)] px-5 py-8 backdrop-blur-sm"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="new-session-title"
       data-testid="dialog-new-session"
     >
-      <div className="w-full max-w-md rounded-[1.35rem] border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--card))] p-5 shadow-[0_24px_90px_hsl(211_55%_5%/.5)] sm:p-6">
+      <div className="m-auto w-full max-w-md rounded-[1.35rem] border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--card))] p-5 shadow-[0_24px_90px_hsl(211_55%_5%/.5)] sm:p-6">
         <div className="flex items-start gap-2.5">
           <AlertTriangle
             aria-hidden="true"

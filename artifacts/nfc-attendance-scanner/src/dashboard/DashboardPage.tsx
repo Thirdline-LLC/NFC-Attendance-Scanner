@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
 import {
   listPersons,
   listTapRecords,
@@ -88,10 +88,22 @@ export function DashboardPage() {
             <ArrowLeft aria-hidden="true" size={14} />
             Back to scanner
           </Link>
-          <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.19em] text-[hsl(var(--muted-foreground))]">
-            <BarChart3 aria-hidden="true" size={14} className="text-[hsl(var(--accent))]" />
-            Year to date
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.19em] text-[hsl(var(--muted-foreground))]">
+              <BarChart3 aria-hidden="true" size={14} className="text-[hsl(var(--accent))]" />
+              Year to date
+            </p>
+            {/* The sibling admin page, reachable without a detour through the
+                kiosk screen. */}
+            <Link
+              to="/roster"
+              className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+              data-testid="link-roster"
+            >
+              <Users aria-hidden="true" size={14} />
+              Students
+            </Link>
+          </div>
         </header>
 
         {/* A refresh that fails keeps the numbers already on screen; they are

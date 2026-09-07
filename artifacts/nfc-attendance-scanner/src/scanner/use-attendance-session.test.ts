@@ -356,6 +356,7 @@ describe('check-in outcomes', () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   async function scan(
@@ -403,6 +404,39 @@ describe('check-in outcomes', () => {
     // personId null and counted false is what lets a later enrollment credit
     // this tap retroactively (see tap-identity).
     expect(stored[0]).toMatchObject({ uid: newUid, personId: null, counted: false });
+  });
+
+  it('credits a card tapped while the opening read is still in flight', async () => {
+    const saved = await addPerson(existingPerson);
+    // The roster read hangs: this is the first second after a reload, with
+    // "Checking local storage…" still on screen and a student already tapping.
+    let releaseRead: (persons: Person[]) => void = () => undefined;
+    vi.spyOn(attendanceStore, 'listPersons').mockReturnValue(
+      new Promise<Person[]>((resolve) => {
+        releaseRead = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    expect(result.current.storageStatus).toBe('checking');
+
+    await scan(result, existingUid);
+
+    // The in-memory roster is still empty here, so resolving from it recorded
+    // an enrolled student as an unknown card and told the volunteer to enroll
+    // somebody who already is. The tap has to land counted as it happens.
+    expect(result.current.feedback).toBe('valid');
+    expect(result.current.count).toBe(1);
+    expect(result.current.lastPerson?.id).toBe(saved.id);
+    const [stored] = await listTapRecords();
+    expect(stored).toMatchObject({
+      uid: existingUid,
+      personId: saved.id,
+      counted: true,
+    });
+
+    await act(async () => {
+      releaseRead([{ ...existingPerson, id: saved.id }]);
+    });
   });
 
   it('writes nothing for a read that is not a 14-hex UID', async () => {
@@ -526,6 +560,34 @@ describe('storage recovery', () => {
     expect(result.current.storageStatus).toBe('ready');
     expect(result.current.enrollmentCandidate).toBeNull();
     expect(await listPersons()).toHaveLength(1);
+  });
+
+  it('keeps an unread store unavailable even when a tap does save', async () => {
+    await addPerson(existingPerson);
+    const listPersonsSpy = vi
+      .spyOn(attendanceStore, 'listPersons')
+      .mockRejectedValue(new Error('storage unavailable'));
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+    expect(result.current.storageStatus).toBe('unavailable');
+
+    await act(async () => {
+      await result.current.handleScan(existingUid);
+    });
+
+    // The write landed, but nothing has read the roster yet: calling that
+    // 'ready' would take the panel and its Retry button away from an operator
+    // whose device still is not readable.
+    expect(await listTapRecords()).toHaveLength(1);
+    await waitFor(() =>
+      expect(result.current.storageStatus).toBe('unavailable'),
+    );
+
+    listPersonsSpy.mockRestore();
+    await act(async () => {
+      await result.current.retryStorage();
+    });
+    expect(result.current.storageStatus).toBe('ready');
   });
 
   it('flags a tap that did not save and clears it on the next good tap', async () => {

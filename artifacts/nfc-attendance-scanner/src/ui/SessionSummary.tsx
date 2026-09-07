@@ -63,9 +63,15 @@ export function SessionSummary({
   }, [isCovered, onDismiss]);
 
   return (
-    <div className="fixed inset-0 z-20 grid place-items-center bg-[hsl(var(--background)/.88)] px-5 py-8 backdrop-blur-sm">
+    // Scrollable, and centred with `m-auto` rather than by the container: a
+    // kiosk in landscape is short enough that this overlay is taller than the
+    // viewport, and a centred item that overflows puts its top and bottom out
+    // of reach — including "Back to scanning", the only way out for a touch
+    // screen with no keyboard to press Escape with. Auto margins collapse to
+    // zero when there is no room to share, so the panel simply scrolls.
+    <div className="fixed inset-0 z-20 flex overflow-y-auto overscroll-contain bg-[hsl(var(--background)/.88)] px-5 py-8 backdrop-blur-sm">
       <section
-        className="w-full max-w-xl rounded-[1.7rem] border border-[hsl(var(--primary)/.55)] bg-[hsl(var(--card))] p-6 shadow-[0_24px_90px_hsl(211_55%_5%/.5)] sm:p-8"
+        className="m-auto w-full max-w-xl rounded-[1.7rem] border border-[hsl(var(--primary)/.55)] bg-[hsl(var(--card))] p-6 shadow-[0_24px_90px_hsl(211_55%_5%/.5)] sm:p-8"
         role="dialog"
         aria-modal="true"
         aria-labelledby="session-summary-title"

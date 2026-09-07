@@ -336,6 +336,11 @@ function UnidentifiedCardSection({
 
   return (
     <Card eyebrow="Unidentified taps" icon={<ScanLine aria-hidden="true" size={16} />}>
+      {/* Every other figure on this page is year to date, which the header
+          says once; these two are all-time, so they say their own scope. */}
+      <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+        Across all time, not just this year
+      </p>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] p-3">
           <p className="font-display text-2xl font-semibold text-[hsl(var(--foreground))]">

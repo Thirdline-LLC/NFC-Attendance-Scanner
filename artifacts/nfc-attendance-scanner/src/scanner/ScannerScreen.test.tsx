@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -191,6 +192,42 @@ describe('ScannerScreen session summary', () => {
       expect(screen.queryByTestId('dialog-session-summary')).toBeNull(),
     );
     expect(screen.getByTestId('text-attendance-count').textContent).toBe('1');
+  });
+
+  it('scrolls instead of putting its buttons out of reach', async () => {
+    await renderWithSummaryOpen();
+
+    const panel = screen.getByTestId('dialog-session-summary');
+    const overlay = panel.parentElement as HTMLElement;
+    // jsdom lays nothing out, so this stands in for the browser check: the
+    // overlay scrolls, and the panel centres with auto margins, which collapse
+    // rather than pushing "Back to scanning" off a short landscape viewport —
+    // the only way out of the summary on a touch screen with no Escape key.
+    expect(overlay.className).toContain('overflow-y-auto');
+    expect(panel.className).toContain('m-auto');
+  });
+
+  it('hands focus back into the summary when the confirmation is cancelled', async () => {
+    const user = await renderWithSummaryOpen();
+
+    await user.click(screen.getByTestId('button-summary-new-session'));
+    await screen.findByTestId('dialog-new-session');
+    await user.click(screen.getByTestId('button-dialog-cancel'));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('dialog-new-session')).toBeNull(),
+    );
+    // The summary is still up and still claims aria-modal. Focus used to land
+    // on <body> behind it: the reader cannot take it back while a dialog is
+    // open, so there was nothing left to press Escape or Enter with.
+    expect(document.activeElement).toBe(
+      screen.getByTestId('button-summary-new-session'),
+    );
+    expect(
+      screen
+        .getByTestId('dialog-session-summary')
+        .contains(document.activeElement),
+    ).toBe(true);
   });
 
   it('leaves Escape to the new-session question stacked on top', async () => {
@@ -390,5 +427,59 @@ describe('ScannerScreen new-session confirmation', () => {
       expect(screen.queryByTestId('dialog-new-session')).toBeNull(),
     );
     expect(screen.getByTestId('text-attendance-count').textContent).toBe('1');
+  });
+});
+
+describe('ScannerScreen reader chip', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('says the reader is off, not "tap to resume", while the form is open', async () => {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+
+    await user.click(screen.getByRole('button', { name: 'Enroll' }));
+    await scanCard(user, knownUid);
+    await screen.findByTestId('form-enrollment');
+
+    const chip = () => screen.getByTestId('text-scanner-focus').textContent ?? '';
+    // Capture is deliberately off here, so inviting a tap invites nothing:
+    // refocusFromStrayPress returns early and the chip never changes.
+    expect(chip()).toContain('Scanner off');
+    expect(chip()).toContain('finish enrolling');
+    expect(chip()).not.toContain('tap to resume');
+
+    await user.click(screen.getByTestId('text-attendance-count'));
+    expect(chip()).toContain('Scanner off');
+
+    await user.click(
+      within(screen.getByTestId('form-enrollment')).getByRole('button', {
+        name: 'Cancel',
+      }),
+    );
+
+    // Answered: the reader is listening again and the chip says so.
+    await waitFor(() => expect(chip()).toContain('Scanner active'));
+  });
+
+  it('names the dialog, not the form, when a dialog is what is holding it', async () => {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+
+    await user.click(screen.getByTestId('button-end-session'));
+    await screen.findByTestId('dialog-session-summary');
+
+    const chip = screen.getByTestId('text-scanner-focus').textContent ?? '';
+    expect(chip).toContain('Scanner off');
+    expect(chip).toContain('close this dialog');
   });
 });

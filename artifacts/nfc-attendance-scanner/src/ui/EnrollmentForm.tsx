@@ -168,11 +168,15 @@ export function EnrollmentForm({
     }
 
     setSubmitError('');
+    // Trimmed here, the one place both callers go through: the scanner's
+    // enrollment trimmed on the way to the store and the roster editor did
+    // not, so a stray space could reach the export's Name column from one
+    // route and not the other.
     await onSave({
-      firstName,
-      lastName,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
       gradYear: Number(gradYear),
-      email,
+      email: email.trim(),
     });
   };
 

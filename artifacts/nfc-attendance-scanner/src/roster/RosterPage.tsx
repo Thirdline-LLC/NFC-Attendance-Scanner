@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, RotateCcw, Users } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
 import {
   DuplicateEmailError,
   listPersons,
@@ -69,6 +69,14 @@ export function RosterPage() {
     [],
   );
 
+  // Both notices belong to the editor that raised them. They are page-scoped
+  // state, so opening or closing a different student's form has to drop them —
+  // otherwise one student's rejected email is reported over another's row.
+  const clearSaveNotices = useCallback(() => {
+    setSaveError(false);
+    setDuplicateMessage(null);
+  }, []);
+
   return (
     <main
       className="grain relative min-h-[100dvh] overflow-hidden bg-[hsl(var(--background))]"
@@ -90,10 +98,23 @@ export function RosterPage() {
             <ArrowLeft aria-hidden="true" size={14} />
             Back to scanner
           </Link>
-          <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.19em] text-[hsl(var(--muted-foreground))]">
-            <Users aria-hidden="true" size={14} className="text-[hsl(var(--accent))]" />
-            Students on this device
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.19em] text-[hsl(var(--muted-foreground))]">
+              <Users aria-hidden="true" size={14} className="text-[hsl(var(--accent))]" />
+              Students on this device
+            </p>
+            {/* The other admin page, one press away: without this, getting
+                from the roster to the dashboard means a detour through the
+                kiosk screen, which grabs the reader focus on the way past. */}
+            <Link
+              to="/dashboard"
+              className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+              data-testid="link-dashboard"
+            >
+              <BarChart3 aria-hidden="true" size={14} />
+              Dashboard
+            </Link>
+          </div>
         </header>
 
         {duplicateMessage ? (
@@ -154,6 +175,7 @@ export function RosterPage() {
               onSave={handleSave}
               isSaving={isSaving}
               saveError={saveError}
+              onEditorChange={clearSaveNotices}
             />
           </div>
         )}

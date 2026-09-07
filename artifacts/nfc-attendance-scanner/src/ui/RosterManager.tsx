@@ -9,7 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Person } from '@/data/attendance-store';
-import { isValidUid, maskCardUid, normalizeUid } from '@/lib/scan-format';
+import { maskCardUid, normalizeUid } from '@/lib/scan-format';
 import { normalizeNamePart } from '@/lib/student-email';
 import { EnrollmentForm } from '@/ui/EnrollmentForm';
 
@@ -29,6 +29,12 @@ type RosterManagerProps = {
   isSaving: boolean;
   /** Shown inside the open editor as the form's "Could not save locally" notice. */
   saveError: boolean;
+  /**
+   * Fired with the row now being edited, or null when none is. The container
+   * owns one page-scoped save notice, and it belongs to the editor that raised
+   * it: this is how it learns to drop it.
+   */
+  onEditorChange?: (personId: number | null) => void;
   initialQuery?: string;
 };
 
@@ -38,16 +44,28 @@ function cardTail(cardUid: string): string {
 }
 
 /**
- * What a scanned card is allowed to leave in the search box. With the field
- * focused, tapping a card on the reader types its whole UID — and a UID is
- * hardware identity that must never reach the DOM, here least of all, since
- * the row beside it is masked. Cutting it to the tail keeps the scan-to-search
- * affordance and searches identically. Anything that is not a whole UID is
- * left exactly as typed.
+ * What a scanned card is allowed to leave in the search box. Tapping a card
+ * with this field focused is a real kiosk gesture — the reader types the whole
+ * UID into it — but a UID is hardware identity that must never reach the DOM,
+ * here least of all, since the row beside it is masked.
+ *
+ * The reader types one character at a time, so waiting for the whole value to
+ * be a valid UID is always too late: every prefix up to thirteen characters
+ * rested in the field first, and a UID pasted next to other text never
+ * collapsed at all. Instead no run of hex characters is ever allowed past four
+ * anywhere in the value — the same four `maskCardUid` shows — so the longest
+ * card fragment that can exist in the DOM is the tail the rows already print.
+ *
+ * The cost is that an all-hex word ("deface", "deedee") is cut to its last
+ * four too. It still finds its student: name, email and card matching are all
+ * substring matches, so "edee" finds Deedee exactly as "deedee" did.
  */
-function withoutFullUid(value: string): string {
-  const uid = normalizeUid(value);
-  return isValidUid(uid) ? cardTail(uid) : value;
+const CARD_RUN = /[0-9a-fA-F]{5,}/g;
+
+function withoutCardRuns(value: string): string {
+  // Upper-cased because what survives is a card tail, printed the way the
+  // rows print theirs; every matcher compares case-insensitively anyway.
+  return value.replace(CARD_RUN, (run) => cardTail(run.toUpperCase()));
 }
 
 /**
@@ -95,11 +113,15 @@ function matchesQuery(person: Person, query: string): boolean {
   if (person.email.toLowerCase().includes(query.toLowerCase())) return true;
 
   // The tail is all anyone can read off a masked card, so any piece of it is
-  // enough. A whole UID still matches — the field itself trims a scanned card
-  // down to its tail, but a query handed in from elsewhere may carry one.
+  // enough — but only for a query that could not be a name. Hex is spelled out
+  // of A-F, so "bea" would otherwise pull in every card ending in those three;
+  // a card fragment either carries a digit or is a whole four-character tail.
   const uidQuery = normalizeUid(query);
-  return (
+  const couldBeCard =
     /^[0-9A-F]+$/.test(uidQuery) &&
+    (/\d/.test(uidQuery) || uidQuery.length >= 4);
+  return (
+    couldBeCard &&
     (cardTail(person.cardUid).includes(uidQuery) ||
       person.cardUid.endsWith(uidQuery))
   );
@@ -115,12 +137,14 @@ export function RosterManager({
   onSave,
   isSaving,
   saveError,
+  onEditorChange,
   initialQuery = '',
 }: RosterManagerProps) {
   const headingId = useId();
   const searchId = useId();
-  // Trimmed on the way in as well: nothing may put a whole UID in the field.
-  const [query, setQuery] = useState(() => withoutFullUid(initialQuery));
+  // Collapsed on the way in as well: nothing may put a card into the field,
+  // however it arrives.
+  const [query, setQuery] = useState(() => withoutCardRuns(initialQuery));
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const sorted = useMemo(() => [...persons].sort(compareByName), [persons]);
@@ -140,7 +164,9 @@ export function RosterManager({
   );
 
   const toggleEditing = (personId: number) => {
-    setEditingId((current) => (current === personId ? null : personId));
+    const next = editingId === personId ? null : personId;
+    setEditingId(next);
+    onEditorChange?.(next);
   };
 
   const saveRow = async (personId: number, changes: PersonChanges) => {
@@ -191,7 +217,7 @@ export function RosterManager({
             id={searchId}
             type="search"
             value={query}
-            onChange={(event) => setQuery(withoutFullUid(event.target.value))}
+            onChange={(event) => setQuery(withoutCardRuns(event.target.value))}
             placeholder="Name, email, or the last 4 of a card"
             className="w-full appearance-none rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] py-3 pl-10 pr-11 text-base font-normal text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)] sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
             autoComplete="off"

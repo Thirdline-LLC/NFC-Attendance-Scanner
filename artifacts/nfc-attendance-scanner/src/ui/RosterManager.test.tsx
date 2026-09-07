@@ -265,6 +265,48 @@ describe('RosterManager search', () => {
     expect(document.body.innerHTML).not.toContain('04ffeeddccbb99');
   });
 
+  it('never lets more than a card tail rest in the field, at any keystroke', async () => {
+    const { user, search, rowIds } = renderRoster();
+
+    // The reader is a keyboard wedge: it types the fourteen characters one at
+    // a time, so every intermediate value is in the DOM too. Waiting for the
+    // whole value to be a valid UID left thirteen of them on screen first.
+    const uid = '04FFEEDDCCBB99';
+    const seen: string[] = [];
+    for (const character of uid) {
+      await user.type(search, character);
+      seen.push(search.value);
+    }
+
+    expect(seen.filter((value) => /[0-9A-Fa-f]{5}/.test(value))).toEqual([]);
+    expect(search.value).toBe('BB99');
+    expect(rowIds()).toEqual(['row-person-3']);
+    expect(document.body.innerHTML).not.toContain('04FFEEDDCCBB99');
+  });
+
+  it('collapses a card tapped into a field that already has something in it', async () => {
+    const { user, search } = renderRoster();
+
+    await user.type(search, 'j');
+    await user.type(search, '04A1B2C3D4E5F6');
+
+    // The old rule only fired when the *whole* value normalized to a UID, so
+    // one stray keystroke beforehand left all fourteen characters in the DOM
+    // and they stayed there until the field was cleared.
+    expect(search.value).toBe('jE5F6');
+    expect(document.body.innerHTML).not.toContain('04A1B2C3D4E5F6');
+    expect(screen.getByTestId('text-roster-no-match')).toBeTruthy();
+  });
+
+  it('leaves a short all-hex query to the names rather than to card tails', async () => {
+    const { user, search } = renderRoster();
+
+    // "aa" ends Luis's card, but two letters typed into a name box are a name.
+    await user.type(search, 'aa');
+
+    expect(screen.getByTestId('text-roster-no-match')).toBeTruthy();
+  });
+
   it('ignores accents when matching names', async () => {
     const { user, search, rowIds } = renderRoster();
 

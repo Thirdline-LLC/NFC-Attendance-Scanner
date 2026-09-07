@@ -89,6 +89,34 @@ export function ScannerScreen() {
     storageStatus === 'unavailable' ||
     (sawStorageUnavailable && storageStatus === 'checking');
 
+  /**
+   * Three states, because there are three: listening, not listening but one
+   * tap away from it, and deliberately off while something on screen is being
+   * answered. The third used to read "tap to resume", which resumed nothing —
+   * `refocusFromStrayPress` returns early with capture disabled — so it sent
+   * the volunteer tapping at a screen that could not react. It now names what
+   * would actually bring the reader back.
+   */
+  const scannerChip = !captureEnabled
+    ? {
+        label: enrollmentCandidate
+          ? 'Scanner off — finish enrolling'
+          : 'Scanner off — close this dialog',
+        tone: 'border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] text-[hsl(var(--muted-foreground))]',
+        dot: 'bg-[hsl(var(--muted-foreground))]',
+      }
+    : hasFocus
+      ? {
+          label: 'Scanner active',
+          tone: 'border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] text-[hsl(var(--muted-foreground))]',
+          dot: 'bg-[hsl(var(--accent))]',
+        }
+      : {
+          label: 'Scanner paused — tap to resume',
+          tone: 'border-[hsl(var(--destructive)/.55)] bg-[hsl(var(--destructive)/.1)] text-[hsl(var(--destructive))]',
+          dot: 'bg-[hsl(var(--destructive))]',
+        };
+
   useEffect(() => {
     if (!captureEnabled) return;
     focusScanner();
@@ -264,19 +292,19 @@ export function ScannerScreen() {
             {/* The truth about whether a tap would be read, not a decoration:
                 the reader only sees a card while the hidden input has focus. */}
             <div
-              className={`flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] ${hasFocus ? 'border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] text-[hsl(var(--muted-foreground))]' : 'border-[hsl(var(--destructive)/.55)] bg-[hsl(var(--destructive)/.1)] text-[hsl(var(--destructive))]'}`}
+              className={`flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] ${scannerChip.tone}`}
               aria-live="polite"
               data-testid="text-scanner-focus"
             >
               <span className="relative flex size-2">
-                {hasFocus && (
+                {captureEnabled && hasFocus && (
                   <span className="signal-breathe absolute inline-flex size-full rounded-full bg-[hsl(var(--accent))]" />
                 )}
                 <span
-                  className={`relative inline-flex size-2 rounded-full ${hasFocus ? 'bg-[hsl(var(--accent))]' : 'bg-[hsl(var(--destructive))]'}`}
+                  className={`relative inline-flex size-2 rounded-full ${scannerChip.dot}`}
                 />
               </span>
-              {hasFocus ? 'Scanner active' : 'Scanner paused — tap to resume'}
+              {scannerChip.label}
             </div>
           </div>
         </header>

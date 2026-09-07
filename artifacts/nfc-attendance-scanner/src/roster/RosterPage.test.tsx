@@ -145,6 +145,34 @@ describe('RosterPage', () => {
     expect(editor.firstName.value).toBe('Janet');
   });
 
+  it('drops a save notice when a different student\u2019s editor is opened', async () => {
+    const saved = await addPerson(jane);
+    const other = await addPerson(ada);
+    vi.spyOn(attendanceStore, 'updatePerson').mockRejectedValue(
+      new Error('write failed'),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-manager');
+
+    const editor = await openEditor(user, saved.id as number);
+    await user.clear(editor.firstName);
+    await user.type(editor.firstName, 'Janet');
+    await user.click(editor.submit);
+    await waitFor(() =>
+      expect(within(editor.form).getByRole('alert').textContent).toContain(
+        'Could not save locally.',
+      ),
+    );
+
+    await user.click(screen.getByTestId(`button-edit-person-${other.id}`));
+
+    // The notice is page-scoped state but belongs to one row: left standing,
+    // it marks Ada's untouched editor as the one that failed to save.
+    const form = await screen.findByTestId('form-enrollment');
+    expect(within(form).queryByRole('alert')).toBeNull();
+  });
+
   it('keeps the editor open with a save-error notice when the write fails for any other reason', async () => {
     const saved = await addPerson(jane);
     vi.spyOn(attendanceStore, 'updatePerson').mockRejectedValue(

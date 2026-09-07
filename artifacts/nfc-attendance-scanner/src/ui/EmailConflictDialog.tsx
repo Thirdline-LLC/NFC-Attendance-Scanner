@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { Person } from '@/data/attendance-store';
 import { isSchoolDomainEmail, SCHOOL_EMAIL_DOMAIN } from '@/lib/student-email';
@@ -36,6 +36,24 @@ export function EmailConflictDialog({
 }: EmailConflictDialogProps) {
   const [entered, setEntered] = useState('');
   const [error, setError] = useState('');
+  const emailRef = useRef<HTMLInputElement>(null);
+  const previouslyFocused = useRef<Element | null>(null);
+
+  // aria-modal promises focus is inside; without this the keyboard stayed on
+  // the enrollment field behind the dialog and kept typing into it. The field
+  // this asks for takes it, and whatever had it gets it back on the way out —
+  // the form underneath is still mounted and still half-filled.
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement;
+    emailRef.current?.focus();
+
+    return () => {
+      const previous = previouslyFocused.current;
+      if (previous instanceof HTMLElement && document.contains(previous)) {
+        previous.focus();
+      }
+    };
+  }, []);
 
   const resolveEntered = () => {
     const value = entered.trim();
@@ -69,13 +87,13 @@ export function EmailConflictDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-[hsl(var(--background)/.82)] p-5 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-[hsl(var(--background)/.82)] p-5 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="email-conflict-title"
       data-testid="dialog-email-conflict"
     >
-      <div className="w-full max-w-md rounded-[1.35rem] border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--card))] p-5 sm:p-6">
+      <div className="m-auto w-full max-w-md rounded-[1.35rem] border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--card))] p-5 sm:p-6">
         <div className="flex items-start gap-2.5">
           <AlertTriangle
             aria-hidden="true"
@@ -113,7 +131,7 @@ export function EmailConflictDialog({
             aria-invalid={error !== ''}
             className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)]"
             data-testid="input-conflict-email"
-            autoFocus
+            ref={emailRef}
           />
         </label>
         {error ? (

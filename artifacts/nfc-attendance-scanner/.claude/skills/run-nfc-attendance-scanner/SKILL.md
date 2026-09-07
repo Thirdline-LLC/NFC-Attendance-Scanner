@@ -184,11 +184,14 @@ There is **no ESLint config** anywhere in this repo. Don't try to lint.
   The UID must match `^[0-9A-F]{14}$` (`src/lib/scan-format.ts`) or the app
   reports an invalid scan.
 - **The header chip says whether a scan would be read.** `text-scanner-focus`
-  follows the hidden input's focus: `SCANNER ACTIVE` when it has it,
-  `SCANNER PAUSED — TAP TO RESUME` when a press took it away. A press anywhere
-  that is not itself a control hands focus back, so a stray click no longer
-  swallows every following scan. `innerText` comes back upper-cased (CSS), so
-  match case-insensitively.
+  has three states: `SCANNER ACTIVE` when the hidden input has focus,
+  `SCANNER PAUSED — TAP TO RESUME` when a press took it away, and
+  `SCANNER OFF — FINISH ENROLLING` / `SCANNER OFF — CLOSE THIS DIALOG` while
+  capture is deliberately disabled (a form or an overlay is open). A press
+  anywhere that is not itself a control hands focus back in the paused state
+  only — with capture off there is nothing to tap, which is why the chip stops
+  saying "tap to resume". `innerText` comes back upper-cased (CSS), so match
+  case-insensitively.
 - **The session summary is not a trap.** `button-summary-dismiss` ("Back to
   scanning") and Escape both close it and rotate nothing; only
   `button-summary-new-session` → the confirmation dialog rotates the session.

@@ -292,6 +292,26 @@ describe('EnrollmentForm submission', () => {
     });
   });
 
+  it('trims the values it hands over, whichever screen is saving', async () => {
+    const { user, firstName, lastName, gradYear, submit, onSave } =
+      renderForm();
+
+    await user.type(firstName, '  Jane ');
+    await user.type(lastName, ' Smith  ');
+    await user.type(gradYear, '2027');
+    await user.click(submit);
+
+    // Both the scanner and the roster editor save through this form, and only
+    // one of them used to trim: a stray space reached the export's Name column
+    // from one route and not the other.
+    expect(onSave).toHaveBeenCalledWith({
+      firstName: 'Jane',
+      lastName: 'Smith',
+      gradYear: 2027,
+      email: 'jsmith27@stjohnschs.org',
+    });
+  });
+
   it('saves a manual address that still fits the school format', async () => {
     const { user, firstName, lastName, gradYear, email, submit, onSave } =
       renderForm();

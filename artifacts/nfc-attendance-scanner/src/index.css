@@ -138,6 +138,19 @@
   animation: signal-breathe 2.8s ease-in-out infinite;
 }
 
+/* A kiosk runs all day in front of everyone who walks past, and the reader
+   target pulses without end. Anyone who has asked their device for less motion
+   gets none of it; nothing here carries meaning that the animation alone
+   conveys, so removing it costs the screen nothing. */
+@media (prefers-reduced-motion: reduce) {
+  .station-enter,
+  .feedback-success,
+  .feedback-alert,
+  .signal-breathe {
+    animation: none;
+  }
+}
+
 .focus-ring {
   outline: 3px solid hsl(var(--primary) / 0.88);
   outline-offset: 5px;

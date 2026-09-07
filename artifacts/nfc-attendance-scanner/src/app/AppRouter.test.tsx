@@ -85,6 +85,21 @@ describe('AppRouter', () => {
     await waitFor(() => expect(document.activeElement).toBe(returned));
   });
 
+  it('crosses between the two admin pages without the kiosk in between', async () => {
+    const user = userEvent.setup();
+    renderAt('/roster');
+    await screen.findByTestId('roster-page');
+
+    await user.click(screen.getByTestId('link-dashboard'));
+    expect(await screen.findByTestId('dashboard-page')).toBeTruthy();
+
+    // Going the other way used to mean a round trip through the scanner, which
+    // takes the reader focus on the way past.
+    await user.click(screen.getByTestId('link-roster'));
+    expect(await screen.findByTestId('roster-page')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-station')).toBeNull();
+  });
+
   it('reaches the dashboard from the scanner header', async () => {
     const user = userEvent.setup();
     renderAt('/');

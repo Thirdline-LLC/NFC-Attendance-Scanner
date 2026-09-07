@@ -49,6 +49,17 @@ database
             : typeof tap.personId === 'number';
       }),
   );
+// `counted` is a boolean, and IndexedDB has no boolean key type: the index and
+// the two compound indexes v3 declared over it could never hold a single
+// entry. They are dropped rather than re-encoded as 0/1 because nothing
+// queries them — `countSessionAttendance` walks the `sessionId` index and
+// filters in memory — and a declared index that does not exist invites a
+// query that would quietly return nothing.
+database.version(4).stores({
+  scans: 'uid, scannedAt',
+  persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
+  taps: '++id, uid, scannedAt, personId, sessionId',
+});
 // Pre-enrollment rows from a v1/v2 database. Nothing writes here any more —
 // the table is kept so `clearAllAttendanceHistory` can still purge what an
 // upgraded database carried up, and so the schema versions stay replayable.
@@ -157,11 +168,6 @@ export async function countSessionAttendance(sessionId: string): Promise<number>
     .equals(sessionId)
     .filter((tap) => tap.counted)
     .count();
-}
-
-export async function recordTap(tap: Omit<TapRecord, 'id'>): Promise<TapRecord> {
-  const id = await tapsTable.add(tap);
-  return { ...tap, id };
 }
 
 export async function recordSessionTap(input: {
