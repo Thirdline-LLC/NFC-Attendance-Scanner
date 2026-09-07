@@ -1,12 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import Dexie from 'dexie';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  listPersons,
+  listTapRecords,
+  type Person,
+  type TapRecord,
+} from '@/data/attendance-store';
 
 import {
+  buildAttendanceRows,
   COMMENCEMENT_DATES,
   commencementDate,
   currentSeniorGradYear,
   deriveGrade,
   formatMeetingDate,
   hasGraduated,
+  UNKNOWN_CARD_NAME,
 } from './attendance-export';
 
 // Injected in place of the real config so these cases do not move when a real
@@ -177,5 +186,238 @@ describe('hasGraduated', () => {
   it('flips the day after commencement', () => {
     expect(hasGraduated(2027, at('2027-05-29'), COMMENCEMENTS)).toBe(false);
     expect(hasGraduated(2027, at('2027-05-30'), COMMENCEMENTS)).toBe(true);
+  });
+});
+
+// What the reader types: exactly 14 hex characters (src/lib/scan-format.ts).
+const UID_PATTERN = /[0-9A-F]{14}/i;
+const STRANGER_UID = '0011223344AABB';
+const SPRING_2026 = at('2026-03-10');
+
+const jordan: Person = {
+  id: 1,
+  cardUid: '04A1B2C3D4E5F6',
+  firstName: 'Jordan',
+  lastName: 'Lee',
+  gradYear: 2027,
+  email: 'jlee27@stjohnschs.org',
+  enrolledAt: '2026-09-01T10:00:00.000Z',
+};
+
+const priya: Person = {
+  id: 2,
+  cardUid: '04F6E5D4C3B2A1',
+  firstName: 'Priya',
+  lastName: 'Nair',
+  gradYear: 2028,
+  email: 'pnair28@stjohnschs.org',
+  enrolledAt: '2026-09-02T10:00:00.000Z',
+};
+
+function tapAt(
+  uid: string,
+  scannedAt: string,
+  overrides: Partial<TapRecord> = {},
+): TapRecord {
+  return {
+    uid,
+    scannedAt,
+    personId: null,
+    sessionId: 'session-a',
+    counted: false,
+    ...overrides,
+  };
+}
+
+describe('buildAttendanceRows', () => {
+  it("lays out one row per tap in the workbook's column shape", () => {
+    const rows = buildAttendanceRows(
+      [tapAt(jordan.cardUid, FALL_2026, { personId: 1, counted: true })],
+      [jordan],
+    );
+
+    expect(rows).toEqual([
+      {
+        Timestamp: '2026-09-15 12:00:00',
+        'Card UID': jordan.cardUid,
+        'Meeting Date': '2026-09-15',
+        Name: 'Jordan Lee',
+        Email: 'jlee27@stjohnschs.org',
+        Grade: '12',
+      },
+    ]);
+  });
+
+  it('names a card enrolled after its taps by matching the UID retroactively', () => {
+    // personId is null because the card was unknown when it was tapped.
+    const rows = buildAttendanceRows(
+      [tapAt(priya.cardUid, FALL_2026)],
+      [jordan, priya],
+    );
+
+    expect(rows[0]).toMatchObject({
+      Name: 'Priya Nair',
+      Email: 'pnair28@stjohnschs.org',
+      Grade: '11',
+    });
+  });
+
+  it('exports an unknown card with a readable placeholder and blank student columns', () => {
+    const [row] = buildAttendanceRows([tapAt(STRANGER_UID, FALL_2026)], [jordan]);
+
+    expect(row).toEqual({
+      Timestamp: '2026-09-15 12:00:00',
+      'Card UID': STRANGER_UID,
+      'Meeting Date': '2026-09-15',
+      Name: UNKNOWN_CARD_NAME,
+      Email: '',
+      Grade: '',
+    });
+    expect(row.Name).toBe('Unknown card');
+  });
+
+  it('keeps the UID out of the Name column for every kind of tap', () => {
+    const rows = buildAttendanceRows(
+      [
+        tapAt(jordan.cardUid, FALL_2026, { personId: 1 }),
+        tapAt(priya.cardUid, FALL_2026),
+        tapAt(STRANGER_UID, FALL_2026),
+        // A person id that no longer resolves, on a card nobody has enrolled.
+        tapAt(STRANGER_UID, FALL_2026, { personId: 99 }),
+      ],
+      [jordan, priya],
+    );
+
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      expect(row.Name).not.toMatch(UID_PATTERN);
+      expect(row.Name).not.toMatch(/undefined|null/);
+      expect(row['Card UID']).toMatch(UID_PATTERN);
+    }
+    expect(rows[3].Name).toBe(UNKNOWN_CARD_NAME);
+  });
+
+  it('orders rows by scan time when the input is not', () => {
+    const taps = [
+      tapAt(priya.cardUid, at('2026-09-22'), { sessionId: 'session-b' }),
+      tapAt(STRANGER_UID, at('2026-09-08')),
+      tapAt(jordan.cardUid, at('2026-09-15'), { personId: 1 }),
+    ];
+
+    const rows = buildAttendanceRows(taps, [jordan, priya]);
+
+    expect(rows.map((row) => row['Meeting Date'])).toEqual([
+      '2026-09-08',
+      '2026-09-15',
+      '2026-09-22',
+    ]);
+    // The caller's list is left as it was handed over.
+    expect(taps.map((tap) => tap.uid)).toEqual([
+      priya.cardUid,
+      STRANGER_UID,
+      jordan.cardUid,
+    ]);
+  });
+
+  it('derives the grade at the time of the tap, not at export time', () => {
+    const rows = buildAttendanceRows(
+      [
+        tapAt(jordan.cardUid, SPRING_2026, { personId: 1 }),
+        tapAt(jordan.cardUid, FALL_2026, { personId: 1 }),
+      ],
+      [jordan],
+    );
+
+    // One student, two school years: the class of 2027 is grade 11 in spring
+    // 2026 and grade 12 that fall. A grade derived at export time could not
+    // give two answers for the same person.
+    expect(rows.map((row) => row.Grade)).toEqual(['11', '12']);
+  });
+});
+
+describe('exporting migrated records', () => {
+  const DATABASE_NAME = 'attendance-scanner-local';
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  it('exports taps upgraded from a version-2 database with names, dates and period-correct grades', async () => {
+    // The schema the store shipped before sessionId and counted existed.
+    const legacyDatabase = new Dexie(DATABASE_NAME);
+    legacyDatabase.version(1).stores({ scans: 'uid, scannedAt' });
+    legacyDatabase.version(2).stores({
+      scans: 'uid, scannedAt',
+      persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
+      taps: '++id, uid, scannedAt, personId',
+    });
+    await legacyDatabase.open();
+    const jordanId = (await legacyDatabase.table('persons').add({
+      cardUid: jordan.cardUid,
+      firstName: jordan.firstName,
+      lastName: jordan.lastName,
+      gradYear: jordan.gradYear,
+      email: jordan.email,
+      enrolledAt: jordan.enrolledAt,
+    })) as number;
+    await legacyDatabase.table('taps').bulkAdd([
+      { uid: jordan.cardUid, scannedAt: SPRING_2026, personId: jordanId },
+      { uid: STRANGER_UID, scannedAt: '2026-03-10T16:05:00.000Z', personId: null },
+      // Tapped before the card was enrolled, so no person id was stored.
+      { uid: jordan.cardUid, scannedAt: '2026-03-10T16:10:00.000Z', personId: null },
+      { uid: jordan.cardUid, scannedAt: FALL_2026, personId: jordanId },
+    ]);
+    legacyDatabase.close();
+
+    const taps = await listTapRecords();
+    const persons = await listPersons();
+    // Confirms the version-3 migration ran on these rows before export.
+    expect(taps.map((tap) => [tap.sessionId, tap.counted])).toEqual([
+      ['legacy', true],
+      ['legacy', false],
+      ['legacy', false],
+      ['legacy', true],
+    ]);
+
+    const rows = buildAttendanceRows(taps, persons);
+
+    expect(rows).toEqual([
+      {
+        Timestamp: '2026-03-10 12:00:00',
+        'Card UID': jordan.cardUid,
+        'Meeting Date': '2026-03-10',
+        Name: 'Jordan Lee',
+        Email: jordan.email,
+        Grade: '11',
+      },
+      {
+        Timestamp: '2026-03-10 12:05:00',
+        'Card UID': STRANGER_UID,
+        'Meeting Date': '2026-03-10',
+        Name: UNKNOWN_CARD_NAME,
+        Email: '',
+        Grade: '',
+      },
+      {
+        Timestamp: '2026-03-10 12:10:00',
+        'Card UID': jordan.cardUid,
+        'Meeting Date': '2026-03-10',
+        Name: 'Jordan Lee',
+        Email: jordan.email,
+        Grade: '11',
+      },
+      {
+        Timestamp: '2026-09-15 12:00:00',
+        'Card UID': jordan.cardUid,
+        'Meeting Date': '2026-09-15',
+        Name: 'Jordan Lee',
+        Email: jordan.email,
+        Grade: '12',
+      },
+    ]);
+    for (const row of rows) {
+      expect(row.Name).not.toMatch(UID_PATTERN);
+    }
   });
 });

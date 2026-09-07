@@ -1,8 +1,20 @@
 import * as XLSX from 'xlsx';
 import type { Person, TapRecord } from '@/data/attendance-store';
+import { indexRoster, resolveTapPerson } from '@/lib/tap-identity';
 
 const EXPORT_TIME_ZONE = 'America/New_York';
-const EXPORT_COLUMNS = [
+
+/** One worksheet row. The keys are the column headers, verbatim. */
+export type AttendanceRow = {
+  Timestamp: string;
+  'Card UID': string;
+  'Meeting Date': string;
+  Name: string;
+  Email: string;
+  Grade: string;
+};
+
+const EXPORT_COLUMNS: (keyof AttendanceRow)[] = [
   'Timestamp',
   'Card UID',
   'Meeting Date',
@@ -10,6 +22,13 @@ const EXPORT_COLUMNS = [
   'Email',
   'Grade',
 ];
+
+/**
+ * What the Name column says for a card nobody has enrolled. A readable
+ * placeholder rather than the UID, so a teacher skimming the sheet sees
+ * "someone we have not enrolled" and the UID stays in its own column.
+ */
+export const UNKNOWN_CARD_NAME = 'Unknown card';
 
 function formatEasternParts(timestamp: string): Record<string, string> {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -136,27 +155,56 @@ export function deriveGrade(
   return 'Below 9';
 }
 
-export function exportAttendanceWorkbook(
-  taps: TapRecord[],
-  persons: Person[],
-): void {
-  const peopleById = new Map(
-    persons.filter((person) => person.id !== undefined).map((person) => [person.id, person]),
+function formatPersonName(person: Person): string {
+  // Joined from the trimmed, non-empty parts so a blank half of a name never
+  // leaves a stray space behind.
+  return [person.firstName, person.lastName]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+/**
+ * The worksheet's rows, one per tap, oldest first. Pure and file-free so the
+ * export can be asserted on directly; `exportAttendanceWorkbook` only adds the
+ * SheetJS plumbing.
+ *
+ * Each tap is matched to the roster as it stands now, not as it stood at scan
+ * time: a card enrolled after its taps were recorded picks up the student's
+ * name, email and grade retroactively (`resolveTapPerson`). Grade, however, is
+ * derived at the tap's own timestamp, so last spring's tap by a sophomore
+ * still reads as grade 10 in an export run this fall.
+ */
+export function buildAttendanceRows(
+  taps: readonly TapRecord[],
+  persons: readonly Person[],
+): AttendanceRow[] {
+  const roster = indexRoster(persons);
+  // Callers may hand over taps in insertion order, which only matches time
+  // order within a single session; history spanning sessions does not.
+  const ordered = [...taps].sort(
+    (a, b) => Date.parse(a.scannedAt) - Date.parse(b.scannedAt),
   );
-  const rows = taps.map((tap) => {
-    const person = tap.personId === null ? undefined : peopleById.get(tap.personId);
-    const name = person ? `${person.firstName} ${person.lastName}` : 'Unknown';
+
+  return ordered.map((tap) => {
+    const person = resolveTapPerson(tap, roster);
 
     return {
       Timestamp: formatExportTimestamp(tap.scannedAt),
       'Card UID': tap.uid,
       'Meeting Date': formatMeetingDate(tap.scannedAt),
-      Name: name,
+      Name: person ? formatPersonName(person) : UNKNOWN_CARD_NAME,
       Email: person?.email ?? '',
       Grade: person ? deriveGrade(person.gradYear, tap.scannedAt) : '',
     };
   });
+}
 
+export function exportAttendanceWorkbook(
+  taps: readonly TapRecord[],
+  persons: readonly Person[],
+): void {
+  const rows = buildAttendanceRows(taps, persons);
   const worksheet = XLSX.utils.json_to_sheet(rows, { header: EXPORT_COLUMNS });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');

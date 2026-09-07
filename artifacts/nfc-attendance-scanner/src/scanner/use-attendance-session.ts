@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addPerson,
-  clearAttendanceSession,
   countSessionAttendance,
   createNewSessionId,
   findPersonByUid,
@@ -296,30 +295,36 @@ export function useAttendanceSession(mode: ScannerMode) {
     setSessionSummary(summary);
   }, []);
 
+  /**
+   * Rotates to a fresh session id and resets the on-screen view of "this
+   * session". Attendance history is retained: the previous session's taps stay
+   * in IndexedDB under their own session id, so a dashboard can report
+   * per-session and year-to-date figures later. Nothing here touches
+   * IndexedDB — `createNewSessionId` writes only localStorage and swallows its
+   * own failures — so `isSaving` is deliberately not raised: that flag exists
+   * to report a pending local write ("Saving locally" in the feedback panel,
+   * a disabled save button on the enrollment form), and there is none. The
+   * function stays async so ScannerScreen, which awaits it before refocusing
+   * the reader input, keeps working unchanged.
+   */
   const startNewSession = useCallback(async () => {
-    setIsSaving(true);
-    try {
-      await clearAttendanceSession();
-      const nextSessionId = createNewSessionId();
-      sessionIdRef.current = nextSessionId;
-      setSessionId(nextSessionId);
-      tapsRef.current = [];
-      setTaps([]);
-      setAttendanceCount(0);
-      setEnrollmentCandidate(null);
-      setSessionSummary(null);
-      sessionSummaryRef.current = null;
-      candidateRef.current = null;
-      setLastUid('');
-      setLastPerson(undefined);
-      setLastScannedAt('');
-      setStorageError(false);
-      announce('ready');
-    } catch {
-      setStorageError(true);
-    } finally {
-      setIsSaving(false);
-    }
+    const nextSessionId = createNewSessionId();
+    sessionIdRef.current = nextSessionId;
+    setSessionId(nextSessionId);
+    tapsRef.current = [];
+    setTaps([]);
+    setAttendanceCount(0);
+    setEnrollmentCandidate(null);
+    setSessionSummary(null);
+    sessionSummaryRef.current = null;
+    candidateRef.current = null;
+    setLastUid('');
+    setLastPerson(undefined);
+    setLastScannedAt('');
+    // A storage failure belongs to the scan that hit it; a fresh session
+    // starts clean and the next failed write will raise it again.
+    setStorageError(false);
+    announce('ready');
   }, [announce]);
 
   const cancelEnrollment = useCallback(() => {
@@ -334,6 +339,7 @@ export function useAttendanceSession(mode: ScannerMode) {
   const metrics = useMemo(() => calculateMetrics(taps), [taps]);
 
   return {
+    sessionId,
     persons,
     taps,
     feedback,
