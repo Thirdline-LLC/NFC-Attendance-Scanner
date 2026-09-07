@@ -2,10 +2,13 @@ import Dexie from 'dexie';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  addPerson,
   countSessionAttendance,
+  getOrCreateSessionId,
   listSessionTapRecords,
   listTapRecords,
   listPersons,
+  recordSessionTap,
 } from '@/data/attendance-store';
 import { useAttendanceSession } from '@/scanner/use-attendance-session';
 
@@ -315,4 +318,59 @@ describe('the scan queue under load', () => {
     // The finished meeting still has its taps.
     expect(await listSessionTapRecords(firstSessionId)).toHaveLength(2);
   });
+  it('keeps the session\u2019s stored taps when a card is tapped during the opening read', async () => {
+    // A reopened kiosk mid-meeting: attendance is already on the device, and
+    // somebody taps while the screen is still showing its loading skeleton.
+    const sessionId = getOrCreateSessionId();
+    const seeded = [CARDS[0], CARDS[1]];
+    for (const [index, cardUid] of seeded.entries()) {
+      const person = await addPerson({
+        cardUid,
+        firstName: 'Seeded',
+        lastName: `Student${index}`,
+        gradYear: 2027,
+        email: `sstudent${index}@stjohnschs.org`,
+        enrolledAt: '2026-09-01T12:00:00.000Z',
+      });
+      await recordSessionTap({
+        sessionId,
+        uid: cardUid,
+        scannedAt: `2026-09-07T12:0${index}:00.000Z`,
+        personId: person.id as number,
+      });
+    }
+    const late = await addPerson({
+      cardUid: CARDS[2],
+      firstName: 'Late',
+      lastName: 'Arrival',
+      gradYear: 2028,
+      email: 'larrival28@stjohnschs.org',
+      enrolledAt: '2026-09-01T12:00:00.000Z',
+    });
+    expect(late.id).toBeTypeOf('number');
+
+    gates.read.hold();
+    const hook = renderHook(() => useAttendanceSession('checkin'));
+    await gates.read.reached;
+
+    // The tap commits while the opening read is parked. The read's snapshot is
+    // then older than the store by one tap — but it still holds the two taps
+    // this session already had, and dropping it loses them from the summary
+    // and from "Export this session" while the headline count looks right.
+    let scanning: Promise<void>;
+    await act(async () => {
+      scanning = hook.result.current.handleScan(CARDS[2]);
+      gates.read.open();
+      await scanning;
+    });
+    await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
+
+    expect(hook.result.current.taps).toHaveLength(3);
+    expect(hook.result.current.count).toBe(
+      await countSessionAttendance(sessionId),
+    );
+    expect(hook.result.current.count).toBe(3);
+    expect(await listSessionTapRecords(sessionId)).toHaveLength(3);
+  });
+
 });
