@@ -138,4 +138,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- `docs/operating-the-kiosk.md` — the front-desk instructions: enrolling,
+  checking in, what each message means, exporting, and what to do when
+  something looks wrong. Written for a volunteer, not a developer; keep it in
+  step with the copy on screen when that copy changes.
 - `docs/capacitor-native.md` — packaging this app for iOS/Android and keeping IndexedDB data alive there
