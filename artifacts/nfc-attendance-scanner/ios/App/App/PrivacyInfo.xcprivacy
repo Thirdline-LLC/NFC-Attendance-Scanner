@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Apple requires this manifest for App Store and TestFlight submission when
+	  an app or its SDKs touch a "required reason" API. @capacitor/filesystem
+	  does, which is how the attendance workbook gets written.
+
+	  Everything below is a claim Apple can check, so it says only what is true
+	  of this app. If a dependency is added later, re-generate the Privacy
+	  Report in Xcode (Product > Archive > Generate Privacy Report) rather than
+	  guessing what to add here.
+	-->
+
+	<!-- No tracking, and nothing to track with: the app has no analytics, no
+	     advertising identifier and no network calls of its own. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!--
+	  Deliberately empty. Apple's "collection" means data transmitted off the
+	  device. This app records student names, school email addresses, grade
+	  years and card UIDs, but every one of them stays in the device's own
+	  storage — nothing is sent anywhere, by design (see
+	  docs/data-protection.md). The Excel export leaves only when a person
+	  chooses to share it, which is the operator acting, not the app collecting.
+	-->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<!--
+			  Required by @capacitor/filesystem, which the export uses to write
+			  the .xlsx into the app's Documents directory. C617.1 is Apple's
+			  reason code for timestamps of files inside the app's own
+			  container — which is the only place this app writes.
+			-->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
