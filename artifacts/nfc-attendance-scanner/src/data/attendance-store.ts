@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { findEmailOwner } from '@/lib/student-email';
 
 export type AttendanceScan = {
   uid: string;
@@ -110,21 +111,59 @@ export async function listPersons(): Promise<Person[]> {
   return personsTable.orderBy('lastName').toArray();
 }
 
+/**
+ * Thrown when a write would give two roster entries the same address. The
+ * enrollment form resolves collisions before saving, so reaching this means the
+ * store was written to some other way — a second kiosk tab, or a direct call.
+ */
+export class DuplicateEmailError extends Error {
+  constructor(readonly owner: Person) {
+    super(
+      `${owner.email} already belongs to ${owner.firstName} ${owner.lastName}, class of ${owner.gradYear}.`,
+    );
+    this.name = 'DuplicateEmailError';
+  }
+}
+
+/**
+ * Guards the roster's one-address-per-student rule. Runs inside the caller's
+ * transaction so the check and the write cannot be interleaved with another.
+ * `excludeId` lets a student keep their own address while being edited.
+ */
+async function assertEmailAvailable(
+  email: string,
+  excludeId?: number,
+): Promise<void> {
+  // Compared exactly as the enrollment form compares, so the two layers agree
+  // on what counts as a duplicate.
+  const owner = findEmailOwner(email, await personsTable.toArray(), excludeId);
+
+  if (owner) {
+    throw new DuplicateEmailError(owner);
+  }
+}
+
 export async function addPerson(person: Omit<Person, 'id'>): Promise<Person> {
-  const id = await personsTable.add(person);
-  return { ...person, id };
+  return database.transaction('rw', personsTable, async () => {
+    await assertEmailAvailable(person.email);
+    const id = await personsTable.add(person);
+    return { ...person, id };
+  });
 }
 
 export async function updatePerson(
   personId: number,
   changes: Pick<Person, 'firstName' | 'lastName' | 'gradYear' | 'email'>,
 ): Promise<Person> {
-  await personsTable.update(personId, changes);
-  const updatedPerson = await personsTable.get(personId);
-  if (!updatedPerson) {
-    throw new Error('The enrolled person could not be found after updating.');
-  }
-  return updatedPerson;
+  return database.transaction('rw', personsTable, async () => {
+    await assertEmailAvailable(changes.email, personId);
+    await personsTable.update(personId, changes);
+    const updatedPerson = await personsTable.get(personId);
+    if (!updatedPerson) {
+      throw new Error('The enrolled person could not be found after updating.');
+    }
+    return updatedPerson;
+  });
 }
 
 export async function listTapRecords(): Promise<TapRecord[]> {
