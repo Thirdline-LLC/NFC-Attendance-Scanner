@@ -43,6 +43,7 @@ export function SessionSummary({
             type="button"
             onClick={onExport}
             className="rounded-xl bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] transition hover:brightness-105"
+            data-testid="button-summary-export"
           >
             Export to Excel
           </button>
@@ -50,6 +51,7 @@ export function SessionSummary({
             type="button"
             onClick={onStartNewSession}
             className="rounded-xl border border-[hsl(var(--border))] px-4 py-3 text-sm font-bold text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))]"
+            data-testid="button-summary-new-session"
           >
             Start New Session
           </button>

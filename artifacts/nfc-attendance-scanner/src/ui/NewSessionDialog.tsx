@@ -1,0 +1,119 @@
+import { useEffect, useRef } from 'react';
+import { AlertTriangle, Download, RotateCcw } from 'lucide-react';
+import type { SessionMetrics } from '@/scanner/use-attendance-session';
+
+type NewSessionDialogProps = {
+  /** This session's figures, so the operator sees what is about to leave the screen. */
+  metrics: SessionMetrics;
+  /** Runs the same export the summary offers. Deliberately leaves the dialog open. */
+  onExport: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Rotating the session id deletes nothing — every tap stays in IndexedDB — but
+ * from the front desk it looks like a wipe: the count drops to zero and this
+ * screen's export stops covering those taps. That gap is worth one confirmation,
+ * with the export offered inside the dialog so "export first" does not mean
+ * "back out and find the other button".
+ */
+export function NewSessionDialog({
+  metrics,
+  onExport,
+  onConfirm,
+  onCancel,
+}: NewSessionDialogProps) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Least destructive button first: a stray Enter on a kiosk must not rotate.
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
+
+  // On the window rather than the dialog: the scanner's hidden input and the
+  // summary underneath both compete for focus, and Escape has to work anyway.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onCancel();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[hsl(var(--background)/.86)] px-5 py-8 backdrop-blur-sm"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="new-session-title"
+      data-testid="dialog-new-session"
+    >
+      <div className="w-full max-w-md rounded-[1.35rem] border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--card))] p-5 shadow-[0_24px_90px_hsl(211_55%_5%/.5)] sm:p-6">
+        <div className="flex items-start gap-2.5">
+          <AlertTriangle
+            aria-hidden="true"
+            className="mt-0.5 shrink-0 text-[hsl(var(--destructive))]"
+            size={18}
+          />
+          <div className="min-w-0">
+            <h2
+              id="new-session-title"
+              className="font-display text-lg font-semibold tracking-[-0.02em] text-[hsl(var(--foreground))]"
+            >
+              Start a new session?
+            </h2>
+            <p
+              className="mt-2 text-sm leading-snug text-[hsl(var(--muted-foreground))]"
+              data-testid="text-new-session-counts"
+            >
+              This session has {plural(metrics.totalTaps, 'tap')} and{' '}
+              {metrics.uniqueAttendance} checked in.
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-3 text-sm leading-snug text-[hsl(var(--muted-foreground))]">
+          Those taps stay saved on this device, but they will no longer appear
+          on this screen or in this screen&rsquo;s export. Export first if you
+          have not already.
+        </p>
+
+        <button
+          type="button"
+          onClick={onExport}
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+          data-testid="button-dialog-export"
+        >
+          <Download aria-hidden="true" size={15} />
+          Export first
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-[hsl(var(--destructive)/.6)] bg-[hsl(var(--destructive)/.12)] px-4 py-3 text-sm font-bold text-[hsl(var(--destructive))] transition hover:bg-[hsl(var(--destructive)/.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+          data-testid="button-dialog-confirm"
+        >
+          <RotateCcw aria-hidden="true" size={15} />
+          Start new session
+        </button>
+        <button
+          ref={cancelRef}
+          type="button"
+          onClick={onCancel}
+          className="mt-3 w-full text-xs font-semibold text-[hsl(var(--muted-foreground))] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+          data-testid="button-dialog-cancel"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}

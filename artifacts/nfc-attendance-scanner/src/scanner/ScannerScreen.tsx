@@ -18,6 +18,7 @@ import {
 } from '@/scanner/use-attendance-session';
 import { EnrollmentForm } from '@/ui/EnrollmentForm';
 import { FeedbackPanel } from '@/ui/FeedbackPanel';
+import { NewSessionDialog } from '@/ui/NewSessionDialog';
 import { SessionSummary } from '@/ui/SessionSummary';
 
 export function ScannerScreen() {
@@ -26,6 +27,9 @@ export function ScannerScreen() {
   const [hasFocus, setHasFocus] = useState(true);
   const [mode, setMode] = useState<ScannerMode>('checkin');
   const [captureEnabled, setCaptureEnabled] = useState(true);
+  // Rotating the session id is destructive from the desk's point of view, so
+  // every entry point routes through one confirmation instead of firing.
+  const [isConfirmingNewSession, setIsConfirmingNewSession] = useState(false);
   const {
     count,
     feedback,
@@ -34,6 +38,7 @@ export function ScannerScreen() {
     lastScannedAt,
     enrollmentCandidate,
     sessionSummary,
+    metrics,
     persons,
     taps,
     isLoading,
@@ -62,8 +67,10 @@ export function ScannerScreen() {
   }, []);
 
   useEffect(() => {
-    setCaptureEnabled(!enrollmentCandidate && !sessionSummary);
-  }, [enrollmentCandidate, sessionSummary]);
+    setCaptureEnabled(
+      !enrollmentCandidate && !sessionSummary && !isConfirmingNewSession,
+    );
+  }, [enrollmentCandidate, sessionSummary, isConfirmingNewSession]);
 
   useEffect(() => {
     if (storageStatus === 'unavailable') setSawStorageUnavailable(true);
@@ -114,12 +121,20 @@ export function ScannerScreen() {
     }, 0);
   }, [cancelEnrollment]);
 
-  const handleStartNewSession = useCallback(async () => {
+  const handleConfirmNewSession = useCallback(async () => {
+    setIsConfirmingNewSession(false);
     await startNewSession();
     window.setTimeout(() => {
       if (captureEnabledRef.current) inputRef.current?.focus();
     }, 0);
   }, [startNewSession]);
+
+  const handleCancelNewSession = useCallback(() => {
+    setIsConfirmingNewSession(false);
+    window.setTimeout(() => {
+      if (captureEnabledRef.current) inputRef.current?.focus();
+    }, 0);
+  }, []);
 
   return (
     <main
@@ -345,7 +360,7 @@ export function ScannerScreen() {
             {import.meta.env.DEV && (
               <button
                 type="button"
-                onClick={() => void startNewSession()}
+                onClick={() => setIsConfirmingNewSession(true)}
                 className="flex w-fit items-center gap-2 rounded-lg px-2 py-1.5 font-semibold text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
                 data-testid="button-reset-session"
               >
@@ -361,7 +376,16 @@ export function ScannerScreen() {
         <SessionSummary
           summary={sessionSummary}
           onExport={handleExport}
-          onStartNewSession={() => void handleStartNewSession()}
+          onStartNewSession={() => setIsConfirmingNewSession(true)}
+        />
+      )}
+
+      {isConfirmingNewSession && (
+        <NewSessionDialog
+          metrics={metrics}
+          onExport={handleExport}
+          onConfirm={() => void handleConfirmNewSession()}
+          onCancel={handleCancelNewSession}
         />
       )}
     </main>
