@@ -251,12 +251,18 @@ describe('RosterManager search', () => {
     expect(rowIds()).toEqual(['row-person-1']);
   });
 
-  it('finds a card from its whole UID, as a reader would type it', async () => {
+  it('finds a card scanned into the field, keeping only its tail on screen', async () => {
     const { user, search, rowIds } = renderRoster();
 
+    // What the reader types when the search box has focus.
     await user.type(search, '04ffeeddccbb99');
 
     expect(rowIds()).toEqual(['row-person-3']);
+    // The search box is the one field a whole UID can be typed into, and a UID
+    // is hardware identity: it is cut to the tail the rows already show.
+    expect(search.value).toBe('BB99');
+    expect(document.body.innerHTML).not.toContain('04FFEEDDCCBB99');
+    expect(document.body.innerHTML).not.toContain('04ffeeddccbb99');
   });
 
   it('ignores accents when matching names', async () => {

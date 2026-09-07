@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import {
   BarChart3,
   Database,
+  FileSpreadsheet,
   RefreshCw,
   ScanLine,
   Target,
@@ -20,6 +21,13 @@ type DashboardProps = {
   metrics: DashboardMetrics;
   isLoading?: boolean;
   onRefresh?: () => void;
+  /**
+   * Writes the whole tap history to a workbook. The scanner's own export is
+   * scoped to the session on screen, so without this a rotated-away session —
+   * and the taps a v3 upgrade stamped `legacy` — could never reach the .xlsx
+   * that is the actual system of record.
+   */
+  onExportAll?: () => void;
 };
 
 const DISPLAY_TIME_ZONE = 'America/New_York';
@@ -61,7 +69,12 @@ function formatLastSeen(timestamp: string): string {
   }).format(new Date(timestamp));
 }
 
-export function Dashboard({ metrics, isLoading = false, onRefresh }: DashboardProps) {
+export function Dashboard({
+  metrics,
+  isLoading = false,
+  onRefresh,
+  onExportAll,
+}: DashboardProps) {
   const { ytd, gradeBreakdown, enrolledStudents, unidentified } = metrics;
   const percent = Math.round(ytd.percentOfTarget);
   // The bar caps at full; the text beside it still says 120% when earned.
@@ -87,22 +100,35 @@ export function Dashboard({ metrics, isLoading = false, onRefresh }: DashboardPr
             </p>
           </div>
         </div>
-        {onRefresh ? (
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={isLoading}
-            className="flex items-center gap-2 self-start rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] disabled:cursor-wait disabled:opacity-60 sm:self-auto"
-            data-testid="button-refresh-dashboard"
-          >
-            <RefreshCw
-              aria-hidden="true"
-              size={14}
-              className={isLoading ? 'animate-spin' : undefined}
-            />
-            {isLoading ? 'Refreshing' : 'Refresh'}
-          </button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {onExportAll ? (
+            <button
+              type="button"
+              onClick={onExportAll}
+              className="flex items-center gap-2 self-start rounded-full border border-[hsl(var(--primary)/.55)] bg-[hsl(var(--primary)/.12)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--primary))] transition hover:bg-[hsl(var(--primary)/.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:self-auto"
+              data-testid="button-export-history"
+            >
+              <FileSpreadsheet aria-hidden="true" size={14} />
+              Export all history
+            </button>
+          ) : null}
+          {onRefresh ? (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="flex items-center gap-2 self-start rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] disabled:cursor-wait disabled:opacity-60 sm:self-auto"
+              data-testid="button-refresh-dashboard"
+            >
+              <RefreshCw
+                aria-hidden="true"
+                size={14}
+                className={isLoading ? 'animate-spin' : undefined}
+              />
+              {isLoading ? 'Refreshing' : 'Refresh'}
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <p

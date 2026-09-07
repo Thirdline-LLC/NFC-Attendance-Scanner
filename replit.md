@@ -54,9 +54,19 @@ The scanner has no backend, authentication, analytics, API routes, or database s
   `capacitor://localhost`. `routerBasename` in `AppRouter.tsx` turns a
   non-absolute `BASE_URL` into an empty basename — trimming `./` would hand
   react-router `.`, which matches no location and renders a blank app.
+- **Two exports, two scopes.** The scanner's End Session export covers the
+  session on screen, which is what a meeting wants. Everything ever recorded —
+  rotated-away sessions, and the taps the v3 upgrade stamped `'legacy'` — is
+  reachable only from the dashboard's "Export all history", because the
+  scanner's `taps` come from `listSessionTapRecords(sessionId)` and no session
+  id will ever equal `'legacy'`. The `.xlsx` is the system of record, so some
+  route to the whole history has to exist.
 - **A card UID is hardware identity: never editable, never fully rendered.**
   One helper, `maskCardUid` in `src/lib/scan-format.ts`, produces the `••••` +
-  last-4 string everywhere a card is named on screen.
+  last-4 string everywhere a card is named on screen. The roster search box is
+  the one field a whole UID can be typed into — tapping a card with it focused
+  types all fourteen characters — so it trims a complete UID to its tail as it
+  is entered; the tail searches identically.
 
 ## Product
 
@@ -69,14 +79,16 @@ input. Three routes:
   is recorded and flagged for later enrollment). Enroll mode opens a form for
   the scanned card, deriving a `@stjohnschs.org` address from the name and
   class year and resolving collisions. "End Session" shows the session totals
-  and exports the `.xlsx` that is the actual system of record; starting a new
-  session asks for confirmation first.
+  and exports that session's `.xlsx`, and can be backed out of ("Back to
+  scanning", or Escape) without rotating anything; starting a new session asks
+  for confirmation first.
 - `/roster` — every student on the device: search by name, email or the last
   four of a card, and correct a name, class year or email in place. The card a
   student enrolled with stays theirs.
 - `/dashboard` — year to date (the school year rolls over Aug 1): average
   attendance against the 50-per-session target, sessions held, unique students,
-  grade breakdown, and the cards that still resolve to nobody.
+  grade breakdown, and the cards that still resolve to nobody. Its "Export all
+  history" button writes every tap on the device to one workbook.
 
 ## User preferences
 

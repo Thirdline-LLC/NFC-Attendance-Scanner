@@ -348,6 +348,101 @@ describe('session history retention', () => {
   });
 });
 
+describe('check-in outcomes', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  async function scan(
+    result: { current: ReturnType<typeof useAttendanceSession> },
+    uid: string,
+  ) {
+    await act(async () => {
+      await result.current.handleScan(uid);
+    });
+  }
+
+  it('counts an enrolled card once, then reads the second tap as a duplicate', async () => {
+    const saved = await addPerson(existingPerson);
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+
+    await scan(result, existingUid);
+    expect(result.current.feedback).toBe('valid');
+    expect(result.current.count).toBe(1);
+
+    await scan(result, existingUid);
+    expect(result.current.feedback).toBe('duplicate');
+    // One attendance per card per session: the count holds where it was.
+    expect(result.current.count).toBe(1);
+    expect(await countSessionAttendance(result.current.sessionId)).toBe(1);
+
+    // The second tap is still recorded — it is evidence the card was
+    // presented — but it is stored uncounted so no total can double it.
+    const stored = await listTapRecords();
+    expect(stored.map((tap) => tap.counted)).toEqual([true, false]);
+    expect(stored.every((tap) => tap.personId === saved.id)).toBe(true);
+  });
+
+  it('records a card nobody has enrolled without counting it', async () => {
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+
+    await scan(result, newUid);
+
+    expect(result.current.feedback).toBe('unknown');
+    expect(result.current.lastPerson).toBeUndefined();
+    expect(result.current.count).toBe(0);
+    const stored = await listTapRecords();
+    expect(stored).toHaveLength(1);
+    // personId null and counted false is what lets a later enrollment credit
+    // this tap retroactively (see tap-identity).
+    expect(stored[0]).toMatchObject({ uid: newUid, personId: null, counted: false });
+  });
+
+  it('writes nothing for a read that is not a 14-hex UID', async () => {
+    await addPerson(existingPerson);
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+
+    await scan(result, 'ZZZZ');
+
+    expect(result.current.feedback).toBe('invalid');
+    expect(result.current.count).toBe(0);
+    expect(result.current.taps).toEqual([]);
+    expect(await listTapRecords()).toEqual([]);
+  });
+
+  it('closes the session summary without touching the session', async () => {
+    await addPerson(existingPerson);
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+    const sessionIdBefore = result.current.sessionId;
+    await scan(result, existingUid);
+
+    act(() => result.current.endSession());
+    expect(result.current.sessionSummary).not.toBeNull();
+
+    act(() => result.current.dismissSummary());
+
+    // Backing out of an accidental End Session costs nothing: same session id,
+    // same count, same taps, and scanning works again.
+    expect(result.current.sessionSummary).toBeNull();
+    expect(result.current.sessionId).toBe(sessionIdBefore);
+    expect(result.current.count).toBe(1);
+    expect(result.current.taps).toHaveLength(1);
+
+    await scan(result, newUid);
+    expect(result.current.feedback).toBe('unknown');
+    expect(await listTapRecords()).toHaveLength(2);
+  });
+});
+
 describe('storage recovery', () => {
   beforeEach(async () => {
     localStorage.clear();

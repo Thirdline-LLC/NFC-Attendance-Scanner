@@ -9,7 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Person } from '@/data/attendance-store';
-import { maskCardUid, normalizeUid } from '@/lib/scan-format';
+import { isValidUid, maskCardUid, normalizeUid } from '@/lib/scan-format';
 import { normalizeNamePart } from '@/lib/student-email';
 import { EnrollmentForm } from '@/ui/EnrollmentForm';
 
@@ -35,6 +35,19 @@ type RosterManagerProps = {
 /** The four characters a search may match; the screen shows them masked. */
 function cardTail(cardUid: string): string {
   return cardUid.slice(-4);
+}
+
+/**
+ * What a scanned card is allowed to leave in the search box. With the field
+ * focused, tapping a card on the reader types its whole UID — and a UID is
+ * hardware identity that must never reach the DOM, here least of all, since
+ * the row beside it is masked. Cutting it to the tail keeps the scan-to-search
+ * affordance and searches identically. Anything that is not a whole UID is
+ * left exactly as typed.
+ */
+function withoutFullUid(value: string): string {
+  const uid = normalizeUid(value);
+  return isValidUid(uid) ? cardTail(uid) : value;
 }
 
 /**
@@ -82,8 +95,8 @@ function matchesQuery(person: Person, query: string): boolean {
   if (person.email.toLowerCase().includes(query.toLowerCase())) return true;
 
   // The tail is all anyone can read off a masked card, so any piece of it is
-  // enough. A whole UID matches too: with the search field focused, tapping a
-  // card on the reader types it straight in.
+  // enough. A whole UID still matches — the field itself trims a scanned card
+  // down to its tail, but a query handed in from elsewhere may carry one.
   const uidQuery = normalizeUid(query);
   return (
     /^[0-9A-F]+$/.test(uidQuery) &&
@@ -106,7 +119,8 @@ export function RosterManager({
 }: RosterManagerProps) {
   const headingId = useId();
   const searchId = useId();
-  const [query, setQuery] = useState(initialQuery);
+  // Trimmed on the way in as well: nothing may put a whole UID in the field.
+  const [query, setQuery] = useState(() => withoutFullUid(initialQuery));
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const sorted = useMemo(() => [...persons].sort(compareByName), [persons]);
@@ -177,7 +191,7 @@ export function RosterManager({
             id={searchId}
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => setQuery(withoutFullUid(event.target.value))}
             placeholder="Name, email, or the last 4 of a card"
             className="w-full appearance-none rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] py-3 pl-10 pr-11 text-base font-normal text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)] sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
             autoComplete="off"

@@ -192,9 +192,10 @@ export async function launch({ url = APP_URL, shotDir = SHOT_DIR, profile } = {}
     },
 
     /**
-     * Follow an in-app link and wait for the page it lands on. Client-side
-     * routing only — a raw Page.navigate to /roster would ask the dev server
-     * for a file that isn't there.
+     * Follow an in-app link and wait for the page it lands on. A raw
+     * Page.navigate to /roster works too — the dev server serves index.html
+     * for any path — but this exercises the in-app <Link> and the client-side
+     * router without a full reload.
      */
     async goto(linkSel, arrivedSel, label = arrivedSel) {
       await app.click(linkSel);

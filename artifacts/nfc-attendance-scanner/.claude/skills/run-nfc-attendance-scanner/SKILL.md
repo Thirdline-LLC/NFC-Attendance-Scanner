@@ -111,19 +111,22 @@ Also on the handle: `evaluate(expr)`, `waitFor(expr, label, ms)`, `fill(sel, v, 
 `Emulation.setDeviceMetricsOverride` to check phone width).
 `SEL` holds every `data-testid` the driver needs.
 
-**Routing is client-side only.** Navigate with `goto` (which clicks a `<Link>`);
-a raw `Page.navigate` to `/roster` asks the dev server for a file that is not
-there.
+**Routing is client-side, but a direct navigate works.** The dev server falls
+back to `index.html` for any path — `curl -o /dev/null -w '%{http_code}'`
+returns 200 with the app's HTML for `/`, `/roster`, `/dashboard` and even
+`/nope` — so `Page.navigate('http://localhost:23205/roster')` does land on the
+roster. Prefer `goto`, which clicks the in-app `<Link>`: it exercises the
+router the way an operator does and skips a full reload.
 
 ### Testids by screen
 
 | Screen | Testids |
 |---|---|
-| Scanner `/` | `scanner-station`, `header-scanner`, `input-scanner-hidden`, `text-attendance-count`, `status-scan-feedback`, `text-scan-status`, `text-last-uid`, `button-end-session`, `button-reset-session` (DEV only), `panel-storage-unavailable`, `button-retry-storage`, `text-storage-checking`, `text-storage-footer`, `link-roster`, `link-dashboard` |
+| Scanner `/` | `scanner-station`, `header-scanner`, `input-scanner-hidden`, `text-attendance-count`, `status-scan-feedback`, `text-scan-status`, `text-last-uid`, `text-scanner-focus`, `button-end-session`, `button-reset-session` (DEV only), `panel-storage-unavailable`, `button-retry-storage`, `text-storage-checking`, `text-storage-footer`, `link-roster`, `link-dashboard` |
 | Enrollment form | `form-enrollment`, `input-email`, `button-regenerate-email`, `text-email-collision`, `button-use-suggested-email`, `dialog-email-conflict`, `input-conflict-email`, `button-conflict-save`, `button-conflict-suggested`, `button-conflict-dismiss` |
-| Session rotation | `button-summary-export`, `button-summary-new-session`, `dialog-new-session`, `text-new-session-counts`, `button-dialog-export`, `button-dialog-confirm`, `button-dialog-cancel` |
+| Session rotation | `dialog-session-summary`, `button-summary-export`, `button-summary-new-session`, `button-summary-dismiss`, `dialog-new-session`, `text-new-session-counts`, `button-dialog-export`, `button-dialog-confirm`, `button-dialog-cancel` |
 | Roster `/roster` | `roster-page`, `header-roster`, `link-scanner`, `roster-manager`, `input-roster-search`, `button-roster-clear`, `text-roster-count`, `table-roster`, `row-person-<id>`, `text-card-tail-<id>`, `button-edit-person-<id>`, `row-editor-<id>`, `text-roster-loading`, `text-roster-load-error`, `button-roster-retry`, `text-roster-save-error` |
-| Dashboard `/dashboard` | `dashboard-page`, `header-dashboard`, `link-scanner`, `dashboard`, `text-average-attendance`, `text-attendance-target`, `text-percent-of-target`, `text-sessions-count`, `text-unique-students`, `text-enrolled-students`, `list-grade-breakdown`, `text-unidentified-taps`, `text-unidentified-cards`, `list-unidentified-cards`, `text-no-sessions`, `text-local-only`, `button-refresh-dashboard`, `text-dashboard-loading`, `text-dashboard-load-error`, `button-dashboard-retry`, `text-dashboard-stale` |
+| Dashboard `/dashboard` | `dashboard-page`, `header-dashboard`, `link-scanner`, `dashboard`, `text-average-attendance`, `text-attendance-target`, `text-percent-of-target`, `text-sessions-count`, `text-unique-students`, `text-enrolled-students`, `list-grade-breakdown`, `text-unidentified-taps`, `text-unidentified-cards`, `list-unidentified-cards`, `text-no-sessions`, `text-local-only`, `button-refresh-dashboard`, `button-export-history`, `text-dashboard-loading`, `text-dashboard-load-error`, `button-dashboard-retry`, `text-dashboard-stale` |
 
 **Look at the screenshots.** A blank frame means the app never mounted.
 
@@ -136,7 +139,7 @@ pressing Enter *is* a scan. Useless headless — use the driver instead.
 ## Test
 
 ```bash
-pnpm --filter nfc-attendance-scanner test        # vitest, 245 passing
+pnpm --filter nfc-attendance-scanner test        # vitest, 257 passing
 pnpm --filter nfc-attendance-scanner typecheck   # tsc --noEmit
 PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run build
 pnpm --filter @workspace/nfc-attendance-scanner run build:native   # BASE_PATH=./
@@ -180,6 +183,15 @@ There is **no ESLint config** anywhere in this repo. Don't try to lint.
   `[data-testid="input-scanner-hidden"]` and dispatch an `Enter` **keydown**.
   The UID must match `^[0-9A-F]{14}$` (`src/lib/scan-format.ts`) or the app
   reports an invalid scan.
+- **The header chip says whether a scan would be read.** `text-scanner-focus`
+  follows the hidden input's focus: `SCANNER ACTIVE` when it has it,
+  `SCANNER PAUSED — TAP TO RESUME` when a press took it away. A press anywhere
+  that is not itself a control hands focus back, so a stray click no longer
+  swallows every following scan. `innerText` comes back upper-cased (CSS), so
+  match case-insensitively.
+- **The session summary is not a trap.** `button-summary-dismiss` ("Back to
+  scanning") and Escape both close it and rotate nothing; only
+  `button-summary-new-session` → the confirmation dialog rotates the session.
 - **Scanning is disabled while the enrollment form, the session summary or the
   new-session confirmation is open.** `ScannerScreen` sets `captureEnabled`
   false and the hook drops scans while a summary is up, so a scan mid-dialog is

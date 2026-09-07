@@ -5,7 +5,6 @@ import {
   BarChart3,
   Database,
   Download,
-  FileSpreadsheet,
   LockKeyhole,
   Radio,
   RotateCcw,
@@ -58,6 +57,7 @@ export function ScannerScreen() {
     enrollPerson,
     cancelEnrollment,
     endSession,
+    dismissSummary,
     startNewSession,
   } = useAttendanceSession(mode);
   const captureEnabledRef = useRef(captureEnabled);
@@ -103,6 +103,9 @@ export function ScannerScreen() {
     setRawInput('');
   }, [rawInput, handleScan]);
 
+  // This session only, which is what the desk wants at the end of a meeting.
+  // Everything ever recorded on the device — earlier sessions, and the taps a
+  // v3 upgrade stamped 'legacy' — is exported from the dashboard instead.
   const handleExport = useCallback(() => {
     exportAttendanceWorkbook(taps, persons);
   }, [persons, taps]);
@@ -144,14 +147,43 @@ export function ScannerScreen() {
     }, 0);
   }, []);
 
+  const handleDismissSummary = useCallback(() => {
+    dismissSummary();
+    window.setTimeout(() => {
+      if (captureEnabledRef.current) inputRef.current?.focus();
+    }, 0);
+  }, [dismissSummary]);
+
+  /**
+   * A press that lands on the station itself — the background, the count, the
+   * header — used to blur the reader input, after which every scan went
+   * nowhere while the header still claimed to be listening. Capture phase, so
+   * it runs before anything in the subtree, and only for a target that is not
+   * a control of its own: buttons and links must keep the focus they are
+   * about to take. The deferred second focus is the one that sticks in a real
+   * browser, where the press moves focus *after* this handler returns.
+   */
+  const refocusFromStrayPress = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (!captureEnabledRef.current) return;
+      const target = event.target as Element | null;
+      if (
+        target?.closest(
+          'a, button, input, select, textarea, [contenteditable="true"], [tabindex]',
+        )
+      ) {
+        return;
+      }
+      focusScanner();
+      window.setTimeout(focusScanner, 0);
+    },
+    [focusScanner],
+  );
+
   return (
     <main
       className="grain relative min-h-[100dvh] overflow-hidden bg-[hsl(var(--background))]"
-      onPointerDown={(event) => {
-        if (captureEnabledRef.current && event.target === event.currentTarget) {
-          focusScanner();
-        }
-      }}
+      onPointerDownCapture={refocusFromStrayPress}
       data-testid="scanner-station"
     >
       <div className="pointer-events-none absolute -left-40 -top-48 size-[34rem] rounded-full bg-[hsl(var(--accent)/.055)] blur-3xl" />
@@ -229,12 +261,22 @@ export function ScannerScreen() {
               <BarChart3 aria-hidden="true" size={14} />
               Dashboard
             </Link>
-            <div className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">
+            {/* The truth about whether a tap would be read, not a decoration:
+                the reader only sees a card while the hidden input has focus. */}
+            <div
+              className={`flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] ${hasFocus ? 'border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] text-[hsl(var(--muted-foreground))]' : 'border-[hsl(var(--destructive)/.55)] bg-[hsl(var(--destructive)/.1)] text-[hsl(var(--destructive))]'}`}
+              aria-live="polite"
+              data-testid="text-scanner-focus"
+            >
               <span className="relative flex size-2">
-                <span className="signal-breathe absolute inline-flex size-full rounded-full bg-[hsl(var(--accent))]" />
-                <span className="relative inline-flex size-2 rounded-full bg-[hsl(var(--accent))]" />
+                {hasFocus && (
+                  <span className="signal-breathe absolute inline-flex size-full rounded-full bg-[hsl(var(--accent))]" />
+                )}
+                <span
+                  className={`relative inline-flex size-2 rounded-full ${hasFocus ? 'bg-[hsl(var(--accent))]' : 'bg-[hsl(var(--destructive))]'}`}
+                />
               </span>
-              Scanner active
+              {hasFocus ? 'Scanner active' : 'Scanner paused — tap to resume'}
             </div>
           </div>
         </header>
@@ -401,6 +443,8 @@ export function ScannerScreen() {
           summary={sessionSummary}
           onExport={handleExport}
           onStartNewSession={() => setIsConfirmingNewSession(true)}
+          onDismiss={handleDismissSummary}
+          isCovered={isConfirmingNewSession}
         />
       )}
 

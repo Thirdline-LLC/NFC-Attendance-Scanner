@@ -62,8 +62,14 @@ come out absolute in the first and relative in the second.
 
 Capacitor serves `webDir` from its own origin — `capacitor://localhost` on iOS,
 `https://localhost` on Android — so absolute paths would in fact also resolve.
-The relative build is the safer default: it survives being opened from a `file:`
-URL or a subdirectory, which is what breaks silently and only on device.
+What the relative base actually buys is that the assets stay resolvable
+whatever origin the shell serves them from. It does **not** make the bundle
+portable in the two ways one might assume, both checked against the built
+output: opened as `file:///…/index.html` the app never mounts at all (the entry
+is an ES module, which `file:` cannot load), and served from a subdirectory it
+mounts and then leaves that subdirectory, because `routerBasename()` reports no
+basename for a relative base and the catch-all route redirects to `/`. A real
+subdirectory deploy would need an actual basename, or a `HashRouter`.
 
 A relative base makes Vite report `BASE_URL` as `./`. Stripping the trailing
 slash from that would hand react-router a basename of `.`, which matches no

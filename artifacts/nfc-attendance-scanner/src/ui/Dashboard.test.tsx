@@ -240,4 +240,15 @@ describe('Dashboard chrome', () => {
     expect(button.disabled).toBe(true);
     expect(button.textContent).toBe('Refreshing');
   });
+
+  it('offers the whole-history export only when given a handler', async () => {
+    const { rerender } = render(<Dashboard metrics={populated} />);
+    expect(screen.queryByTestId('button-export-history')).toBeNull();
+
+    const onExportAll = vi.fn();
+    rerender(<Dashboard metrics={populated} onExportAll={onExportAll} />);
+    await userEvent.setup().click(screen.getByTestId('button-export-history'));
+
+    expect(onExportAll).toHaveBeenCalledTimes(1);
+  });
 });

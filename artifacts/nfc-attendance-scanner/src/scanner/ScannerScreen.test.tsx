@@ -127,6 +127,144 @@ describe('ScannerScreen storage recovery', () => {
   });
 });
 
+describe('ScannerScreen session summary', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+    await addPerson(knownPerson);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  async function renderWithSummaryOpen() {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+    await scanCard(user, knownUid);
+    await waitFor(() =>
+      expect(screen.getByTestId('text-attendance-count').textContent).toBe('1'),
+    );
+    await user.click(screen.getByTestId('button-end-session'));
+    await screen.findByTestId('dialog-session-summary');
+    return user;
+  }
+
+  it('takes the keyboard on the least destructive control', async () => {
+    await renderWithSummaryOpen();
+
+    // aria-modal is a promise that focus is inside; without this the keyboard
+    // stays on the page behind, and Enter would land on whatever had it.
+    expect(document.activeElement).toBe(
+      screen.getByTestId('button-summary-dismiss'),
+    );
+  });
+
+  it('goes back to scanning without rotating the session', async () => {
+    const user = await renderWithSummaryOpen();
+    const sessionIdBefore = (await listTapRecords())[0].sessionId;
+
+    await user.click(screen.getByTestId('button-summary-dismiss'));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('dialog-session-summary')).toBeNull(),
+    );
+    // An accidental End Session must not cost the volunteer the count.
+    expect(screen.getByTestId('text-attendance-count').textContent).toBe('1');
+    expect((await listTapRecords())[0].sessionId).toBe(sessionIdBefore);
+    // And the reader is listening again.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByTestId('input-scanner-hidden'),
+      ),
+    );
+  });
+
+  it('closes on Escape', async () => {
+    const user = await renderWithSummaryOpen();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('dialog-session-summary')).toBeNull(),
+    );
+    expect(screen.getByTestId('text-attendance-count').textContent).toBe('1');
+  });
+
+  it('leaves Escape to the new-session question stacked on top', async () => {
+    const user = await renderWithSummaryOpen();
+
+    await user.click(screen.getByTestId('button-summary-new-session'));
+    await screen.findByTestId('dialog-new-session');
+    await user.keyboard('{Escape}');
+
+    // One press answers one question: the confirmation goes, the summary stays.
+    await waitFor(() =>
+      expect(screen.queryByTestId('dialog-new-session')).toBeNull(),
+    );
+    expect(screen.getByTestId('dialog-session-summary')).toBeTruthy();
+  });
+});
+
+describe('ScannerScreen reader focus', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+    await addPerson(knownPerson);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('says so when the reader input has lost focus', async () => {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+    const hiddenInput = screen.getByTestId('input-scanner-hidden');
+    expect(screen.getByTestId('text-scanner-focus').textContent).toContain(
+      'Scanner active',
+    );
+
+    act(() => hiddenInput.blur());
+
+    // The chip is the only thing on screen that says whether a tap would be
+    // read; claiming "active" while the input is blurred loses scans silently.
+    expect(screen.getByTestId('text-scanner-focus').textContent).toContain(
+      'Scanner paused',
+    );
+
+    // A press anywhere that is not a control of its own hands it back.
+    await user.click(screen.getByRole('heading', { name: 'Attendance Scanner' }));
+
+    await waitFor(() => expect(document.activeElement).toBe(hiddenInput));
+    expect(screen.getByTestId('text-scanner-focus').textContent).toContain(
+      'Scanner active',
+    );
+    await scanCard(user, knownUid);
+    await waitFor(() =>
+      expect(screen.getByTestId('text-attendance-count').textContent).toBe('1'),
+    );
+  });
+
+  it('leaves a press on a control to that control', async () => {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+
+    await user.click(screen.getByTestId('button-end-session'));
+
+    // The summary opened, so the press was not stolen back by the reader.
+    expect(await screen.findByTestId('dialog-session-summary')).toBeTruthy();
+    expect(document.activeElement).not.toBe(
+      screen.getByTestId('input-scanner-hidden'),
+    );
+  });
+});
+
 describe('ScannerScreen new-session confirmation', () => {
   beforeEach(async () => {
     localStorage.clear();

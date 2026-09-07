@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as attendanceStore from '@/data/attendance-store';
 import { addPerson, recordSessionTap, type Person } from '@/data/attendance-store';
+import * as attendanceExport from '@/lib/attendance-export';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
 import { DashboardPage } from './DashboardPage';
 
@@ -115,6 +116,34 @@ describe('DashboardPage', () => {
     expect(container.textContent).not.toContain(UNKNOWN_UID);
 
     expect(screen.getByTestId('row-grade-12').textContent).toContain('2');
+  });
+
+  it('exports every session ever recorded, not just the latest', async () => {
+    const { jane } = await seedTwoSessions();
+    // What the v3 upgrade stamps on taps that predate session ids. No session
+    // id will ever equal it, so the scanner's own export can never reach it.
+    await recordSessionTap({
+      sessionId: 'legacy',
+      uid: jane.cardUid,
+      scannedAt: secondsAgo(120),
+      personId: jane.id as number,
+    });
+    const exportSpy = vi
+      .spyOn(attendanceExport, 'exportAttendanceWorkbook')
+      .mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('dashboard');
+
+    await user.click(screen.getByTestId('button-export-history'));
+
+    expect(exportSpy).toHaveBeenCalledTimes(1);
+    const [exportedTaps, exportedPersons] = exportSpy.mock.calls[0];
+    expect(exportedTaps).toHaveLength(5);
+    expect(new Set(exportedTaps.map((tap) => tap.sessionId))).toEqual(
+      new Set(['legacy', 'session-one', 'session-two']),
+    );
+    expect(exportedPersons).toHaveLength(2);
   });
 
   it('re-reads the store when refreshed', async () => {

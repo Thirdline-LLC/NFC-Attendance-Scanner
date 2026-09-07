@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw } from 'lucide-react';
-import { listPersons, listTapRecords } from '@/data/attendance-store';
+import {
+  listPersons,
+  listTapRecords,
+  type Person,
+  type TapRecord,
+} from '@/data/attendance-store';
+import { exportAttendanceWorkbook } from '@/lib/attendance-export';
 import {
   computeDashboardMetrics,
   type DashboardMetrics,
@@ -16,6 +22,13 @@ import { Dashboard } from '@/ui/Dashboard';
  */
 export function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  // The rows behind the metrics, kept so the export writes the same history
+  // the numbers were computed from rather than re-reading a store that may
+  // have moved on — or failed — since.
+  const [history, setHistory] = useState<{
+    taps: TapRecord[];
+    persons: Person[];
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -32,6 +45,7 @@ export function DashboardPage() {
       setMetrics(
         computeDashboardMetrics(taps, persons, new Date().toISOString()),
       );
+      setHistory({ taps, persons });
     } catch {
       setLoadFailed(true);
     } finally {
@@ -42,6 +56,16 @@ export function DashboardPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Every tap on the device, not just the session on the scanner screen: this
+   * is the only route by which a rotated-away session — or a tap the v3
+   * upgrade stamped `legacy` — reaches the workbook that is the record.
+   */
+  const exportAll = useCallback(() => {
+    if (!history) return;
+    exportAttendanceWorkbook(history.taps, history.persons);
+  }, [history]);
 
   return (
     <main
@@ -133,6 +157,7 @@ export function DashboardPage() {
               metrics={metrics}
               isLoading={isLoading}
               onRefresh={() => void load()}
+              onExportAll={history ? exportAll : undefined}
             />
           </div>
         ) : null}

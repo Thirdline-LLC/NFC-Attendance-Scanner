@@ -366,6 +366,17 @@ export function useAttendanceSession(mode: ScannerMode) {
   }, []);
 
   /**
+   * Closes the summary and nothing else. End Session is one tap away from the
+   * reader, and without this the only way out of the summary was to rotate the
+   * session id — an accidental press would cost the volunteer the on-screen
+   * count. The session, its taps and the count are all untouched.
+   */
+  const dismissSummary = useCallback(() => {
+    sessionSummaryRef.current = null;
+    setSessionSummary(null);
+  }, []);
+
+  /**
    * Rotates to a fresh session id and resets the on-screen view of "this
    * session". Attendance history is retained: the previous session's taps stay
    * in IndexedDB under their own session id, so a dashboard can report
@@ -441,6 +452,7 @@ export function useAttendanceSession(mode: ScannerMode) {
     enrollPerson,
     cancelEnrollment,
     endSession,
+    dismissSummary,
     startNewSession,
   };
 }
