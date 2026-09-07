@@ -60,6 +60,15 @@ database.version(4).stores({
   persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
   taps: '++id, uid, scannedAt, personId, sessionId',
 });
+// Device settings, keyed by name. Not student data and not exported: this is
+// how this kiosk is configured, which is why it sits beside the records rather
+// than in localStorage — it should survive and be cleared with them.
+database.version(5).stores({
+  scans: 'uid, scannedAt',
+  persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
+  taps: '++id, uid, scannedAt, personId, sessionId',
+  settings: 'key',
+});
 // Pre-enrollment rows from a v1/v2 database. Nothing writes here any more —
 // the table is kept so `clearAllAttendanceHistory` can still purge what an
 // upgraded database carried up, and so the schema versions stay replayable.
@@ -68,6 +77,9 @@ const scansTable = database.table<{ uid: string; scannedAt: string }, string>(
 );
 const personsTable = database.table<Person, number>('persons');
 const tapsTable = database.table<TapRecord, number>('taps');
+const settingsTable = database.table<{ key: string; value: string }, string>(
+  'settings',
+);
 
 export async function findPersonByUid(cardUid: string): Promise<Person | undefined> {
   return personsTable.where('cardUid').equals(cardUid).first();
@@ -143,6 +155,60 @@ export async function updatePerson(
  * `use-attendance-session.ts`), so this is the whole history a dashboard or
  * export works from, not just the session on screen.
  */
+const ATTENDANCE_TARGET_KEY = 'attendance-target';
+
+/**
+ * The per-meeting attendance this kiosk is aiming at, used by the dashboard.
+ *
+ * It is a device setting rather than a constant because one kiosk serves one
+ * club: a robotics meeting of twelve and an assembly of two hundred are both
+ * doing fine, and a shared number would tell either of them nothing.
+ */
+export const DEFAULT_ATTENDANCE_TARGET = 50;
+
+/** The widest range worth storing: past this the number is a typo, not a goal. */
+export const MIN_ATTENDANCE_TARGET = 1;
+export const MAX_ATTENDANCE_TARGET = 10_000;
+
+/** True for a whole number inside the allowed range. */
+export function isValidAttendanceTarget(value: number): boolean {
+  return (
+    Number.isInteger(value) &&
+    value >= MIN_ATTENDANCE_TARGET &&
+    value <= MAX_ATTENDANCE_TARGET
+  );
+}
+
+/**
+ * The configured target, or the default when none has been set — and also when
+ * the stored value cannot be trusted. A dashboard that refuses to render
+ * because a settings row was hand-edited would be worse than one showing the
+ * default, so a bad value is treated as absent.
+ */
+export async function getAttendanceTarget(): Promise<number> {
+  const row = await settingsTable.get(ATTENDANCE_TARGET_KEY);
+  if (!row) return DEFAULT_ATTENDANCE_TARGET;
+
+  const stored = Number(row.value);
+  return isValidAttendanceTarget(stored) ? stored : DEFAULT_ATTENDANCE_TARGET;
+}
+
+/** Stores a new target. Throws on anything outside the allowed range. */
+export async function setAttendanceTarget(target: number): Promise<void> {
+  if (!isValidAttendanceTarget(target)) {
+    throw new RangeError(
+      `An attendance target must be a whole number between ${MIN_ATTENDANCE_TARGET} and ${MAX_ATTENDANCE_TARGET}; got ${target}.`,
+    );
+  }
+
+  await settingsTable.put({
+    key: ATTENDANCE_TARGET_KEY,
+    // Stored as text so the row shape stays one type whatever a later setting
+    // needs to hold.
+    value: String(target),
+  });
+}
+
 export async function listTapRecords(): Promise<TapRecord[]> {
   return tapsTable.orderBy('scannedAt').toArray();
 }

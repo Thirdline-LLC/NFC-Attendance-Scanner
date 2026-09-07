@@ -11,10 +11,15 @@ import {
 } from '@/lib/tap-identity';
 
 /**
- * The per-meeting attendance the program is funded against. Progress toward
- * it is the headline number on the dashboard.
+ * The target used when a caller does not supply one.
+ *
+ * The real target is a device setting (`getAttendanceTarget`), because one
+ * kiosk serves one club and clubs are different sizes. This re-export keeps
+ * the default in one place; nothing in the metrics reads it except as a
+ * fallback.
  */
-export const ATTENDANCE_TARGET = 50;
+export { DEFAULT_ATTENDANCE_TARGET } from '@/data/attendance-store';
+import { DEFAULT_ATTENDANCE_TARGET } from '@/data/attendance-store';
 
 export type SessionAttendance = {
   sessionId: string;
@@ -189,6 +194,7 @@ export function computeYtdSummary(
   taps: readonly TapRecord[],
   roster: RosterIndex,
   now: string,
+  target: number = DEFAULT_ATTENDANCE_TARGET,
 ): YtdSummary {
   const ytdTaps = selectYearToDateTaps(taps, now);
   const sessions = computeSessionAttendance(ytdTaps, roster);
@@ -212,8 +218,8 @@ export function computeYtdSummary(
     sessionsCount: sessions.length,
     hasSessions,
     averageAttendance,
-    target: ATTENDANCE_TARGET,
-    percentOfTarget: (averageAttendance / ATTENDANCE_TARGET) * 100,
+    target,
+    percentOfTarget: (averageAttendance / target) * 100,
     latestSession: latest && snapshot(latest),
     bestSession: best && snapshot(best),
     uniqueStudents: distinctStudents(ytdTaps, roster).length,
@@ -304,13 +310,14 @@ export function computeDashboardMetrics(
   taps: readonly TapRecord[],
   persons: readonly Person[],
   now: string,
+  target: number = DEFAULT_ATTENDANCE_TARGET,
 ): DashboardMetrics {
   const roster = indexRoster(persons);
   const ytdStudents = distinctStudents(selectYearToDateTaps(taps, now), roster);
 
   return {
     computedAt: now,
-    ytd: computeYtdSummary(taps, roster, now),
+    ytd: computeYtdSummary(taps, roster, now, target),
     gradeBreakdown: gradeBreakdown(ytdStudents, persons, now),
     enrolledStudents: persons.length,
     unidentified: unidentifiedTaps(taps, roster),

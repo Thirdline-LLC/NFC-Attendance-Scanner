@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Person, TapRecord } from '@/data/attendance-store';
 import { indexRoster } from '@/lib/tap-identity';
 import {
-  ATTENDANCE_TARGET,
+  DEFAULT_ATTENDANCE_TARGET,
   computeDashboardMetrics,
   computeSessionAttendance,
   computeYtdSummary,
@@ -223,10 +223,22 @@ describe('computeYtdSummary', () => {
     expect(summary.averageAttendance).toBeCloseTo(5 / 3, 10);
   });
 
-  it('reports progress against the funding target without rounding', () => {
-    expect(ATTENDANCE_TARGET).toBe(50);
-    expect(summary.target).toBe(ATTENDANCE_TARGET);
+  it('reports progress against the default target without rounding', () => {
+    expect(DEFAULT_ATTENDANCE_TARGET).toBe(50);
+    expect(summary.target).toBe(DEFAULT_ATTENDANCE_TARGET);
     expect(summary.percentOfTarget).toBeCloseTo((5 / 3 / 50) * 100, 10);
+  });
+
+  it('measures against the target it is given, not the default', () => {
+    // One kiosk per club: twelve at a robotics meeting is a full house, and
+    // the same twelve at an assembly is not. The number has to move.
+    const clubSummary = computeYtdSummary(TAPS, index, NOW, 3);
+
+    expect(clubSummary.target).toBe(3);
+    expect(clubSummary.averageAttendance).toBeCloseTo(5 / 3, 10);
+    expect(clubSummary.percentOfTarget).toBeCloseTo((5 / 3 / 3) * 100, 10);
+    // The attendance itself is untouched by the goal it is measured against.
+    expect(clubSummary.sessions).toEqual(summary.sessions);
   });
 
   it('does not clamp a year that beats the target', () => {

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import {
   BarChart3,
   Database,
@@ -16,6 +16,11 @@ import type {
   UnidentifiedCard,
 } from '@/lib/attendance-metrics';
 import { maskCardUid } from '@/lib/scan-format';
+import {
+  isValidAttendanceTarget,
+  MAX_ATTENDANCE_TARGET,
+  MIN_ATTENDANCE_TARGET,
+} from '@/data/attendance-store';
 
 type DashboardProps = {
   metrics: DashboardMetrics;
@@ -28,6 +33,12 @@ type DashboardProps = {
    * that is the actual system of record.
    */
   onExportAll?: () => void;
+  /**
+   * Stores a new per-session target. Resolves false when it could not be
+   * written, so the editor can stay open rather than pretend it saved.
+   * Optional: without it the target is shown but not editable.
+   */
+  onSaveTarget?: (target: number) => Promise<boolean>;
 };
 
 const DISPLAY_TIME_ZONE = 'America/New_York';
@@ -74,6 +85,7 @@ export function Dashboard({
   isLoading = false,
   onRefresh,
   onExportAll,
+  onSaveTarget,
 }: DashboardProps) {
   const { ytd, gradeBreakdown, enrolledStudents, unidentified } = metrics;
   const percent = Math.round(ytd.percentOfTarget);
@@ -144,7 +156,12 @@ export function Dashboard({
       </p>
 
       <div className="mt-6 grid gap-4">
-        <TargetCard ytd={ytd} percent={percent} barWidth={barWidth} />
+        <TargetCard
+            ytd={ytd}
+            percent={percent}
+            barWidth={barWidth}
+            onSaveTarget={onSaveTarget}
+          />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Card eyebrow="Unique students" icon={<Users aria-hidden="true" size={16} />}>
@@ -204,11 +221,45 @@ function TargetCard({
   ytd,
   percent,
   barWidth,
+  onSaveTarget,
 }: {
   ytd: DashboardMetrics['ytd'];
   percent: number;
   barWidth: number;
+  onSaveTarget?: (target: number) => Promise<boolean>;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(String(ytd.target));
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const open = () => {
+    setDraft(String(ytd.target));
+    setError('');
+    setIsEditing(true);
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!onSaveTarget) return;
+
+    const next = Number(draft);
+    // The store enforces this too; catching it here means the operator is told
+    // what is wrong instead of watching a save fail silently.
+    if (!isValidAttendanceTarget(next)) {
+      setError(
+        `Enter a whole number between ${MIN_ATTENDANCE_TARGET} and ${MAX_ATTENDANCE_TARGET}.`,
+      );
+      return;
+    }
+
+    setIsSaving(true);
+    const saved = await onSaveTarget(next);
+    setIsSaving(false);
+    if (saved) setIsEditing(false);
+    else setError('That did not save. The device would not store it.');
+  };
+
   return (
     <Card eyebrow="Average attendance" icon={<Target aria-hidden="true" size={16} />}>
       <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-1">
@@ -221,7 +272,73 @@ function TargetCard({
           of <span data-testid="text-attendance-target">{ytd.target}</span> target
           per session
         </p>
+        {onSaveTarget && !isEditing ? (
+          <button
+            type="button"
+            onClick={open}
+            className="pb-1 text-xs font-semibold text-[hsl(var(--primary))] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+            data-testid="button-edit-target"
+          >
+            Change
+          </button>
+        ) : null}
       </div>
+
+      {isEditing ? (
+        <form
+          className="mt-3 flex flex-wrap items-end gap-2"
+          onSubmit={submit}
+          data-testid="form-attendance-target"
+        >
+          <label className="grid gap-1.5 text-xs font-semibold text-[hsl(var(--muted-foreground))]">
+            Students expected each session
+            <input
+              autoFocus
+              type="number"
+              inputMode="numeric"
+              min={MIN_ATTENDANCE_TARGET}
+              max={MAX_ATTENDANCE_TARGET}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setError('');
+              }}
+              className="w-32 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2 text-base text-[hsl(var(--foreground))] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.2)] sm:text-sm"
+              data-testid="input-attendance-target"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="rounded-xl bg-[hsl(var(--primary))] px-4 py-2 text-sm font-bold text-[hsl(var(--primary-foreground))] transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-wait disabled:opacity-60"
+            data-testid="button-save-target"
+          >
+            {isSaving ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsEditing(false)}
+            className="rounded-xl px-3 py-2 text-sm font-semibold text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+            data-testid="button-cancel-target"
+          >
+            Cancel
+          </button>
+          {error ? (
+            <p
+              className="basis-full text-xs font-semibold text-[hsl(var(--destructive))]"
+              role="alert"
+              data-testid="text-target-error"
+            >
+              {error}
+            </p>
+          ) : (
+            <p className="basis-full text-xs leading-5 text-[hsl(var(--muted-foreground))]">
+              This kiosk only. It changes what the percentage is measured
+              against, never the attendance itself.
+            </p>
+          )}
+        </form>
+      ) : null}
 
       <div className="mt-4">
         <div className="flex items-baseline justify-between gap-3 text-sm">
