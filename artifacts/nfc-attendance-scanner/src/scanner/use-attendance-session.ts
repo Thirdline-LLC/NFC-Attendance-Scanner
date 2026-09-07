@@ -167,19 +167,35 @@ export function useAttendanceSession(mode: ScannerMode) {
       // The roster does not belong to a session, so it is applied either way.
       personsRef.current = savedPersons;
       setPersons(savedPersons);
-      // The taps and the count do belong to one, and this read may be older
-      // than what is on screen in two different ways. If the session rotated
-      // while it was in flight, applying it would put the previous meeting's
-      // taps back under the new session's heading; if a tap committed while it
-      // was in flight, applying it would roll that tap off the count. Either
-      // way the newer writer already left the view in the state it wants.
-      if (
-        sessionIdRef.current === currentSessionId &&
-        tapWriteVersion.current === readTapWriteVersion
-      ) {
+      // The taps and the count do belong to one, and this read may be out of
+      // date in two different ways that need opposite answers.
+      if (sessionIdRef.current !== currentSessionId) {
+        // The session rotated while the read was in flight, so this snapshot
+        // describes a meeting that is no longer on screen. Applying it would
+        // file the previous meeting's taps under the new session's heading.
+        // The rotation already left the view as it wants it.
+      } else if (tapWriteVersion.current === readTapWriteVersion) {
         tapsRef.current = savedTaps;
         setTaps(savedTaps);
         setAttendanceCount(savedAttendanceCount);
+      } else {
+        // A tap committed while the read was in flight. Dropping the snapshot
+        // here loses this session's existing taps for the rest of the shift:
+        // at boot `tapsRef` is empty, so the summary and "Export this session"
+        // would cover only what arrived after the app was opened, while the
+        // headline count — set by the tap itself — still looked right.
+        //
+        // So merge instead. The snapshot is the only copy of what the store
+        // held before the tap; anything committed since is already in
+        // `tapsRef` and is re-appended by id. The count came from that write
+        // and is newer than the read's, so it is left alone.
+        const readIds = new Set(savedTaps.map((tap) => tap.id));
+        const merged = [
+          ...savedTaps,
+          ...tapsRef.current.filter((tap) => !readIds.has(tap.id)),
+        ];
+        tapsRef.current = merged;
+        setTaps(merged);
       }
       // The read landed either way, which is what the status reports.
       applyStorageStatus('ready');
