@@ -200,19 +200,60 @@ export function buildAttendanceRows(
   });
 }
 
-export function exportAttendanceWorkbook(
+/** A finished workbook and the name it should be saved under. */
+export type AttendanceWorkbook = {
+  filename: string;
+  workbook: XLSX.WorkBook;
+};
+
+/**
+ * The workbook itself, built but not delivered anywhere.
+ *
+ * Delivery is the half that is platform-specific: in a browser
+ * `exportAttendanceWorkbook` hands it to `XLSX.writeFile`, which downloads it,
+ * and a Capacitor build has to write the bytes itself (see
+ * `docs/capacitor-native.md`). Keeping the two apart means the native path can
+ * be added beside this without touching how the sheet is built — and it lets a
+ * test assert the bytes without a DOM download.
+ *
+ * `now` is injectable so the filename is assertable; it is also read once, so
+ * the meeting date and the stamp cannot straddle a second boundary.
+ */
+export function buildAttendanceWorkbook(
   taps: readonly TapRecord[],
   persons: readonly Person[],
-): void {
+  now: Date = new Date(),
+): AttendanceWorkbook {
   const rows = buildAttendanceRows(taps, persons);
   const worksheet = XLSX.utils.json_to_sheet(rows, { header: EXPORT_COLUMNS });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
-  const exportStamp = new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace(/\.\d{3}Z$/, 'Z');
-  const filename = `attendance-${formatMeetingDate(new Date().toISOString())}-${exportStamp}.xlsx`;
+  const timestamp = now.toISOString();
+  const exportStamp = timestamp.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+
+  return {
+    // The date is Eastern (the meeting's own day); the stamp is UTC, and is
+    // only there to keep two exports on one day from colliding.
+    filename: `attendance-${formatMeetingDate(timestamp)}-${exportStamp}.xlsx`,
+    workbook,
+  };
+}
+
+/**
+ * Build the workbook and hand it to the browser, which downloads it.
+ *
+ * `XLSX.writeFile` in a browser makes a Blob, points a synthetic `<a download>`
+ * at it and clicks it — verified against xlsx@0.18.5's `write_dl`, and observed
+ * in Chromium. It reports nothing back: no callback, no promise, no throw. So a
+ * host that ignores that click (a Capacitor WebView may well be one) is
+ * indistinguishable here from a file that saved. `docs/capacitor-native.md`
+ * carries the device test and the native delivery path.
+ */
+export function exportAttendanceWorkbook(
+  taps: readonly TapRecord[],
+  persons: readonly Person[],
+): void {
+  const { filename, workbook } = buildAttendanceWorkbook(taps, persons);
 
   XLSX.writeFile(workbook, filename, { bookType: 'xlsx', compression: true });
 }

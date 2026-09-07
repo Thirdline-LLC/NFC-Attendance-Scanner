@@ -26,7 +26,9 @@ The scanner has no backend, authentication, analytics, API routes, or database s
 - `artifacts/nfc-attendance-scanner/src/lib/scan-format.ts` — UID normalization, validation and on-screen masking
 - `artifacts/nfc-attendance-scanner/src/lib/tap-identity.ts` — resolving a tap to a student
 - `artifacts/nfc-attendance-scanner/src/lib/attendance-metrics.ts` — year-to-date and per-session figures
-- `artifacts/nfc-attendance-scanner/src/lib/attendance-export.ts` — local `.xlsx` export formatting
+- `artifacts/nfc-attendance-scanner/src/lib/attendance-export.ts` — the `.xlsx`
+  export: row shape and workbook (`buildAttendanceWorkbook`) kept apart from
+  handing it to the browser (`exportAttendanceWorkbook`)
 
 ## Architecture decisions
 
@@ -60,13 +62,17 @@ The scanner has no backend, authentication, analytics, API routes, or database s
   reachable only from the dashboard's "Export all history", because the
   scanner's `taps` come from `listSessionTapRecords(sessionId)` and no session
   id will ever equal `'legacy'`. The `.xlsx` is the system of record, so some
-  route to the whole history has to exist.
+  route to the whole history has to exist. In a browser that export is a Blob
+  behind a synthetic `<a download>` click, which reports nothing back — whether
+  a Capacitor WebView does anything at all with that click is untested and is
+  the first thing `docs/capacitor-native.md` asks you to check on a device.
 - **A card UID is hardware identity: never editable, never fully rendered.**
   One helper, `maskCardUid` in `src/lib/scan-format.ts`, produces the `••••` +
   last-4 string everywhere a card is named on screen. The roster search box is
   the one field a whole UID can be typed into — tapping a card with it focused
-  types all fourteen characters — so it trims a complete UID to its tail as it
-  is entered; the tail searches identically.
+  types all fourteen characters, one at a time — so no run of hex characters is
+  allowed past four anywhere in its value, which is the longest fragment the
+  rows already print. The tail searches identically.
 
 ## Product
 
@@ -87,8 +93,9 @@ input. Three routes:
   student enrolled with stays theirs.
 - `/dashboard` — year to date (the school year rolls over Aug 1): average
   attendance against the 50-per-session target, sessions held, unique students,
-  grade breakdown, and the cards that still resolve to nobody. Its "Export all
-  history" button writes every tap on the device to one workbook.
+  grade breakdown, and the cards that still resolve to nobody — those last
+  figures are all-time, not year-to-date, and say so on the card. Its "Export
+  all history" button writes every tap on the device to one workbook.
 
 ## User preferences
 

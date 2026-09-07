@@ -122,11 +122,11 @@ router the way an operator does and skips a full reload.
 
 | Screen | Testids |
 |---|---|
-| Scanner `/` | `scanner-station`, `header-scanner`, `input-scanner-hidden`, `text-attendance-count`, `status-scan-feedback`, `text-scan-status`, `text-last-uid`, `text-scanner-focus`, `button-end-session`, `button-reset-session` (DEV only), `panel-storage-unavailable`, `button-retry-storage`, `text-storage-checking`, `text-storage-footer`, `link-roster`, `link-dashboard` |
+| Scanner `/` | `scanner-station`, `header-scanner`, `card-scanner-reader`, `input-scanner-hidden`, `text-attendance-count`, `status-scan-feedback`, `text-scan-status`, `text-last-uid`, `text-scanner-focus`, `button-end-session`, `button-reset-session` (DEV only), `panel-storage-unavailable`, `button-retry-storage`, `text-storage-checking`, `text-storage-footer`, `link-roster`, `link-dashboard` |
 | Enrollment form | `form-enrollment`, `input-email`, `button-regenerate-email`, `text-email-collision`, `button-use-suggested-email`, `dialog-email-conflict`, `input-conflict-email`, `button-conflict-save`, `button-conflict-suggested`, `button-conflict-dismiss` |
 | Session rotation | `dialog-session-summary`, `button-summary-export`, `button-summary-new-session`, `button-summary-dismiss`, `dialog-new-session`, `text-new-session-counts`, `button-dialog-export`, `button-dialog-confirm`, `button-dialog-cancel` |
-| Roster `/roster` | `roster-page`, `header-roster`, `link-scanner`, `roster-manager`, `input-roster-search`, `button-roster-clear`, `text-roster-count`, `table-roster`, `row-person-<id>`, `text-card-tail-<id>`, `button-edit-person-<id>`, `row-editor-<id>`, `text-roster-loading`, `text-roster-load-error`, `button-roster-retry`, `text-roster-save-error` |
-| Dashboard `/dashboard` | `dashboard-page`, `header-dashboard`, `link-scanner`, `dashboard`, `text-average-attendance`, `text-attendance-target`, `text-percent-of-target`, `text-sessions-count`, `text-unique-students`, `text-enrolled-students`, `list-grade-breakdown`, `text-unidentified-taps`, `text-unidentified-cards`, `list-unidentified-cards`, `text-no-sessions`, `text-local-only`, `button-refresh-dashboard`, `button-export-history`, `text-dashboard-loading`, `text-dashboard-load-error`, `button-dashboard-retry`, `text-dashboard-stale` |
+| Roster `/roster` | `roster-page`, `header-roster`, `link-scanner`, `link-dashboard`, `roster-manager`, `input-roster-search`, `button-roster-clear`, `text-roster-count`, `table-roster`, `row-person-<id>`, `text-card-tail-<id>`, `button-edit-person-<id>`, `row-editor-<id>`, `text-roster-loading`, `text-roster-load-error`, `button-roster-retry`, `text-roster-save-error` |
+| Dashboard `/dashboard` | `dashboard-page`, `header-dashboard`, `link-scanner`, `link-roster`, `dashboard`, `text-average-attendance`, `text-attendance-target`, `text-percent-of-target`, `text-sessions-count`, `text-unique-students`, `text-enrolled-students`, `list-grade-breakdown`, `row-grade-<grade>`, `text-unidentified-taps`, `text-unidentified-cards`, `list-unidentified-cards`, `text-no-sessions`, `text-local-only`, `button-refresh-dashboard`, `button-export-history`, `text-dashboard-loading`, `text-dashboard-load-error`, `button-dashboard-retry`, `text-dashboard-stale` |
 
 **Look at the screenshots.** A blank frame means the app never mounted.
 
@@ -139,7 +139,7 @@ pressing Enter *is* a scan. Useless headless — use the driver instead.
 ## Test
 
 ```bash
-pnpm --filter nfc-attendance-scanner test        # vitest, 257 passing
+pnpm --filter nfc-attendance-scanner test        # vitest, 275 passing
 pnpm --filter nfc-attendance-scanner typecheck   # tsc --noEmit
 PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run build
 pnpm --filter @workspace/nfc-attendance-scanner run build:native   # BASE_PATH=./
@@ -213,6 +213,14 @@ There is **no ESLint config** anywhere in this repo. Don't try to lint.
   makes a fresh temp profile each time so the roster starts empty; pass
   `{ profile }` only if you *want* the carry-over, and expect collision
   behavior to change when you do.
+- **The export writes a real file under vitest.** `XLSX.writeFile` picks its
+  branch from the environment: in Node it is `fs.writeFileSync`, so a test that
+  calls `exportAttendanceWorkbook` for real drops an `attendance-*.xlsx` into
+  the package root. Stub it — `attendance-export.test.ts` mocks only that one
+  export via `vi.mock('xlsx', importOriginal)`. In a browser the same call
+  makes a Blob and clicks a synthetic `<a download>`; whether a Capacitor
+  WebView does anything with that click is unproven, see
+  `docs/capacitor-native.md`.
 - **Chromium floods stderr** with `dbus`/`upower`/`Fontconfig` errors. All
   harmless. Filter with `grep -viE "dbus|upower|Fontconfig"`.
 - `vitest.config.ts` includes `src/**/*.test.{ts,tsx}`. `tsconfig.json` excludes

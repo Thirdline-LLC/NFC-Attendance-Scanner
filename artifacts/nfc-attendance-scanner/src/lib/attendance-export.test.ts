@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as XLSX from 'xlsx';
 import {
   listPersons,
   listTapRecords,
@@ -9,14 +10,25 @@ import {
 
 import {
   buildAttendanceRows,
+  buildAttendanceWorkbook,
   COMMENCEMENT_DATES,
   commencementDate,
   currentSeniorGradYear,
   deriveGrade,
+  exportAttendanceWorkbook,
   formatMeetingDate,
   hasGraduated,
   UNKNOWN_CARD_NAME,
 } from './attendance-export';
+
+// Only `writeFile` is replaced — it is the one call that touches the outside
+// world, and vitest cannot spy on a property of xlsx's CJS namespace. Every
+// other helper stays real, so the workbook these tests read back is the
+// workbook the app builds.
+vi.mock('xlsx', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('xlsx')>();
+  return { ...actual, writeFile: vi.fn() };
+});
 
 // Injected in place of the real config so these cases do not move when a real
 // commencement date is added to COMMENCEMENT_DATES.
@@ -332,6 +344,104 @@ describe('buildAttendanceRows', () => {
     // 2026 and grade 12 that fall. A grade derived at export time could not
     // give two answers for the same person.
     expect(rows.map((row) => row.Grade)).toEqual(['11', '12']);
+  });
+});
+
+describe('buildAttendanceWorkbook', () => {
+  const EXPORT_HEADERS = [
+    'Timestamp',
+    'Card UID',
+    'Meeting Date',
+    'Name',
+    'Email',
+    'Grade',
+  ];
+
+  it('keeps every column, in order, through xlsx bytes and back', () => {
+    // The bytes, not the row objects, are what a teacher opens. This is also
+    // the exact call a Capacitor build has to make — XLSX.write to base64,
+    // then hand the string to the filesystem — so it holds that door open.
+    const { workbook } = buildAttendanceWorkbook(
+      [
+        tapAt(jordan.cardUid, FALL_2026, { personId: 1, counted: true }),
+        tapAt(STRANGER_UID, FALL_2026),
+      ],
+      [jordan],
+    );
+
+    const base64 = XLSX.write(workbook, {
+      bookType: 'xlsx',
+      type: 'base64',
+      compression: true,
+    });
+    const reopened = XLSX.read(base64, { type: 'base64' });
+    const sheet = reopened.Sheets.Attendance;
+
+    expect(reopened.SheetNames).toEqual(['Attendance']);
+    expect(XLSX.utils.sheet_to_json(sheet, { header: 1 })[0]).toEqual(
+      EXPORT_HEADERS,
+    );
+    // `defval` because an unknown card's Email and Grade are empty strings,
+    // which xlsx stores as no cell at all.
+    expect(XLSX.utils.sheet_to_json(sheet, { defval: '' })).toEqual(
+      buildAttendanceRows(
+        [
+          tapAt(jordan.cardUid, FALL_2026, { personId: 1, counted: true }),
+          tapAt(STRANGER_UID, FALL_2026),
+        ],
+        [jordan],
+      ),
+    );
+  });
+
+  it('files the workbook under the Eastern date the meeting fell on', () => {
+    // 02:30 UTC is still the previous evening in New York. The date names the
+    // meeting; the stamp after it is UTC and only separates two exports on one
+    // day. Both come from one reading of the clock, so they cannot disagree.
+    const { filename } = buildAttendanceWorkbook(
+      [],
+      [],
+      new Date('2027-01-05T02:30:04.123Z'),
+    );
+
+    expect(filename).toBe('attendance-2027-01-04-20270105T023004Z.xlsx');
+  });
+
+  it('defaults to the current time', () => {
+    expect(buildAttendanceWorkbook([], []).filename).toMatch(
+      /^attendance-\d{4}-\d{2}-\d{2}-\d{8}T\d{6}Z\.xlsx$/,
+    );
+  });
+});
+
+describe('exportAttendanceWorkbook', () => {
+  // Delivery is the platform-specific half. In a browser `XLSX.writeFile`
+  // makes a Blob, points a synthetic `<a download>` at it and clicks it — in
+  // Node (here) the very same call writes to disk instead, which is exactly
+  // why the WebView case in docs/capacitor-native.md cannot be settled from a
+  // test. What this pins is the seam: the built workbook and its filename go
+  // to writeFile untouched, so a native delivery can be added beside it.
+  it('hands the built workbook and its filename straight to xlsx', () => {
+    const writeFile = vi.mocked(XLSX.writeFile);
+    writeFile.mockClear();
+
+    exportAttendanceWorkbook(
+      [tapAt(jordan.cardUid, FALL_2026, { personId: 1, counted: true })],
+      [jordan],
+    );
+
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    const [workbook, filename, options] = writeFile.mock.calls[0];
+    expect(filename).toMatch(
+      /^attendance-\d{4}-\d{2}-\d{2}-\d{8}T\d{6}Z\.xlsx$/,
+    );
+    expect(options).toEqual({ bookType: 'xlsx', compression: true });
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets.Attendance)).toEqual(
+      buildAttendanceRows(
+        [tapAt(jordan.cardUid, FALL_2026, { personId: 1, counted: true })],
+        [jordan],
+      ),
+    );
   });
 });
 
