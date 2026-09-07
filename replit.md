@@ -43,3 +43,4 @@ _Populate as you build — sharp edges, "always run X before Y" rules._
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- `docs/capacitor-native.md` — packaging this app for iOS/Android and keeping IndexedDB data alive there
