@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Database,
   Download,
   FileSpreadsheet,
@@ -38,6 +39,8 @@ export function ScannerScreen() {
     isLoading,
     isSaving,
     storageError,
+    storageStatus,
+    retryStorage,
     handleScan,
     enrollPerson,
     cancelEnrollment,
@@ -46,6 +49,11 @@ export function ScannerScreen() {
   } = useAttendanceSession(mode);
   const captureEnabledRef = useRef(captureEnabled);
   captureEnabledRef.current = captureEnabled;
+  // A retry puts the store back in 'checking', which would otherwise yank the
+  // explanation and the button out from under the hand that just pressed it.
+  // Remembering the failure keeps the panel up until a read actually succeeds,
+  // so Retry can be disabled during the reload instead of disappearing.
+  const [sawStorageUnavailable, setSawStorageUnavailable] = useState(false);
 
   const focusScanner = useCallback(() => {
     if (!captureEnabledRef.current) return;
@@ -56,6 +64,15 @@ export function ScannerScreen() {
   useEffect(() => {
     setCaptureEnabled(!enrollmentCandidate && !sessionSummary);
   }, [enrollmentCandidate, sessionSummary]);
+
+  useEffect(() => {
+    if (storageStatus === 'unavailable') setSawStorageUnavailable(true);
+    else if (storageStatus === 'ready') setSawStorageUnavailable(false);
+  }, [storageStatus]);
+
+  const showStorageAlert =
+    storageStatus === 'unavailable' ||
+    (sawStorageUnavailable && storageStatus === 'checking');
 
   useEffect(() => {
     if (!captureEnabled) return;
@@ -219,18 +236,58 @@ export function ScannerScreen() {
           >
             <div className="rounded-[1.35rem] border border-[hsl(var(--border)/.75)] px-5 py-6 sm:px-7 sm:py-8">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[hsl(var(--muted-foreground))]">
-                  {mode === 'checkin' ? 'Tap to check in' : 'Tap to enroll'}
-                </p>
+                {storageStatus === 'checking' ? (
+                  <p
+                    className="text-xs font-semibold uppercase tracking-[0.2em] text-[hsl(var(--muted-foreground)/.72)]"
+                    data-testid="text-storage-checking"
+                  >
+                    Checking local storage…
+                  </p>
+                ) : (
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[hsl(var(--muted-foreground))]">
+                    {mode === 'checkin' ? 'Tap to check in' : 'Tap to enroll'}
+                  </p>
+                )}
                 <div className="flex size-10 items-center justify-center rounded-xl bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))]">
                   <Radio aria-hidden="true" size={19} />
                 </div>
               </div>
-              <div className="relative my-7 flex min-h-28 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-[hsl(var(--primary)/.34)] bg-[hsl(var(--background)/.45)] sm:my-8 sm:min-h-32">
-                <div className="absolute size-24 rounded-full border border-[hsl(var(--primary)/.22)] signal-breathe" />
-                <div className="absolute size-12 rounded-full border border-[hsl(var(--primary)/.38)]" />
-                <Radio className="relative text-[hsl(var(--primary))]" aria-hidden="true" size={31} strokeWidth={1.5} />
-              </div>
+              {showStorageAlert ? (
+                <div
+                  role="alert"
+                  className="my-7 rounded-2xl border border-[hsl(var(--destructive)/.6)] bg-[hsl(var(--destructive)/.1)] p-4 sm:my-8 sm:p-5"
+                  data-testid="panel-storage-unavailable"
+                >
+                  <div className="flex items-start gap-3 text-[hsl(var(--destructive))]">
+                    <AlertTriangle aria-hidden="true" size={22} strokeWidth={2.2} className="mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-display text-base font-semibold leading-tight tracking-[-0.02em] text-[hsl(var(--foreground))] sm:text-lg">
+                        This device isn’t letting the app save
+                      </p>
+                      <p className="mt-1.5 text-sm leading-5 text-[hsl(var(--muted-foreground))]">
+                        Private browsing, blocked site data, or a full disk can do
+                        it. Scans are not being recorded until it is fixed.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void retryStorage()}
+                    disabled={storageStatus === 'checking'}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-[hsl(var(--destructive)/.6)] px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-[hsl(var(--destructive))] transition hover:bg-[hsl(var(--destructive)/.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60 sm:w-fit"
+                    data-testid="button-retry-storage"
+                  >
+                    <RotateCcw aria-hidden="true" size={14} />
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <div className="relative my-7 flex min-h-28 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-[hsl(var(--primary)/.34)] bg-[hsl(var(--background)/.45)] sm:my-8 sm:min-h-32">
+                  <div className="absolute size-24 rounded-full border border-[hsl(var(--primary)/.22)] signal-breathe" />
+                  <div className="absolute size-12 rounded-full border border-[hsl(var(--primary)/.38)]" />
+                  <Radio className="relative text-[hsl(var(--primary))]" aria-hidden="true" size={31} strokeWidth={1.5} />
+                </div>
+              )}
               {enrollmentCandidate ? (
                 <EnrollmentForm
                   key={enrollmentCandidate.uid}
@@ -265,7 +322,15 @@ export function ScannerScreen() {
               <Database aria-hidden="true" size={14} />
               {persons.length} enrolled locally
             </span>
-            {storageError && <span className="text-[hsl(var(--destructive))]">Storage unavailable</span>}
+            {/* Two different problems, two different words: nothing can be
+                saved at all, versus one write that did not land. */}
+            {storageError && (
+              <span className="text-[hsl(var(--destructive))]" data-testid="text-storage-footer">
+                {storageStatus === 'unavailable'
+                  ? 'Storage unavailable'
+                  : 'Last save failed'}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button

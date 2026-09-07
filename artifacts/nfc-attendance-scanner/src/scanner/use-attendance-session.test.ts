@@ -347,3 +347,112 @@ describe('session history retention', () => {
     expect(reloaded.current.count).toBe(1);
   });
 });
+
+describe('storage recovery', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const enrollmentDetails = {
+    firstName: 'Avery',
+    lastName: 'Chen',
+    gradYear: 2028,
+    email: 'achen28@stjohnschs.org',
+  };
+
+  it('reports a store that will not open, then recovers on retry', async () => {
+    await addPerson(existingPerson);
+    const listPersonsSpy = vi
+      .spyOn(attendanceStore, 'listPersons')
+      .mockRejectedValue(new Error('storage unavailable'));
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+
+    expect(result.current.storageStatus).toBe('unavailable');
+    expect(result.current.persons).toEqual([]);
+    expect(result.current.storageError).toBe(true);
+
+    // The retry runs the same read as boot, so recovery cannot drift from it.
+    listPersonsSpy.mockRestore();
+    await act(async () => {
+      await result.current.retryStorage();
+    });
+
+    expect(result.current.storageStatus).toBe('ready');
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.persons).toHaveLength(1);
+  });
+
+  it('will not open an enrollment while the store is unavailable', async () => {
+    vi.spyOn(attendanceStore, 'listPersons').mockRejectedValue(
+      new Error('storage unavailable'),
+    );
+    const { result } = renderHook(() => useAttendanceSession('enroll'));
+    await waitForReady(result);
+    expect(result.current.storageStatus).toBe('unavailable');
+
+    await act(async () => {
+      await result.current.handleScan(newUid);
+    });
+
+    // Details typed into a form that cannot save are details thrown away.
+    expect(result.current.enrollmentCandidate).toBeNull();
+    expect(result.current.feedback).toBe('storage-unavailable');
+  });
+
+  it('holds the candidate open after a failed enrollment save and clears on retry', async () => {
+    vi.spyOn(attendanceStore, 'addPerson').mockRejectedValueOnce(
+      new Error('write failed'),
+    );
+    const { result } = renderHook(() => useAttendanceSession('enroll'));
+    await waitForReady(result);
+
+    await act(async () => {
+      await result.current.handleScan(newUid);
+    });
+    expect(result.current.enrollmentCandidate?.uid).toBe(newUid);
+
+    await act(async () => {
+      await result.current.enrollPerson(enrollmentDetails);
+    });
+    expect(result.current.storageStatus).toBe('save-failed');
+    expect(result.current.enrollmentCandidate?.uid).toBe(newUid);
+    expect(await listPersons()).toHaveLength(0);
+
+    await act(async () => {
+      await result.current.enrollPerson(enrollmentDetails);
+    });
+    expect(result.current.storageStatus).toBe('ready');
+    expect(result.current.enrollmentCandidate).toBeNull();
+    expect(await listPersons()).toHaveLength(1);
+  });
+
+  it('flags a tap that did not save and clears it on the next good tap', async () => {
+    await addPerson(existingPerson);
+    vi.spyOn(attendanceStore, 'recordSessionTap').mockRejectedValueOnce(
+      new Error('write failed'),
+    );
+    const { result } = renderHook(() => useAttendanceSession('checkin'));
+    await waitForReady(result);
+
+    await act(async () => {
+      await result.current.handleScan(existingUid);
+    });
+    expect(result.current.storageStatus).toBe('save-failed');
+    expect(result.current.feedback).toBe('storage-error');
+    expect(result.current.taps).toEqual([]);
+
+    await act(async () => {
+      await result.current.handleScan(existingUid);
+    });
+    expect(result.current.storageStatus).toBe('ready');
+    expect(result.current.feedback).toBe('valid');
+    expect(result.current.count).toBe(1);
+  });
+});

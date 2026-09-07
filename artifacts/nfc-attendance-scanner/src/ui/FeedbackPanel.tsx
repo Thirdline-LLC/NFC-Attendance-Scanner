@@ -59,9 +59,11 @@ export function FeedbackPanel({
                       ? 'Bad read — tap again'
                       : feedback === 'storage-error'
                         ? 'Could not save locally'
-                        : mode === 'enroll'
-                          ? 'Ready to enroll'
-                          : 'Ready for next tap';
+                        : feedback === 'storage-unavailable'
+                          ? 'Card not recorded'
+                          : mode === 'enroll'
+                            ? 'Ready to enroll'
+                            : 'Ready for next tap';
   const detail =
     feedback === 'valid' || feedback === 'duplicate'
       ? `${personName} · ${formatTime(lastScannedAt)}`
@@ -81,13 +83,16 @@ export function FeedbackPanel({
                     ? 'The scan did not match a 14-character card ID'
                     : feedback === 'storage-error'
                       ? 'Check browser storage and try again'
-                      : 'Hold a card or badge near the reader';
+                      : feedback === 'storage-unavailable'
+                        ? 'This device is not letting the app save — nothing was stored for this tap'
+                        : 'Hold a card or badge near the reader';
   const stateClass =
     feedback === 'valid' || feedback === 'enrolled' || feedback === 'updated'
       ? 'border-[hsl(var(--accent)/.7)] bg-[hsl(var(--accent)/.12)] text-[hsl(var(--accent))]'
       : feedback === 'duplicate' ||
           feedback === 'invalid' ||
-          feedback === 'storage-error'
+          feedback === 'storage-error' ||
+          feedback === 'storage-unavailable'
         ? 'border-[hsl(var(--destructive)/.7)] bg-[hsl(var(--destructive)/.1)] text-[hsl(var(--destructive))]'
         : 'border-[hsl(var(--primary)/.35)] bg-[hsl(var(--primary)/.06)] text-[hsl(var(--primary))]';
 
