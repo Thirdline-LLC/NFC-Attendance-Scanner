@@ -94,6 +94,6 @@
     "@capacitor/share": "^8.0.1",
     "dexie": "^4.4.5",
     "react-router-dom": "^7.18.3",
-    "xlsx": "^0.18.5"
+    "xlsx": "npm:@e965/xlsx@^0.20.3"
   }
 }
