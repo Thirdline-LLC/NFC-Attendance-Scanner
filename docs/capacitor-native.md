@@ -346,28 +346,39 @@ rather than having it cover the count. If the soft keyboard does appear, add
 `@capacitor/keyboard` and hide it on the scanner screen — not needed until the
 symptom shows up.
 
-**The app fetches fonts — from two places, and only one of them matters.**
-The built bundle makes two requests to `fonts.googleapis.com`:
+**The app fetches no fonts, and that took removing two separate requests.**
+The bundle used to make two calls to `fonts.googleapis.com`, and only one of
+them was doing anything:
 
-- `index.html:18` keeps a `<link>` for **Inter**, plus two `preconnect`s.
-  Nothing references Inter in any font stack (`grep -rn Inter src index.html`
-  returns that one line, and "Inter" appears nowhere in the built CSS), so this
-  request is pure waste and the tag can be deleted outright.
-- `src/index.css:1` is `@import url('…css2?family=DM+Sans…&Space+Grotesk…
-  &Space+Mono…')`, and a remote `@import` survives the build: it is literally
-  the first thing in `dist/public/assets/index-*.css`. **This is the request
-  that supplies the app's fonts** — `--app-font-sans: 'DM Sans'` and
-  `--app-font-mono: 'Space Mono'` (`src/index.css:46-47`). Of the three
-  families it asks for, Space Grotesk is downloaded and never applied: the
-  `font-display` class used on headings maps to no `--font-display` token and
-  emits no CSS at all.
+- `src/index.css:1` was `@import url('…css2?family=DM+Sans…&Space+Grotesk…
+  &Space+Mono…')`. A remote `@import` survives the build — it was literally the
+  first line of `dist/public/assets/index-*.css` — and this was the request
+  that actually supplied the app's fonts (`--app-font-sans: 'DM Sans'`,
+  `--app-font-mono: 'Space Mono'`). It now reads `@import './fonts/fonts.css'`,
+  and the two families ship in the bundle as eight woff2 files (~148 KB total,
+  emitted to `assets/` and referenced relatively, so the native build resolves
+  them too). Space Grotesk was in the old import, was downloaded on every boot
+  and was never drawn with — the `font-display` class on headings maps to no
+  `--font-display` token and emits no CSS — so it is deliberately not
+  self-hosted.
+- `index.html` carried a `<link>` for **Inter** plus two `preconnect`s. Nothing
+  referenced Inter in any font stack and it appeared nowhere in the built CSS,
+  so all three lines were deleted rather than self-hosted.
 
-Offline both requests simply fail and the CSS falls back to the system stack —
-nothing breaks, but the kiosk looks different from what was signed off in
-review. So: self-hosting has to cover the **`@import`**; deleting the Inter
-`<link>` changes nothing visible and removes one request; and self-hosting Inter
-alone would remove nothing that anyone sees. Left as a follow-up because it
-changes nothing functional — but those two requests are the only ones the
-bundle makes (everything else that looks like a URL in the built JS is an XML
-namespace from SheetJS), so removing them is what lets anyone say "this app
-touches the network never" and mean it.
+To regenerate the faces: re-fetch the css2 stylesheet for DM Sans and Space
+Mono, then rewrite each `url()` to the copy beside `src/fonts/fonts.css`.
+
+This matters beyond looks. Offline, both requests used to fail silently and the
+kiosk fell back to system fonts, so it never looked like what was signed off in
+review. Worse, on a kiosk *with* a network the app announced itself to a third
+party on every boot while the dashboard told the operator that nothing is sent
+anywhere. Those were the only two requests the bundle made, so with them gone,
+"this app touches the network never" is now literally true.
+
+Verified by grepping the built CSS and JS for `https://`. What still matches is
+inert: XML namespaces baked into SheetJS, and documentation links inside React
+and react-router error strings (`reactjs.org/docs/error-decoder`,
+`reactrouter.com/...`). Those are string literals printed into a message when
+something has already gone wrong — nothing fetches them. Re-run that grep after
+adding any dependency; a URL that appears in a `fetch`, `<link>`, `@import` or
+`src` is a real request and does not belong in this bundle.
