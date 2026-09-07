@@ -48,3 +48,6 @@ Thumbs.db
 .cache/
 .local/
 .cla_user/
+
+# Claude Code worktrees (per-session isolation)
+.claude/worktrees/
