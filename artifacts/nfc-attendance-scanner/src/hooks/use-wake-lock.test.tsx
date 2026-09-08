@@ -143,6 +143,34 @@ describe('useWakeLock', () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
+  it('releases a lock that arrives after the screen has already gone', async () => {
+    // The request takes a few hundred milliseconds on a real tablet, and the
+    // operator can tap through to /roster inside that window. Before this was
+    // fixed the sentinel landed in an orphaned closure with nothing holding a
+    // reference to it, and the screen stayed awake for the rest of the page's
+    // life — on /roster, on /dashboard, and after everyone had gone home.
+    const sentinel = fakeSentinel();
+    let grant = (_value: typeof sentinel) => {};
+    installWakeLock(
+      vi.fn().mockReturnValue(
+        new Promise<typeof sentinel>((resolve) => {
+          grant = resolve;
+        }),
+      ),
+    );
+
+    const view = render(<Kiosk active />);
+    // Unmount while the request is still in flight.
+    await act(async () => {
+      view.unmount();
+    });
+    await act(async () => {
+      grant(sentinel);
+    });
+
+    expect(sentinel.release).toHaveBeenCalledTimes(1);
+  });
+
   it('survives a refused request without throwing', async () => {
     installWakeLock(vi.fn().mockRejectedValue(new Error('NotAllowedError')));
 

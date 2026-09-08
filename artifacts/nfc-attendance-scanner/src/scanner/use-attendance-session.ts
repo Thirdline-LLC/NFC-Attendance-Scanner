@@ -14,7 +14,7 @@ import {
   type Person,
   type TapRecord,
 } from '@/data/attendance-store';
-import { isValidUid, normalizeUid } from '@/lib/scan-format';
+import { isValidUid, maskCardUid, normalizeUid } from '@/lib/scan-format';
 
 export type ScannerMode = 'checkin' | 'enroll';
 export type ScanFeedback =
@@ -342,8 +342,12 @@ export function useAttendanceSession(mode: ScannerMode) {
         // would only puzzle whoever is watching.
         if (sessionIdRef.current !== tapSessionId) {
           if (import.meta.env.DEV) {
+            // Masked even here. A card UID is hardware identity that is still
+            // in a student's wallet, and the devtools console on a kiosk
+            // tablet is as readable as the screen -- and is captured by every
+            // driver log and screenshot.
             console.debug('[attendance scan] landed in a rotated-away session', {
-              uid,
+              card: maskCardUid(uid),
               sessionId: tapSessionId,
             });
           }
@@ -374,7 +378,7 @@ export function useAttendanceSession(mode: ScannerMode) {
         announce(nextFeedback);
         if (import.meta.env.DEV) {
           console.debug('[attendance scan]', {
-            uid,
+            card: maskCardUid(uid),
             sessionId: sessionIdRef.current,
             priorCounted: committed.priorCounted,
             counted: committed.tap.counted,

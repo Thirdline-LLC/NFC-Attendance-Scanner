@@ -307,6 +307,26 @@ describe('deliverWorkbook in the desktop app', () => {
     });
   });
 
+  it('reports the name the operator saved under, not the one we suggested', async () => {
+    // The Save dialog lets them rename it. Reporting our suggestion produced a
+    // self-contradictory notice — "Saved attendance-….xlsx to
+    // /Users/teacher/Desktop/September meeting.xlsx" — naming a file that was
+    // never created, which sends a teacher looking for something that is not
+    // there and then exporting all over again.
+    installBridge(
+      vi.fn().mockResolvedValue({
+        status: 'saved',
+        path: '/Users/teacher/Desktop/September meeting.xlsx',
+        bytes: 4096,
+      }),
+    );
+
+    const delivered = await deliverWorkbook(aWorkbook());
+
+    expect(delivered.filename).toBe('September meeting.xlsx');
+    expect(delivered.uri).toBe('/Users/teacher/Desktop/September meeting.xlsx');
+  });
+
   it('throws ExportCancelledError when the Save dialog is closed', async () => {
     installBridge(vi.fn().mockResolvedValue({ status: 'cancelled' }));
 

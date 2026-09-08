@@ -32,6 +32,19 @@ export type DeliveredExport = {
 const MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+/**
+ * The last segment of a saved path.
+ *
+ * The desktop Save dialog lets the operator rename the file, so the name we
+ * suggested and the name on disk are not the same string. Both separators are
+ * handled because the path is whatever the host handed back, not something
+ * this module constructed.
+ */
+function basename(filePath: string): string {
+  const segments = filePath.split(/[\\/]/);
+  return segments[segments.length - 1] || filePath;
+}
+
 /** The bytes, base64-encoded, which is what both bridges carry. */
 function encodeWorkbook(workbook: XLSX.WorkBook): string {
   return XLSX.write(workbook, {
@@ -85,7 +98,16 @@ export async function deliverWorkbook({
     if (result.status === 'cancelled') throw new ExportCancelledError();
     if (result.status === 'failed') throw new Error(result.message);
 
-    return { filename, delivery: 'saved', uri: result.path };
+    // The name that came back, not the one we asked for. Naming the file is
+    // the whole point of the success notice -- it is what the operator will go
+    // looking for -- and a notice reading "Saved attendance-2026-09-15….xlsx
+    // to /Users/teacher/Desktop/September meeting.xlsx" names a file that was
+    // never created.
+    return {
+      filename: basename(result.path),
+      delivery: 'saved',
+      uri: result.path,
+    };
   }
 
   if (!Capacitor.isNativePlatform()) {

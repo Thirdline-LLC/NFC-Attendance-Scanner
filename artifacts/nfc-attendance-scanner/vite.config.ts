@@ -127,9 +127,14 @@ export default defineConfig({
         short_name: 'SJC Attendance',
         description:
           'Kiosk attendance scanning for a USB HID NFC reader. Records and exports locally; no account, no server.',
-        id: '/',
-        start_url: '/',
-        scope: '/',
+        // `id`, `start_url` and `scope` are deliberately ABSENT. vite-plugin-pwa
+        // defaults all three from the resolved `base`, and hardcoding them to
+        // '/' overrode that: a `BASE_PATH=/attendance/` build — which
+        // docs/pwa-hosting.md documents as supported — installed an app whose
+        // launcher opened the host root instead of the scanner, and whose
+        // start_url sat outside the service worker's own scope, so it had no
+        // offline shell either. Every other base-dependent piece (routerBasename,
+        // the worker registration) derives from `base`; this one now does too.
         display: 'standalone',
         orientation: 'portrait',
         // --background and --primary from src/index.css, so the splash and the

@@ -795,3 +795,31 @@ describe('storage recovery', () => {
     expect(result.current.count).toBe(1);
   });
 });
+
+describe('scan logging', () => {
+  // The requirement is unconditional: a full card UID must never reach the
+  // DOM, the screen, or a log. The devtools console on a kiosk tablet is as
+  // readable as the screen, and it is captured by every driver log and
+  // screenshot the run skill takes.
+  it('never writes a full card UID to the console', async () => {
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    const uid = '04AA0000000001';
+
+    const { result } = renderHook(() => useAttendanceSession());
+    await waitFor(() => expect(result.current.storageStatus).toBe('ready'));
+    await act(async () => {
+      await result.current.handleScan(uid);
+    });
+
+    // Asserted first so this test cannot quietly become vacuous: if the log
+    // stops firing, the UID assertion below would pass against an empty array.
+    expect(debug).toHaveBeenCalled();
+
+    const logged = JSON.stringify(debug.mock.calls);
+    expect(logged).not.toContain(uid);
+    // Only the masked form may appear.
+    expect(logged).toContain('••••0001');
+
+    debug.mockRestore();
+  });
+});

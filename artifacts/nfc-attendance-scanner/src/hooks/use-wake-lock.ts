@@ -67,10 +67,24 @@ export function useWakeLock(active: boolean): void {
     const acquire = async () => {
       if (cancelled || document.visibilityState !== 'visible') return;
       try {
-        sentinel = await api.request('screen');
+        const granted = await api.request('screen');
+
+        // The request takes a few hundred milliseconds on a real tablet, and
+        // the scanner can be navigated away from inside that window. Cleanup
+        // has then already run and found nothing to release, so a lock that
+        // arrives now would be held for the rest of the page's life -- on
+        // /roster, on /dashboard, and after the operator has walked away.
+        // Nothing else holds a reference to it, so this is the only chance to
+        // let it go.
+        if (cancelled) {
+          void granted.release().catch(() => {});
+          return;
+        }
+
+        sentinel = granted;
         // A lock the browser drops for its own reasons must not look held.
-        sentinel.addEventListener('release', () => {
-          sentinel = undefined;
+        granted.addEventListener('release', () => {
+          if (sentinel === granted) sentinel = undefined;
         });
       } catch {
         sentinel = undefined;
