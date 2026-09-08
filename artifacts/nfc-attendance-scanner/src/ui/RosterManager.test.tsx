@@ -128,9 +128,15 @@ function renderRoster(overrides: Partial<RosterProps> = {}) {
   };
 }
 
+/**
+ * Stands in for the real clipboard, which jsdom does not implement. Both
+ * outcomes matter here: the row reports what actually happened rather than
+ * assuming a click copied anything.
+ */
 function mockClipboard(writeText: (email: string) => Promise<void>) {
   vi.spyOn(navigator.clipboard, 'writeText').mockImplementation(writeText);
 }
+
 function openEditor(user: ReturnType<typeof userEvent.setup>, id: number) {
   return user.click(screen.getByTestId(`button-edit-person-${id}`));
 }
@@ -203,26 +209,98 @@ describe('RosterManager listing', () => {
     ).toBe('button-edit-person-1');
   });
 
-  it('keeps the student actions grouped, named, and usable', async () => {
-    const onRemove = vi.fn<NonNullable<RosterProps['onRemove']>>();
+  it('copies a student email and says so only once it lands', async () => {
+    const writeText = vi.fn<(email: string) => Promise<void>>().mockResolvedValue();
+    mockClipboard(writeText);
     const { user } = renderRoster();
     const row = screen.getByTestId('row-person-1');
-    const actions = within(row).getByTestId('actions-person-7');
 
-    const writeText = vi.fn().mockRejectedValue(new Error('Not allowed'));
+    await user.click(
+      within(row).getByRole('button', { name: 'Copy email for Jane Smith' }),
+    );
 
-    const writeText = vi.fn().mockRejectedValue(new Error('Not allowed'));
+    expect(writeText).toHaveBeenCalledWith('jsmith27@stjohnschs.org');
+    expect(await within(row).findByText('Email copied')).toBeTruthy();
+  });
+
+  it('does not claim a copy that the clipboard refused', async () => {
+    const writeText = vi
+      .fn<(email: string) => Promise<void>>()
+      .mockRejectedValue(new Error('Not allowed'));
+    mockClipboard(writeText);
+    const { user } = renderRoster();
     const row = screen.getByTestId('row-person-1');
-    const actions = within(row).getByTestId('actions-person-7');
 
-    const writeText = vi.fn().mockRejectedValue(new Error('Not allowed'));
+    await user.click(
+      within(row).getByRole('button', { name: 'Copy email for Jane Smith' }),
+    );
 
-    const writeText = vi.fn().mockRejectedValue(new Error('Not allowed'));
-    const edit = within(row).getByRole('button', {
-      name: 'Edit Jane Smith',
+    // A rejected write must read as a failure with a way out, not as silence
+    // and not as success.
+    expect(
+      await within(row).findByText(
+        'Could not copy email. Try selecting it manually.',
+      ),
+    ).toBeTruthy();
+    expect(within(row).queryByText('Email copied')).toBeNull();
+  });
+
+  it('never puts a card UID on the clipboard', async () => {
+    const writeText = vi.fn<(email: string) => Promise<void>>().mockResolvedValue();
+    mockClipboard(writeText);
+    const { user } = renderRoster();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Copy email for Jane Smith' }),
+    );
+
+    for (const person of roster) {
+      expect(writeText).not.toHaveBeenCalledWith(
+        expect.stringContaining(person.cardUid),
+      );
+    }
+  });
+
+  it('keeps the student actions grouped, named, and usable', async () => {
+    const onRemove = vi.fn<NonNullable<RosterProps['onRemove']>>();
+    const { user } = renderRoster({ onRemove });
+    const row = screen.getByTestId('row-person-1');
+    const actions = within(row).getByTestId('actions-person-1');
+
+    expect(actions.className).toContain('items-center');
+    expect(actions.className).toContain('gap-2');
+    expect(within(actions).getByRole('button', { name: 'Edit Jane Smith' })).toBeTruthy();
+    expect(
+      within(actions).getByRole('button', { name: 'Remove Jane Smith' }),
+    ).toBeTruthy();
+
+    await user.click(
+      within(actions).getByRole('button', { name: 'Remove Jane Smith' }),
+    );
+    expect(onRemove).toHaveBeenCalledWith(janeSmith);
+
+    await user.click(
+      within(actions).getByRole('button', { name: 'Edit Jane Smith' }),
+    );
+    expect(
+      within(actions)
+        .getByRole('button', { name: 'Edit Jane Smith' })
+        .getAttribute('aria-expanded'),
+    ).toBe('true');
+  });
+
+  it('keeps actions available when names and email values are unusually long', () => {
+    renderRoster({
+      persons: [longNamedPerson],
+      onRemove: vi.fn<NonNullable<RosterProps['onRemove']>>(),
     });
-    const remove = within(row).getByRole('button', {
-      name: 'Remove Jane Smith',
+    const row = screen.getByTestId('row-person-7');
+    const actions = within(row).getByTestId('actions-person-7');
+    const edit = within(actions).getByRole('button', {
+      name: 'Edit Alexandria Montgomery-Wellington-Smythe',
+    });
+    const remove = within(actions).getByRole('button', {
+      name: 'Remove Alexandria Montgomery-Wellington-Smythe',
     });
 
     expect(within(row).getByText(longNamedPerson.firstName)).toBeTruthy();
@@ -263,8 +341,8 @@ describe('RosterManager listing', () => {
   });
 
   it('reveals exceptionally long names and email addresses on tap', async () => {
-    const { user } = renderRoster();
-    const row = screen.getByTestId('row-person-1');
+    const { user } = renderRoster({ persons: [longNamedPerson] });
+    const row = screen.getByTestId('row-person-7');
     const lastName = within(row).getByTestId('button-reveal-last-name-7');
     const email = within(row).getByTestId('button-reveal-email-7');
 
@@ -298,7 +376,7 @@ describe('RosterManager listing', () => {
 
   it('keeps Edit and Remove in keyboard order and activates both keys', async () => {
     const onRemove = vi.fn<NonNullable<RosterProps['onRemove']>>();
-    const { user } = renderRoster();
+    const { user } = renderRoster({ onRemove });
     const row = screen.getByTestId('row-person-1');
     const edit = within(row).getByRole('button', {
       name: 'Edit Jane Smith',
@@ -372,55 +450,58 @@ describe('RosterManager search', () => {
   it('filters by a full name typed in either order', async () => {
     const { user, search, rowIds } = renderRoster();
 
-    await user.type(search, 'Facade');
+    await user.type(search, 'jane sm');
+    expect(rowIds()).toEqual(['row-person-1']);
 
-    expect(search.value).toBe('Facade');
-    expect(rowIds()).toEqual(['row-person-6']);
+    await user.clear(search);
+    await user.type(search, 'smith bob');
+    expect(rowIds()).toEqual(['row-person-5']);
   });
 
-  it('collapses a run of hex letters long enough to be a card, not a word', async () => {
+  it('does not match a run of letters that straddles first and last name', async () => {
     const { user, search } = renderRoster();
 
-    // "aa" ends Luis's card, but two letters typed into a name box are a name.
-    await user.type(search, 'aa');
+    await user.type(search, 'esm');
 
-    expect(screen.getByTestId('text-roster-no-match')).toBeTruthy();
+    expect(screen.queryByTestId('row-person-1')).toBeNull();
   });
 
-  it('ignores accents when matching names', async () => {
+  it('filters by email', async () => {
     const { user, search, rowIds } = renderRoster();
 
-    // Collapsing every five-character run cut this to "RECCA", which is not a
-    // substring of "Rebecca", so she could not be found at all.
-    await user.type(search, 'Rebecca');
+    // "alove" is in Ada's address but in nobody's name.
+    await user.type(search, 'alove');
 
-    expect(search.value).toBe('Rebecca');
-    expect(rowIds()).toEqual(['row-person-6']);
+    expect(rowIds()).toEqual(['row-person-3']);
   });
 
-  it('still finds a surname that is nothing but hex letters', async () => {
+  it('filters by the last four characters of a card, in any case', async () => {
     const { user, search, rowIds } = renderRoster();
 
-    // Collapsing every five-character run cut this to "RECCA", which is not a
-    // substring of "Rebecca", so she could not be found at all.
-    await user.type(search, 'Rebecca');
+    await user.type(search, 'e5f6');
+    expect(rowIds()).toEqual(['row-person-1']);
 
-    expect(search.value).toBe('Rebecca');
-    expect(rowIds()).toEqual(['row-person-6']);
+    // A partial tail still finds the card.
+    await user.clear(search);
+    await user.type(search, 'F6');
+    expect(rowIds()).toEqual(['row-person-1']);
   });
 
-  it('still finds a surname that is nothing but hex letters', async () => {
+  it('finds a card scanned into the field, keeping only its tail on screen', async () => {
     const { user, search, rowIds } = renderRoster();
 
-    // Collapsing every five-character run cut this to "RECCA", which is not a
-    // substring of "Rebecca", so she could not be found at all.
-    await user.type(search, 'Rebecca');
+    // What the reader types when the search box has focus.
+    await user.type(search, '04ffeeddccbb99');
 
-    expect(search.value).toBe('Rebecca');
-    expect(rowIds()).toEqual(['row-person-6']);
+    expect(rowIds()).toEqual(['row-person-3']);
+    // The search box is the one field a whole UID can be typed into, and a UID
+    // is hardware identity: it is cut to the tail the rows already show.
+    expect(search.value).toBe('BB99');
+    expect(document.body.innerHTML).not.toContain('04FFEEDDCCBB99');
+    expect(document.body.innerHTML).not.toContain('04ffeeddccbb99');
   });
 
-  it('still finds a surname that is nothing but hex letters', async () => {
+  it('never lets more than a card tail rest in the field, at any keystroke', async () => {
     const { user, search, rowIds } = renderRoster();
 
     // The reader is a keyboard wedge: it types the fourteen characters one at
@@ -442,14 +523,21 @@ describe('RosterManager search', () => {
   it('collapses a card tapped into a field that already has something in it', async () => {
     const { user, search } = renderRoster();
 
-    // "aa" ends Luis's card, but two letters typed into a name box are a name.
-    await user.type(search, 'aa');
+    await user.type(search, 'j');
+    await user.type(search, '04A1B2C3D4E5F6');
 
+    // The old rule only fired when the *whole* value normalized to a UID, so
+    // one stray keystroke beforehand left all fourteen characters in the DOM
+    // and they stayed there until the field was cleared.
+    expect(search.value).toBe('jE5F6');
+    expect(document.body.innerHTML).not.toContain('04A1B2C3D4E5F6');
     expect(screen.getByTestId('text-roster-no-match')).toBeTruthy();
   });
 
-  it('ignores accents when matching names', async () => {
-    const { user, search, rowIds } = renderRoster();
+  it('still finds a name that hides a run of hex letters', async () => {
+    const { user, search, rowIds } = renderRoster({
+      persons: [...roster, rebeccaFacade],
+    });
 
     // Collapsing every five-character run cut this to "RECCA", which is not a
     // substring of "Rebecca", so she could not be found at all.
@@ -460,7 +548,9 @@ describe('RosterManager search', () => {
   });
 
   it('still finds a surname that is nothing but hex letters', async () => {
-    const { user, search, rowIds } = renderRoster();
+    const { user, search, rowIds } = renderRoster({
+      persons: [...roster, rebeccaFacade],
+    });
 
     await user.type(search, 'Facade');
 
