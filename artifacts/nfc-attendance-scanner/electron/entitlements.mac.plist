@@ -1,22 +1,41 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  The minimum a hardened-runtime Electron app needs to start. V8 compiles
-  JavaScript at runtime, which is what the first three allow; without them the
-  app crashes on launch once it is signed and notarized.
+  The minimum a hardened-runtime Electron app needs to START. Every one of
+  these is about running JavaScript, not about reaching anything.
 
-  Nothing here grants network access, camera, microphone, location, or the
-  ability to read another application's data. The app is deliberately not
-  sandboxed at the macOS level (app-sandbox is an App Store requirement, and
-  this app is distributed directly) — the Chromium renderer sandbox, which is
-  what confines the web code, is on regardless.
+  Nothing here grants network access, camera, microphone, location, contacts,
+  or the ability to read another application's data. The app is deliberately
+  not macOS-sandboxed (app-sandbox is a Mac App Store requirement and this app
+  is distributed directly); the Chromium renderer sandbox, which is what
+  actually confines the web code, is on regardless — `sandbox: true` in
+  electron/main.ts.
 -->
 <plist version="1.0">
 <dict>
+    <!-- V8 compiles JavaScript at runtime. Without these two the app crashes
+         the moment it is signed at all, ad-hoc or otherwise. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
+
+    <!-- REQUIRED for the ad-hoc signature this project ships by default.
+         Electron Framework.framework is signed by Apple and carries Apple's
+         Team ID; an ad-hoc-signed app carries none. Under the hardened runtime
+         macOS refuses to load a library whose Team ID differs from the
+         process's, and the app dies at launch with:
+
+           [framework] not valid for use in process: mapping process and
+           mapped file (non-platform) have different Team IDs
+
+         Relaxing library validation is the narrow fix. The alternative —
+         turning the hardened runtime off entirely — gives up far more, and
+         Apple accepts this entitlement through notarization, so a later
+         Developer ID build can keep the same file. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
 </dict>

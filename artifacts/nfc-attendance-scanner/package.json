@@ -1,6 +1,6 @@
 {
   "name": "@workspace/nfc-attendance-scanner",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,10 +17,13 @@
     "electron:start": "pnpm run build:electron && electron .",
     "package:mac:dir": "pnpm run build:electron && electron-builder --mac dir",
     "package:mac": "pnpm run build:electron && electron-builder --mac dmg",
-    "package:mac:release": "pnpm run build:electron && electron-builder --mac dmg --config.mac.notarize=true",
     "test": "vitest run --config vitest.config.ts",
     "test:browser": "vitest run --config vitest.browser.config.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p electron/tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p electron/tsconfig.json --noEmit",
+    "package:mac:both": "pnpm run build:electron && electron-builder --mac dmg --arm64 --x64",
+    "package:mac:universal": "pnpm run build:electron && electron-builder --mac dmg --universal",
+    "package:mac:signed": "pnpm run build:electron && electron-builder --mac dmg --config.mac.identity=\"$SJC_SIGNING_IDENTITY\" --config.mac.notarize=true",
+    "verify:mac": "bash scripts/verify-mac-build.sh"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.1",
@@ -108,5 +111,6 @@
     "xlsx": "npm:@e965/xlsx@^0.20.3"
   },
   "description": "Kiosk attendance scanning for a USB HID NFC reader. Web/PWA, Android and macOS from one React app.",
-  "main": "dist/electron/main.cjs"
+  "main": "dist/electron/main.cjs",
+  "author": "St John's Catholic School"
 }

@@ -27,6 +27,22 @@ pnpm install                                                 # from this directo
 pnpm --filter @workspace/nfc-attendance-scanner run dev      # http://localhost:5173
 ```
 
+### Build the Mac app
+
+On a Mac, from this directory:
+
+```bash
+pnpm install
+pnpm --filter @workspace/nfc-attendance-scanner run package:mac    # → dist/desktop/*.dmg
+pnpm --filter @workspace/nfc-attendance-scanner run verify:mac     # check before sending
+```
+
+The `.dmg` installs on any Mac. It is ad-hoc signed rather than Developer ID
+signed, so someone receiving it clears the quarantine flag once —
+`xattr -dr com.apple.quarantine "/Applications/SJC Attendance.app"`.
+[Full details](docs/desktop-macos.md), and
+[why signing was skipped](docs/deferred-apple-developer.md).
+
 ## Documentation
 
 | Guide | Covers |
@@ -34,7 +50,8 @@ pnpm --filter @workspace/nfc-attendance-scanner run dev      # http://localhost:
 | [docs/vscode-setup.md](docs/vscode-setup.md) | **Read this first.** Tools, versions, every command, VS Code tasks, troubleshooting |
 | [docs/pwa-hosting.md](docs/pwa-hosting.md) | Building the PWA, hosting it, installing it, offline behaviour, updates |
 | [docs/android-packaging.md](docs/android-packaging.md) | Android Studio, APK and AAB, signing, sideloading, kiosk mode, the HID reader |
-| [docs/desktop-macos.md](docs/desktop-macos.md) | Electron development, `.app` and `.dmg`, Gatekeeper, Developer ID, notarization, MDM |
+| [docs/desktop-macos.md](docs/desktop-macos.md) | **Building the Mac app and sending it to another MacBook.** Electron development, `.app` and `.dmg`, Gatekeeper |
+| [docs/deferred-apple-developer.md](docs/deferred-apple-developer.md) | What was deliberately skipped: Developer ID, notarization, MDM, and what each would buy |
 | [docs/data-and-backup.md](docs/data-and-backup.md) | Where data lives on each platform, what erases it, backup and device replacement |
 | [docs/capacitor-native.md](docs/capacitor-native.md) | Original Capacitor notes: IndexedDB survival on iOS/Android |
 | [docs/operating-the-kiosk.md](docs/operating-the-kiosk.md) | Front-desk instructions, written for a volunteer |

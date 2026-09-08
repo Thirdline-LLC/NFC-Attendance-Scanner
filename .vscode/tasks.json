@@ -116,18 +116,25 @@
       "detail": "macOS only \u2192 dist/desktop/mac*/SJC Attendance.app"
     },
     {
-      "label": "macOS: build .dmg",
-      "type": "shell",
-      "command": "pnpm --filter @workspace/nfc-attendance-scanner run package:mac",
-      "problemMatcher": [],
-      "detail": "macOS only \u2192 dist/desktop/*.dmg"
-    },
-    {
       "label": "electron: build",
       "type": "shell",
       "command": "pnpm --filter @workspace/nfc-attendance-scanner run build:electron",
       "problemMatcher": [],
       "detail": "Renderer + main + preload. Used by the Electron debug configuration."
+    },
+    {
+      "label": "macOS: build .dmg",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run package:mac",
+      "problemMatcher": [],
+      "detail": "macOS only. This Mac's architecture \u2192 dist/desktop/*.dmg"
+    },
+    {
+      "label": "macOS: verify the build before sending it",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run verify:mac",
+      "problemMatcher": [],
+      "detail": "macOS only. Signature, entitlements, bundle identity, bundle contents."
     }
   ]
 }

@@ -138,76 +138,104 @@ is correct — you do not want test scans in the real database — but it does m
 
 ## 3. Build the .app and the .dmg
 
-```bash
-# unsigned .app — for development
-pnpm --filter @workspace/nfc-attendance-scanner run package:mac:dir
+**One command, on your Mac, from the repository root:**
 
-# .dmg — for distribution
+```bash
+pnpm install
 pnpm --filter @workspace/nfc-attendance-scanner run package:mac
+pnpm --filter @workspace/nfc-attendance-scanner run verify:mac
 ```
+
+The first run downloads the Electron runtime (~100 MB) and takes a few minutes.
+After that it is under a minute.
 
 Output, under `artifacts/nfc-attendance-scanner/dist/desktop/`:
 
 ```
-mac-arm64/SJC Attendance.app          Apple Silicon
-mac/SJC Attendance.app                Intel
-SJC Attendance-0.0.0-arm64.dmg
-SJC Attendance-0.0.0.dmg
+mac-arm64/SJC Attendance.app          the app itself
+SJC Attendance-1.0.0-arm64.dmg        what you send to people
 ```
 
-Two architecture-specific `.dmg` files rather than one universal binary: two
-~90 MB downloads beat one ~180 MB one when a school is imaging laptops.
+`package:mac` builds for **the Mac you are sitting at**, which is the fast path
+and almost always what you want. Three variants when it is not:
 
-### What is and is not verified
+| Script | Produces |
+|---|---|
+| `package:mac` | one `.dmg` for this Mac's architecture |
+| `package:mac:both` | two `.dmg` files, arm64 **and** Intel x64 |
+| `package:mac:universal` | one `.dmg` that runs on both (bigger file) |
+| `package:mac:dir` | the bare `.app`, no disk image — fastest, for testing |
 
-**Verified, on Linux:**
+If any colleague still has an Intel Mac, use `package:mac:both` and send each
+person the matching file, or `package:mac:universal` and send everyone the same
+one.
 
-- The renderer, main and preload all build (`run build:electron`).
-- `electron-builder` reads `electron-builder.yml`, resolves the pnpm workspace
-  root, and packages successfully.
-- The resulting `app.asar` holds **exactly 25 files**: `dist/electron/*`,
-  `dist/public/**` and `package.json`. **No `node_modules`** — every runtime
-  dependency is already bundled into the renderer by Vite, and a pnpm
-  workspace's symlinked tree is not something to hand to a packager.
-- The **packaged** app launches and loads `app://attendance/` with the title
-  *SJC Attendance Scanner*.
+### Always run `verify:mac` before you send it anywhere
 
-**Not verified — needs a Mac:**
+`pnpm --filter @workspace/nfc-attendance-scanner run verify:mac` checks the
+things you cannot see in Finder:
 
-- Producing `.icns` from `electron/resources/icon.png`.
-- The `.dmg` itself, its drag-to-Applications layout, and mounting it.
-- Code signing, notarization, stapling, and Gatekeeper's response.
-- The macOS native Save dialog. The IPC either side of it is tested; the dialog
-  is Apple's.
+- the bundle id, name and version are what every installed copy's data is keyed
+  to (`org.stjohnschs.attendance`, `SJC Attendance`)
+- the signature actually verifies — an app that fails this **will not launch**
+  on Apple Silicon
+- `disable-library-validation` and `allow-jit` really applied; without the
+  first, an ad-hoc build crashes at launch with *"different Team IDs"*
+- nothing Replit-related and no service worker got into the bundle
+- the renderer is served from the app's own origin, not a URL
 
-## 4. Install from the .dmg
+It is read-only and exits non-zero if anything is wrong.
 
-Double-click the `.dmg`, drag **SJC Attendance** onto the **Applications**
-shortcut, eject the disk image.
+## 4. Install it, and send it to another Mac
 
-## 5. Gatekeeper, and why unsigned is not good enough for a school
+**On your own Mac:** open the `.dmg`, drag **SJC Attendance** onto the
+**Applications** shortcut, eject the disk image. It opens by double-click — a
+file you built locally is not quarantined.
 
-An **unsigned** build will not open by double-clicking. macOS says:
+**Sending it to someone else** — email, AirDrop, Drive, SharePoint, a USB
+stick: all the same. The `.dmg` is self-contained; there is nothing to install
+alongside it and nothing for the app to connect to.
 
-> *"SJC Attendance" cannot be opened because Apple cannot check it for
-> malicious software.*
+The person receiving it drags the app into Applications the same way, and then
+has to clear the quarantine flag **once**:
 
-On macOS 15 Sequoia and newer, the Control-click bypass no longer works from
-the Finder alone; the user must go to **System Settings → Privacy & Security**,
-find the blocked app in the Security section, and click **Open Anyway**.
+```bash
+xattr -dr com.apple.quarantine "/Applications/SJC Attendance.app"
+```
 
-On macOS 14 and earlier: **Control-click the app → Open → Open**.
+After that it opens normally, every time, with no warning.
 
-**Use this for your own testing and nothing else.** For a school deployment it
-is wrong on three counts:
+If they would rather not touch Terminal: open the app once and let macOS refuse,
+then go to **System Settings → Privacy & Security**, scroll down to the
+Security section, and click **Open Anyway** next to *SJC Attendance*. Same
+result, more clicks.
 
-1. It teaches staff to click past a security warning, which is exactly the
-   habit that gets a school compromised.
-2. Every update repeats the dance, so people stop updating.
-3. It is unverifiable. Nothing proves the `.app` a teacher received is the one
-   you built, or that nobody altered it in transit.
+## 5. Why macOS does that, and what would stop it
 
-Sign and notarize. It costs $99/year and a few minutes per release.
+This build is **ad-hoc signed**: it carries a signature, but the signature
+asserts no identity. Nobody — including macOS — can tell from the app who built
+it.
+
+That distinction is exactly what the two behaviours above come from:
+
+- **Signed at all** is why it runs. Apple Silicon refuses to launch a binary
+  with no signature whatsoever; such an app usually surfaces to the user as
+  *"the application is damaged and can't be opened"*, which is misleading — it
+  is not damaged, it is unsigned.
+- **No identity** is why it is quarantined. Gatekeeper's question is "do I know
+  who made this and has Apple seen it?", and for an ad-hoc build the answer is
+  no on both counts.
+
+The manual step is a real cost, and worth being honest about: it repeats on
+every update, and it teaches staff to click past a security warning. A
+**Developer ID certificate plus notarization** removes it entirely — the app
+would then open by double-click on any Mac, with no warning and no Terminal.
+That needs a $99/year Apple Developer membership.
+
+**That route is deliberately deferred** — see
+[deferred-apple-developer.md](deferred-apple-developer.md) for what it buys,
+what it costs, and what is already in place for it. Everything below documents
+it for when you want it.
 
 ## 6. Developer ID signing
 
@@ -251,12 +279,16 @@ export APPLE_ID="the-account@stjohnschs.org"
 export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
 export APPLE_TEAM_ID="TEAMID123"
 
-pnpm --filter @workspace/nfc-attendance-scanner run package:mac:release
+export SJC_SIGNING_IDENTITY="Developer ID Application: <school> (TEAMID123)"
+
+pnpm --filter @workspace/nfc-attendance-scanner run package:mac:signed
 ```
 
-`package:mac:release` is `package:mac` with `--config.mac.notarize=true`.
-Notarization is off by default so an unsigned development build never stalls
-waiting on Apple.
+`package:mac:signed` is `package:mac` with `--config.mac.identity` and
+`--config.mac.notarize=true`. Notarization is off by default so the ad-hoc
+build never stalls waiting on Apple. Remember to also delete the
+`identity: "-"` line from `electron-builder.yml`, or it will win over the flag
+on a later plain `package:mac`.
 
 **Never put these in a file in the repository, a commit, a CI log, or a chat
 message.** Export them in the shell that runs the build, or keep them in the
@@ -305,7 +337,11 @@ and a sandbox this app currently does not opt into.
 Drive, or SharePoint. Notarized means it opens on any Mac with a double-click,
 no warnings, no instructions.
 
-**MDM** — the right answer for more than a handful of Macs:
+**MDM** — the right answer for more than a handful of Macs, and **currently
+blocked**: all four of these want a *signed* `.pkg`, so this depends on the
+Developer ID route in
+[deferred-apple-developer.md](deferred-apple-developer.md). Recorded here for
+when that happens:
 
 | MDM | How |
 |---|---|
@@ -359,19 +395,28 @@ enroll a card and check it in.
 
 ## 12. Release checklist
 
+The route in use today — ad-hoc signed, handed out by file.
+
 - [ ] `pnpm ... run test` and `run typecheck` pass
 - [ ] `version` bumped in `artifacts/nfc-attendance-scanner/package.json`
 - [ ] `run electron:start` — the packaged renderer works before packaging it
-- [ ] Building on **macOS**, with the Developer ID certificate in the keychain
-- [ ] `security find-identity -v -p codesigning` shows it
-- [ ] `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` exported in the shell
-- [ ] `run package:mac:release`
-- [ ] `spctl --assess --type execute` → `accepted / source=Notarized Developer ID`
-- [ ] `xcrun stapler validate` on the `.dmg`
-- [ ] Installed from the `.dmg` on a Mac that has never seen this app
+- [ ] Building **on macOS**
+- [ ] `run package:mac` (or `:both` / `:universal` if anyone is on Intel)
+- [ ] **`run verify:mac` passes** — signature verifies, entitlements applied,
+      bundle identity unchanged, nothing Replit and no service worker inside
+- [ ] Installed from the `.dmg` on this Mac and opened
+- [ ] Installed on a Mac that has **never seen this app**, quarantine cleared
+      with `xattr -dr com.apple.quarantine`, and it opens
 - [ ] Physical ACS reader tested: enroll, check in, duplicate
 - [ ] Export tested: Save dialog appears, file written, **cancel reports
       cancelled and not failed**
 - [ ] Wi-Fi off, app quit and reopened: the roster is still there
 - [ ] Bundle id, origin and data directory unchanged from the last release
 - [ ] No certificate, password or key in any commit
+
+If and when the Developer ID route is taken, add: the certificate is in the
+build Mac's keychain, `security find-identity -v -p codesigning` shows it, the
+Apple credentials are exported in the shell, `run package:mac:signed` was used,
+`spctl --assess --type execute` reports `accepted / source=Notarized Developer
+ID`, and `xcrun stapler validate` passes on the `.dmg`. See
+[deferred-apple-developer.md](deferred-apple-developer.md).

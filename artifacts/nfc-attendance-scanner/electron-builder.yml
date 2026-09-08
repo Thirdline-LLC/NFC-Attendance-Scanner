@@ -1,10 +1,13 @@
 # electron-builder — direct macOS distribution, no Mac App Store.
 #
 # A packaging run must happen ON macOS: only there can electron-builder make an
-# .icns, sign with a Developer ID certificate, or notarize. Everything in this
-# file is checked into the repo; nothing secret belongs here. Signing
-# credentials reach electron-builder through the environment and the macOS
-# keychain (see docs/desktop-macos.md).
+# .icns or sign anything. Everything in this file is checked into the repo;
+# nothing secret belongs here.
+#
+# THE DEFAULT BUILD IS AD-HOC SIGNED AND NEEDS NO APPLE DEVELOPER ACCOUNT.
+# See `mac.identity` below for why it is signed at all rather than left bare.
+# The Developer ID + notarization route is deferred; when you want it, see
+# docs/desktop-macos.md and the note in docs/deferred-apple-developer.md.
 
 appId: org.stjohnschs.attendance
 # The same reverse-domain identity the Android app and the iOS project already
@@ -36,25 +39,38 @@ publish: null
 mac:
   category: public.app-category.education
   icon: electron/resources/icon.png
-  # arm64 and x64 as separate .dmg files rather than one universal binary:
-  # two 90 MB downloads beat one 180 MB one when a school is imaging laptops.
+  # No `arch` here on purpose: electron-builder then builds for the machine
+  # doing the building, which is the fast path and the one you want first.
+  # The package.json scripts add --arm64/--x64/--universal when you actually
+  # need to hand the app to a Mac of a different kind.
   target:
-    - target: dmg
-      arch:
-        - arm64
-        - x64
+    - dmg
     # `dir` produces the bare .app, which is what you want while developing.
-    - target: dir
-  # Required for notarization, and harmless without it. The entitlements below
-  # are the minimum Electron itself needs.
+    - dir
+  # Ad-hoc ("-"), NOT unsigned, and this matters:
+  #
+  #   * On Apple Silicon macOS refuses to launch a binary carrying no
+  #     signature at all — the app dies before it draws a window, usually
+  #     reported to the user as "the application is damaged".
+  #   * An ad-hoc signature satisfies that requirement without an Apple
+  #     Developer account. It asserts no identity, so Gatekeeper still
+  #     quarantines a copy that arrived from another machine — see
+  #     docs/desktop-macos.md for the one command a recipient runs.
+  #
+  # Replace this with a Developer ID identity when you take that route; the
+  # entitlements file already carries what notarization needs.
+  identity: "-"
+  # Kept ON under the ad-hoc signature rather than switched off. That costs one
+  # extra entitlement (disable-library-validation, see the plist) and keeps
+  # every other hardened-runtime protection in place.
   hardenedRuntime: true
   entitlements: electron/entitlements.mac.plist
   entitlementsInherit: electron/entitlements.mac.plist
+  # An ad-hoc signature cannot pass Gatekeeper assessment, and a failed
+  # assessment would abort the build for no reason.
   gatekeeperAssess: false
-  # Off by default so an unsigned development build never stalls waiting on
-  # Apple. `pnpm run package:mac:release` turns it on; it needs a Developer ID
-  # certificate and APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID in
-  # the environment.
+  # Deferred. Notarization needs a paid Apple Developer account; nothing here
+  # waits on Apple.
   notarize: false
   # The app asks for no camera, microphone, location or contacts, so it
   # declares no usage descriptions. Adding one would make macOS prompt a
