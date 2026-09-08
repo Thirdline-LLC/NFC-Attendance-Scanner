@@ -1,0 +1,81 @@
+# electron-builder — direct macOS distribution, no Mac App Store.
+#
+# A packaging run must happen ON macOS: only there can electron-builder make an
+# .icns, sign with a Developer ID certificate, or notarize. Everything in this
+# file is checked into the repo; nothing secret belongs here. Signing
+# credentials reach electron-builder through the environment and the macOS
+# keychain (see docs/desktop-macos.md).
+
+appId: org.stjohnschs.attendance
+# The same reverse-domain identity the Android app and the iOS project already
+# ship. It is what macOS keys the app's identity, its keychain entries and its
+# quarantine assessment to. IT MUST NOT CHANGE BETWEEN RELEASES.
+productName: SJC Attendance
+copyright: © St John's Catholic School
+
+directories:
+  output: dist/desktop
+  buildResources: electron/resources
+
+# Only the two built directories and the manifest Electron reads `main` from.
+# node_modules is excluded outright: every runtime dependency is already
+# bundled into dist/public by Vite, and a pnpm workspace's symlinked tree is
+# not something to hand to a packager.
+files:
+  - dist/electron/**/*
+  - dist/public/**/*
+  - package.json
+  - '!node_modules/**/*'
+
+asar: true
+
+# No update feed, by design. The app makes no network calls at runtime, and an
+# updater would be the one thing that did.
+publish: null
+
+mac:
+  category: public.app-category.education
+  icon: electron/resources/icon.png
+  # arm64 and x64 as separate .dmg files rather than one universal binary:
+  # two 90 MB downloads beat one 180 MB one when a school is imaging laptops.
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    # `dir` produces the bare .app, which is what you want while developing.
+    - target: dir
+  # Required for notarization, and harmless without it. The entitlements below
+  # are the minimum Electron itself needs.
+  hardenedRuntime: true
+  entitlements: electron/entitlements.mac.plist
+  entitlementsInherit: electron/entitlements.mac.plist
+  gatekeeperAssess: false
+  # Off by default so an unsigned development build never stalls waiting on
+  # Apple. `pnpm run package:mac:release` turns it on; it needs a Developer ID
+  # certificate and APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID in
+  # the environment.
+  notarize: false
+  # The app asks for no camera, microphone, location or contacts, so it
+  # declares no usage descriptions. Adding one would make macOS prompt a
+  # teacher for something this app never does.
+  extendInfo:
+    LSApplicationCategoryType: public.app-category.education
+    # A kiosk is portrait-ish but resizable; no orientation lock exists on
+    # macOS. Stated here only to keep the Info.plist explicit.
+    NSHighResolutionCapable: true
+
+dmg:
+  title: ${productName}
+  # The two-icon layout everyone recognises: drag the app onto Applications.
+  contents:
+    - x: 140
+      y: 200
+      type: file
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380

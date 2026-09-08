@@ -2,16 +2,36 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NFC Attendance Scanner</title>
-    <meta name="description" content="NFC Attendance Scanner — built on Replit. Update this description to reflect the app." />
+    <!-- viewport-fit=cover keeps the kiosk full-bleed under a tablet's rounded
+         corners; user-scalable=no stops a stray pinch from zooming a screen
+         that has to stay readable across a room. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <title>SJC Attendance Scanner</title>
+    <meta
+      name="description"
+      content="Kiosk attendance scanning for a USB HID NFC reader. Records and exports locally; no account, no server."
+    />
+    <!-- An internal operational tool. It is never meant to be found. -->
     <meta name="robots" content="noindex, nofollow" />
-    <meta property="og:title" content="NFC Attendance Scanner" />
-    <meta property="og:description" content="NFC Attendance Scanner — built on Replit. Update this description to reflect the app." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="NFC Attendance Scanner" />
-    <meta name="twitter:description" content="NFC Attendance Scanner — built on Replit. Update this description to reflect the app." />
+
+    <!-- Matches --background in src/index.css, so the browser paints the app's
+         own colour behind it and an installed PWA's title bar matches. -->
+    <meta name="theme-color" content="#0D1E30" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Safari's installed-app flags. `black-translucent` puts the app under
+         the status bar, which is what the dark kiosk chrome expects. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="SJC Attendance" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>

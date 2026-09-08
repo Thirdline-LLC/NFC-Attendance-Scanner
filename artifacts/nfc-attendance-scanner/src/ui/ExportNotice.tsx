@@ -1,27 +1,55 @@
-import { AlertTriangle, FileSpreadsheet } from 'lucide-react';
+import { AlertTriangle, FileSpreadsheet, Info } from 'lucide-react';
 
 import type { DeliveredExport } from '@/lib/workbook-delivery';
 
-/** What the last export attempt did, or null before one has been made. */
+/**
+ * What the last export attempt did, or null before one has been made.
+ *
+ * `cancelled` separates "the operator closed the Save dialog" from "the export
+ * broke". Both leave the attendance where it was, but only one of them is
+ * something to worry about, and telling a teacher an export *failed* when they
+ * simply changed their mind would send them looking for a problem that is not
+ * there. It is optional so the two callers that cannot be cancelled — a
+ * browser download, a device write — keep working unchanged.
+ */
 export type ExportResult =
   | ({ ok: true } & DeliveredExport)
-  | { ok: false }
+  | { ok: false; cancelled?: boolean }
   | null;
 
 /**
  * Says whether the workbook was actually handed over, and how.
  *
- * The two routes can promise different things, so they must not say the same
+ * The three routes can promise different things, so they must not say the same
  * thing. A native export is written to disk before this renders, so it can
- * state plainly that the file exists and where. A browser download is a
+ * state plainly that the file exists and where; a desktop save can go further
+ * and name the exact path the operator chose. A browser download is a
  * synthetic `<a download>` click that reports nothing back — a host that
  * ignores it looks exactly like a file that saved — so that wording stops at
  * "handed over" and tells the operator to go and check.
  *
- * Naming the file is the point in both cases: it is what they will look for.
+ * Naming the file is the point in all three cases: it is what they will look
+ * for.
  */
 export function ExportNotice({ result }: { result: ExportResult }) {
   if (!result) return null;
+
+  if (!result.ok && result.cancelled) {
+    return (
+      <p
+        className="mt-3 flex items-start gap-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.25)] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--muted-foreground))]"
+        role="status"
+        data-testid="text-export-cancelled"
+      >
+        <Info aria-hidden="true" size={14} className="mt-0.5 shrink-0" />
+        <span>
+          <strong className="font-semibold">Export cancelled.</strong> No file
+          was written, and the attendance is still on this device. Export again
+          whenever you are ready.
+        </span>
+      </p>
+    );
+  }
 
   if (!result.ok) {
     return (
@@ -47,7 +75,18 @@ export function ExportNotice({ result }: { result: ExportResult }) {
       data-testid="text-export-saved"
     >
       <FileSpreadsheet aria-hidden="true" size={14} className="mt-0.5 shrink-0" />
-      {result.delivery === 'file' ? (
+      {result.delivery === 'saved' ? (
+        <span>
+          Saved <strong className="font-semibold">{result.filename}</strong>
+          {result.uri ? (
+            <>
+              {' '}
+              to <span className="font-mono">{result.uri}</span>
+            </>
+          ) : null}
+          . The file is written and confirmed on disk.
+        </span>
+      ) : result.delivery === 'file' ? (
         <span>
           Saved <strong className="font-semibold">{result.filename}</strong> to
           this device&rsquo;s Documents. Send it somewhere off the device before

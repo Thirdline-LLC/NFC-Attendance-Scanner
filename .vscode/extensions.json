@@ -1,0 +1,16 @@
+{
+  // Suggestions only — VS Code offers these on first open and nothing here is
+  // required to build, test or package any of the three targets. All four are
+  // open-source (MIT / Apache-2.0); no proprietary extension is recommended,
+  // and none is listed as `unwantedRecommendations`.
+  "recommendations": [
+    // Formatting, matching the prettier already in the workspace root.
+    "esbenp.prettier-vscode",
+    // Tailwind class completion for the v4 setup in src/index.css.
+    "bradlc.vscode-tailwindcss",
+    // Run and debug individual vitest cases from the gutter.
+    "vitest.explorer",
+    // Syntax for the Gradle files under android/.
+    "naco-siren.gradle-language"
+  ]
+}

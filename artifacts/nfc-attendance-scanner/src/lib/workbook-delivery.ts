@@ -4,6 +4,10 @@ import { Share } from '@capacitor/share';
 import * as XLSX from 'xlsx';
 
 import type { AttendanceWorkbook } from '@/lib/attendance-export';
+import {
+  ExportCancelledError,
+  getDesktopBridge,
+} from '@/platform/desktop-bridge';
 
 /**
  * How the workbook reached the operator.
@@ -12,41 +16,78 @@ import type { AttendanceWorkbook } from '@/lib/attendance-export';
  *   confirms it landed; see the caveat on `deliverWorkbook`.
  * - `file` — written to the device and offered to the share sheet. The write
  *   is confirmed, so this is the only path that can promise the file exists.
+ * - `saved` — written to a location the operator chose in a native Save
+ *   dialog, and confirmed on disk by the desktop shell. Confirmed like `file`,
+ *   but it can also say exactly where the file is.
  */
-export type ExportDelivery = 'download' | 'file';
+export type ExportDelivery = 'download' | 'file' | 'saved';
 
 export type DeliveredExport = {
   filename: string;
   delivery: ExportDelivery;
-  /** Where the file actually landed. Native only; a download cannot say. */
+  /** Where the file actually landed. Native and desktop only; a download cannot say. */
   uri?: string;
 };
 
 const MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+/** The bytes, base64-encoded, which is what both bridges carry. */
+function encodeWorkbook(workbook: XLSX.WorkBook): string {
+  return XLSX.write(workbook, {
+    bookType: 'xlsx',
+    type: 'base64',
+    compression: true,
+  });
+}
+
 /**
  * Hands a built workbook to whatever platform the app is running on.
+ *
+ * Three routes, and they promise deliberately different things:
  *
  * In a browser, `XLSX.writeFile` makes a Blob, points a synthetic `<a download>`
  * at it and clicks it. That reports nothing back — no callback, no promise, no
  * throw — so a host that ignores the click is indistinguishable here from a
- * file that saved. That is exactly what a WKWebView is suspected of doing, and
- * it is why this branch cannot promise anything stronger than "handed over".
+ * file that saved. It is why this branch cannot promise anything stronger than
+ * "handed over".
  *
  * On a device the bytes are written with the Filesystem plugin instead, to the
  * app's Documents directory, and the resulting file is offered to the share
  * sheet so it can leave the device. The write is awaited, so a failure here is
  * a real failure and is thrown.
  *
- * A cancelled share is deliberately NOT a failure: the file is already on disk
- * by then, and telling the operator their export failed because they dismissed
- * a sheet would be false — and would push them to export again.
+ * In the desktop app the operator picks the destination in a native Save
+ * dialog and the main process confirms the file's size before answering, so
+ * this branch can name the path. Closing that dialog throws
+ * `ExportCancelledError`, which callers must not present as a failure: nothing
+ * went wrong and there is nothing to retry.
+ *
+ * A cancelled *share* is a different thing and is deliberately NOT a failure:
+ * the file is already on disk by then, and telling the operator their export
+ * failed because they dismissed a sheet would be false — and would push them
+ * to export again.
  */
 export async function deliverWorkbook({
   filename,
   workbook,
 }: AttendanceWorkbook): Promise<DeliveredExport> {
+  // Checked before Capacitor: the desktop bridge is the more specific shell,
+  // and `Capacitor.isNativePlatform()` is false inside Electron anyway.
+  const desktop = getDesktopBridge();
+
+  if (desktop) {
+    const result = await desktop.saveWorkbook({
+      filename,
+      base64: encodeWorkbook(workbook),
+    });
+
+    if (result.status === 'cancelled') throw new ExportCancelledError();
+    if (result.status === 'failed') throw new Error(result.message);
+
+    return { filename, delivery: 'saved', uri: result.path };
+  }
+
   if (!Capacitor.isNativePlatform()) {
     XLSX.writeFile(workbook, filename, {
       bookType: 'xlsx',
@@ -57,15 +98,9 @@ export async function deliverWorkbook({
 
   // `base64` because that is what Filesystem.writeFile takes for binary data;
   // going through a string avoids a Blob the WebView bridge cannot carry.
-  const data = XLSX.write(workbook, {
-    bookType: 'xlsx',
-    type: 'base64',
-    compression: true,
-  });
-
   const { uri } = await Filesystem.writeFile({
     path: filename,
-    data,
+    data: encodeWorkbook(workbook),
     directory: Directory.Documents,
     recursive: true,
   });

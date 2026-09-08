@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { exportAttendanceWorkbook } from '@/lib/attendance-export';
 import { type ExportResult } from '@/ui/ExportNotice';
+import { ExportCancelledError } from '@/platform/desktop-bridge';
 import {
   useAttendanceSession,
   type ScannerMode,
@@ -23,6 +24,7 @@ import { EnrollmentForm } from '@/ui/EnrollmentForm';
 import { FeedbackPanel } from '@/ui/FeedbackPanel';
 import { NewSessionDialog } from '@/ui/NewSessionDialog';
 import { SessionSummary } from '@/ui/SessionSummary';
+import { useWakeLock } from '@/hooks/use-wake-lock';
 
 // Matches the mode pills and the status chip beside them, so the header reads
 // as one row of controls rather than links bolted onto it.
@@ -67,6 +69,11 @@ export function ScannerScreen() {
   } = useAttendanceSession(mode);
   const captureEnabledRef = useRef(captureEnabled);
   captureEnabledRef.current = captureEnabled;
+
+  // The scanner is the only screen a meeting leaves unattended, so it is the
+  // only one that asks to stay lit. `/roster` and `/dashboard` unmount this
+  // component, which releases the lock as a matter of course.
+  useWakeLock(true);
   // A retry puts the store back in 'checking', which would otherwise yank the
   // explanation and the button out from under the hand that just pressed it.
   // Remembering the failure keeps the panel up until a read actually succeeds,
@@ -146,8 +153,15 @@ export function ScannerScreen() {
   const handleExport = useCallback(async () => {
     try {
       setExportResult({ ok: true, ...(await exportAttendanceWorkbook(taps, persons)) });
-    } catch {
-      setExportResult({ ok: false });
+    } catch (error) {
+      // Closing the desktop Save dialog is a decision, not a fault. Reporting
+      // it as a failure would send the operator hunting for a problem that is
+      // not there — and might push them to clear a device that still holds the
+      // only copy of the session.
+      setExportResult({
+        ok: false,
+        cancelled: error instanceof ExportCancelledError,
+      });
     }
   }, [persons, taps]);
 

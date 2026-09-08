@@ -5,6 +5,10 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
+import {
+  ExportCancelledError,
+  type DesktopBridge,
+} from '@/platform/desktop-bridge';
 import { buildAttendanceWorkbook } from './attendance-export';
 import { deliverWorkbook } from './workbook-delivery';
 
@@ -254,3 +258,89 @@ describe.each(['iOS', 'Android'] as const)(
     });
   },
 );
+
+describe('deliverWorkbook in the desktop app', () => {
+  // The bridge the Electron preload exposes. Installed per test so the browser
+  // and device suites above keep seeing a window without one.
+  function installBridge(saveWorkbook: DesktopBridge['saveWorkbook']) {
+    const bridge: DesktopBridge = {
+      platform: 'electron',
+      saveWorkbook,
+      revealWorkbook: vi.fn().mockResolvedValue(true),
+    };
+    window.attendanceDesktop = bridge;
+    return bridge;
+  }
+
+  beforeEach(() => {
+    // The desktop shell is not a Capacitor platform, and the branch is chosen
+    // before that check anyway.
+    isNative.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'attendanceDesktop');
+  });
+
+  it('sends the bytes to the shell and reports the path it confirmed', async () => {
+    const saveWorkbook = vi.fn().mockResolvedValue({
+      status: 'saved',
+      path: '/Users/teacher/Desktop/attendance-2026-09-06-x.xlsx',
+      bytes: 4096,
+    });
+    installBridge(saveWorkbook);
+
+    const delivered = await deliverWorkbook(aWorkbook());
+
+    // Neither of the other two routes may run.
+    expect(browserDownload).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+
+    const [request] = saveWorkbook.mock.calls[0];
+    expect(request.filename).toBe('attendance-2026-09-06-x.xlsx');
+    expect(request.base64).toMatch(/^[A-Za-z0-9+/]+=*$/);
+
+    expect(delivered).toEqual({
+      filename: 'attendance-2026-09-06-x.xlsx',
+      delivery: 'saved',
+      uri: '/Users/teacher/Desktop/attendance-2026-09-06-x.xlsx',
+    });
+  });
+
+  it('throws ExportCancelledError when the Save dialog is closed', async () => {
+    installBridge(vi.fn().mockResolvedValue({ status: 'cancelled' }));
+
+    // A distinct type, because the callers have to be able to tell this apart
+    // from a failure: nothing went wrong and there is nothing to retry.
+    await expect(deliverWorkbook(aWorkbook())).rejects.toBeInstanceOf(
+      ExportCancelledError,
+    );
+  });
+
+  it('throws the shell’s reason when the write fails', async () => {
+    installBridge(
+      vi.fn().mockResolvedValue({
+        status: 'failed',
+        message: 'Read-only file system',
+      }),
+    );
+
+    const failure = deliverWorkbook(aWorkbook());
+    await expect(failure).rejects.toThrow('Read-only file system');
+    // A failed write is emphatically not a cancellation.
+    await expect(failure).rejects.not.toBeInstanceOf(ExportCancelledError);
+  });
+
+  it('ignores a window property that is not the real bridge', async () => {
+    // Something else on `window.attendanceDesktop` must fall through to the
+    // browser download rather than being called as if it were the shell.
+    (window as unknown as Record<string, unknown>).attendanceDesktop = {
+      platform: 'not-electron',
+    };
+
+    const delivered = await deliverWorkbook(aWorkbook());
+
+    expect(delivered.delivery).toBe('download');
+    expect(browserDownload).toHaveBeenCalledTimes(1);
+  });
+});

@@ -17,11 +17,16 @@ export default defineConfig({
     browser: {
       enabled: true,
       headless: true,
+      // No executablePath by default: Playwright uses the Chromium it
+      // downloads with `pnpm exec playwright install chromium`, which is what
+      // a laptop has. `CHROMIUM_PATH` still overrides it for a machine that
+      // would rather point at a system browser — the old default was
+      // /repl/tools/bin/chromium, which exists only inside Replit and made
+      // this suite unrunnable anywhere else.
       provider: playwright({
-        launchOptions: {
-          executablePath:
-            process.env.CHROMIUM_PATH ?? '/repl/tools/bin/chromium',
-        },
+        launchOptions: process.env.CHROMIUM_PATH
+          ? { executablePath: process.env.CHROMIUM_PATH }
+          : {},
       }),
       instances: [
         {

@@ -1,0 +1,133 @@
+{
+  "version": "2.0.0",
+  // Every task runs `pnpm --filter @workspace/nfc-attendance-scanner`, so they
+  // work from anywhere in the workspace and stay in step with package.json
+  // rather than duplicating its commands.
+  "tasks": [
+    {
+      "label": "install",
+      "type": "shell",
+      "command": "pnpm install",
+      "problemMatcher": [],
+      "detail": "Install every workspace dependency. Run this first."
+    },
+    {
+      "label": "dev: web",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "detail": "Vite on http://localhost:5173. Set PORT to move it.",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run test",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "detail": "vitest, including the Electron main-process validation tests."
+    },
+    {
+      "label": "test: browser",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run test:browser",
+      "problemMatcher": [],
+      "detail": "Real Chromium. Needs `pnpm exec playwright install chromium` once."
+    },
+    {
+      "label": "typecheck",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run typecheck",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "detail": "The React app and the Electron main/preload processes."
+    },
+    {
+      "label": "build: web (PWA)",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run build",
+      "problemMatcher": [],
+      "detail": "Static site with manifest + service worker \u2192 dist/public."
+    },
+    {
+      "label": "build: capacitor",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run build:native",
+      "problemMatcher": [],
+      "detail": "Relative-asset bundle for the APK. No service worker."
+    },
+    {
+      "label": "android: sync",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run native:sync",
+      "problemMatcher": [],
+      "detail": "Build the native bundle and copy it into android/."
+    },
+    {
+      "label": "android: open in Android Studio",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run native:android",
+      "problemMatcher": [],
+      "detail": "Sync, then open the Gradle project."
+    },
+    {
+      "label": "android: debug APK",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run android:apk",
+      "problemMatcher": [],
+      "detail": "\u2192 android/app/build/outputs/apk/debug/app-debug.apk"
+    },
+    {
+      "label": "electron: dev",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run electron:dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "detail": "Vite + Electron together, with hot reload.",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "electron: run the packaged renderer",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run electron:start",
+      "problemMatcher": [],
+      "detail": "Exactly what ships: local files over app://attendance, no Vite."
+    },
+    {
+      "label": "macOS: build unsigned .app",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run package:mac:dir",
+      "problemMatcher": [],
+      "detail": "macOS only \u2192 dist/desktop/mac*/SJC Attendance.app"
+    },
+    {
+      "label": "macOS: build .dmg",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run package:mac",
+      "problemMatcher": [],
+      "detail": "macOS only \u2192 dist/desktop/*.dmg"
+    },
+    {
+      "label": "electron: build",
+      "type": "shell",
+      "command": "pnpm --filter @workspace/nfc-attendance-scanner run build:electron",
+      "problemMatcher": [],
+      "detail": "Renderer + main + preload. Used by the Electron debug configuration."
+    }
+  ]
+}

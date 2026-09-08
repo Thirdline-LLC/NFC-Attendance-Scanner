@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The minimum a hardened-runtime Electron app needs to start. V8 compiles
+  JavaScript at runtime, which is what the first three allow; without them the
+  app crashes on launch once it is signed and notarized.
+
+  Nothing here grants network access, camera, microphone, location, or the
+  ability to read another application's data. The app is deliberately not
+  sandboxed at the macOS level (app-sandbox is an App Store requirement, and
+  this app is distributed directly) — the Chromium renderer sandbox, which is
+  what confines the web code, is on regardless.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>

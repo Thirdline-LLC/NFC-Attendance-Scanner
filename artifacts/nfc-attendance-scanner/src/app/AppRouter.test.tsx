@@ -3,7 +3,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { AppRouter } from './AppRouter';
+import { AppRouter, routerBasename } from './AppRouter';
 
 /**
  * `BrowserRouter` reads the real location, so a deep link is set up the way the
@@ -108,5 +108,30 @@ describe('AppRouter', () => {
     await user.click(screen.getByTestId('link-dashboard'));
 
     expect(await screen.findByTestId('dashboard-page')).toBeTruthy();
+  });
+});
+
+describe('routerBasename', () => {
+  it('is empty for a site hosted at a domain root', () => {
+    // `/` would work too, but an empty basename is what react-router treats as
+    // "no prefix" without any string handling of its own.
+    expect(routerBasename('/')).toBe('');
+  });
+
+  it('keeps the prefix for a site hosted under a sub-path', () => {
+    // A static host that gives this app a folder rather than a domain, e.g.
+    // BASE_PATH=/attendance/ at build time.
+    expect(routerBasename('/attendance/')).toBe('/attendance');
+    expect(routerBasename('/school/apps/attendance/')).toBe(
+      '/school/apps/attendance',
+    );
+  });
+
+  it('is empty for the relative base both packaged shells build with', () => {
+    // `./` is what Vite reports for BUILD_TARGET=capacitor and =electron.
+    // Trimming its slash would give react-router `.`, which matches no
+    // location: the APK and the .app would open to a blank screen.
+    expect(routerBasename('./')).toBe('');
+    expect(routerBasename('.')).toBe('');
   });
 });

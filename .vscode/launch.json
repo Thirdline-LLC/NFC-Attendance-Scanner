@@ -1,0 +1,57 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Attaches to Chrome against the Vite dev server. Start "dev: web" first
+      // (or use the compound below, which starts it for you).
+      "name": "Web: debug in Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/artifacts/nfc-attendance-scanner",
+      "sourceMapPathOverrides": {
+        "/@fs/*": "/*",
+        "/src/*": "${webRoot}/src/*"
+      }
+    },
+    {
+      // Breakpoints in electron/main.ts and electron/preload.ts. The renderer
+      // is debugged with the app's own DevTools (View → Toggle Developer
+      // Tools), which is a separate process from this one.
+      "name": "Electron: debug the main process",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/artifacts/nfc-attendance-scanner",
+      "runtimeExecutable": "${workspaceFolder}/artifacts/nfc-attendance-scanner/node_modules/.bin/electron",
+      "runtimeArgs": ["."],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "preLaunchTask": "electron: build",
+      "env": {
+        // Left unset on purpose: without it the app loads its packaged files
+        // over app://attendance, which is what production does. Set it to
+        // http://localhost:5173 (with "dev: web" running) to debug against Vite.
+        "ELECTRON_RENDERER_URL": ""
+      }
+    },
+    {
+      "name": "Vitest: debug the current file",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/artifacts/nfc-attendance-scanner",
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "program": "${workspaceFolder}/node_modules/vitest/vitest.mjs",
+      "args": ["run", "--config", "vitest.config.ts", "${relativeFile}"],
+      "smartStep": true,
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Web: dev server + Chrome",
+      "configurations": ["Web: debug in Chrome"],
+      "preLaunchTask": "dev: web"
+    }
+  ]
+}

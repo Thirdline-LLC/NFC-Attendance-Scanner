@@ -62,3 +62,31 @@ Thumbs.db
 .env.*
 /exports
 exports/
+
+# ── Signing material — NEVER commit ──
+# An Android keystore, an Apple certificate or a provisioning profile in the
+# repo is a key anyone with read access can ship software as this school with.
+# Keep them in a password manager or the machine's keychain; see
+# docs/android-packaging.md and docs/desktop-macos.md.
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+keystore.properties
+# electron-builder and Gradle both read credentials from the environment, and
+# a stray .env is the usual way one ends up on disk.
+.env.local
+.env.signing
+
+# ── Packaged output ──
+# `dist/` above already covers dist/desktop (the .app and .dmg) and
+# dist/public; this catches the Gradle outputs the android/.gitignore misses
+# when a build is run from the repo root.
+*.apk
+*.aab
+*.dmg
+*.app.zip

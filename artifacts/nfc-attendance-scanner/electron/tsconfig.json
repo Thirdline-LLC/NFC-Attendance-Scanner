@@ -1,0 +1,14 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "include": ["./*.ts", "../src/platform/desktop-bridge.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom"],
+    // `dom` is here for the Response/Request types the protocol handler uses
+    // and for the renderer contract's `Window` augmentation; the main process
+    // itself runs on Node, hence both sets of types.
+    "types": ["node"]
+  }
+}

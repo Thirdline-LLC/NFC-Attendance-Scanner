@@ -96,3 +96,9 @@ allowBuilds:
   lightningcss: true
   msw: true
   unrs-resolver: true
+  # Electron's postinstall downloads the matching prebuilt runtime for the
+  # machine doing the install; electron-builder's fetches its packaging helper.
+  # Both are build-time downloads. Neither ends up inside the shipped app.
+  electron: true
+  '@electron/rebuild': true
+  app-builder-bin: true

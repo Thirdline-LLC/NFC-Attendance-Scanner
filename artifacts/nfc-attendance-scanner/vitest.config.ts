@@ -13,7 +13,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    // electron/ holds the main process's input validation, which is plain
+    // TypeScript with no Electron import precisely so it can be tested here.
+    include: ['src/**/*.test.{ts,tsx}', 'electron/**/*.test.ts'],
     exclude: ['src/**/*.browser.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
   },

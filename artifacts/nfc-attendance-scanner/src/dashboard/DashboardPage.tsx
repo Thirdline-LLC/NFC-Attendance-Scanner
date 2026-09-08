@@ -17,6 +17,7 @@ import {
 import { Dashboard } from '@/ui/Dashboard';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
+import { ExportCancelledError } from '@/platform/desktop-bridge';
 
 /**
  * The container behind `Dashboard`: it reads the whole tap history and the
@@ -103,8 +104,12 @@ export function DashboardPage() {
         ok: true,
         ...(await exportAttendanceWorkbook(history.taps, history.persons)),
       });
-    } catch {
-      setExportResult({ ok: false });
+    } catch (error) {
+      // See ScannerScreen: a cancelled Save dialog must not read as a failure.
+      setExportResult({
+        ok: false,
+        cancelled: error instanceof ExportCancelledError,
+      });
     }
   }, [history]);
 

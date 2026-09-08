@@ -1,0 +1,34 @@
+{
+  // Deliberately short. Everything here is about making this repo behave the
+  // same on every machine; nothing overrides a personal preference such as
+  // theme, font, key bindings or format-on-save.
+
+  // The workspace pins TypeScript in devDependencies. Without this, VS Code
+  // reports errors from whatever version it happens to bundle, which will not
+  // match `pnpm run typecheck`.
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // pnpm only: the root `preinstall` refuses npm and yarn outright.
+  "npm.packageManager": "pnpm",
+
+  // Generated or downloaded trees. Excluding them from search and from the
+  // file watcher is the difference between a responsive editor and one that
+  // stalls indexing an Android build directory.
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/android/build/**": true,
+    "**/android/app/build/**": true,
+    "**/android/.gradle/**": true,
+    "**/ios/App/Pods/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/pnpm-lock.yaml": true,
+    "**/android/build": true,
+    "**/android/app/build": true,
+    "**/android/.gradle": true
+  }
+}
