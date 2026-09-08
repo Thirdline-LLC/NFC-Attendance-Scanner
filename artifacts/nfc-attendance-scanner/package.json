@@ -111,6 +111,9 @@
     "xlsx": "npm:@e965/xlsx@^0.20.3"
   },
   "description": "Kiosk attendance scanning for a USB HID NFC reader. Web/PWA, Android and macOS from one React app.",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
   "main": "dist/electron/main.cjs",
   "author": "St John's Catholic School"
 }

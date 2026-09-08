@@ -9,8 +9,8 @@ than described as verified.
 
 | Tool | Version used | Needed for | How to get it |
 |---|---|---|---|
-| **Node.js** | 24.20.0 (22 LTS or newer) | everything | [nodejs.org](https://nodejs.org), `nvm install 22`, or `brew install node` |
-| **pnpm** | 11.24.0 | everything — npm and yarn are refused | `corepack enable && corepack prepare pnpm@latest --activate` |
+| **Node.js** | **22.12+ required** (verified on 24.20.0) | everything | `brew install node`, `nvm install 22`, or [nodejs.org](https://nodejs.org) |
+| **pnpm** | 11.24.0 | everything — npm and yarn are refused | `corepack enable` (the root `packageManager` field then picks the right version) |
 | **Git** | 2.55 | everything | preinstalled on macOS with Xcode CLT; `apt install git` |
 | **JDK 21** | Temurin/MS 21.0.12 | Android only | `brew install --cask temurin@21`, or Android Studio's bundled JDK |
 | **Android Studio** | Ladybug or newer | Android only | [developer.android.com/studio](https://developer.android.com/studio) |
@@ -21,6 +21,11 @@ than described as verified.
 with `Use pnpm instead`. That is deliberate: the lockfile, the catalog and the
 build allowlist are all pnpm features.
 
+**Node 20 is not enough.** vitest requires `^22.12.0 || ^24.0.0 || >=26.0.0`
+and Vite requires `^20.19.0 || >=22.12.0`; the intersection is what the root
+`engines` field declares. On Node 20 the install succeeds and then the test run
+fails in a way that does not mention Node at all. Check with `node -v` first.
+
 **JDK 25 does not work for the Android build.** Android Gradle Plugin 8.13
 supports JDK 17–21. If `./gradlew` fails with a class-file version error, point
 `JAVA_HOME` at a 21.
@@ -28,10 +33,16 @@ supports JDK 17–21. If `./gradlew` fails with a class-file version error, poin
 ## 2. Install
 
 ```bash
-git clone <this repo>
+git clone https://github.com/AM-Bear/NFC-Attendance-Scanner
 cd NFC-Attendance-Scanner
+corepack enable                 # once per machine; picks up `packageManager`
 pnpm install                    # from the REPOSITORY ROOT, not from the app folder
 ```
+
+Everything below works identically on macOS, Linux and (with the caveats noted)
+Windows. The lockfile carries the Apple Silicon binaries for esbuild, rollup,
+lightningcss and Tailwind's oxide, so an `arm64` Mac installs the same tree
+this was verified on.
 
 `pnpm install` at the root installs every workspace package. It takes about
 16 seconds warm, a couple of minutes cold.
@@ -153,7 +164,9 @@ attaches to.
 | Android build: `Unsupported class file major version` | `JAVA_HOME` points at JDK 22+. Point it at 21. |
 | Android build: `SDK location not found` | Set `ANDROID_HOME=$HOME/Library/Android/sdk` (macOS) or `$HOME/Android/Sdk` (Linux). |
 | Android build: `Gradle build daemon disappeared unexpectedly` | Out of memory. Raise `org.gradle.jvmargs` in `android/gradle.properties`, or build with `--no-daemon --max-workers=1`. |
-| `test:browser` cannot find a browser | `pnpm exec playwright install chromium`. `CHROMIUM_PATH` overrides it with a system browser. |
+| `test:browser` cannot find a browser | `pnpm exec playwright install chromium` — once per machine. `CHROMIUM_PATH` overrides it with a system browser. |
+| macOS: `xcrun: error: unable to find utility "codesign"` | Xcode Command Line Tools are missing. `xcode-select --install`. Only the macOS packaging needs them; dev and tests do not. |
+| macOS: tests pass but `package:mac` fails immediately | Almost always the above. Check `xcode-select -p` prints a path. |
 | Your edit does nothing in the browser | Almost always a stale service worker from a *production* build served on the same origin. Development never registers one; DevTools → Application → Service Workers → Unregister. |
 
 ## 7. What this project will not accept
