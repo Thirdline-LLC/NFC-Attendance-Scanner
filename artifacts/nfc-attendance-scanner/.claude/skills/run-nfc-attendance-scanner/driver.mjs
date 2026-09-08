@@ -18,14 +18,46 @@
  *   await app.close();
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
-const CHROMIUM =
-  process.env.CHROMIUM_BIN ||
-  process.env.REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE ||
-  '/repl/tools/bin/chromium';
+// Off Replit none of the first three exist, so fall back to whatever Playwright
+// downloaded (`pnpm exec playwright install chromium`) before giving up on the
+// Replit-only path. $CHROMIUM_BIN still wins over all of it.
+function findChromium() {
+  const explicit =
+    process.env.CHROMIUM_BIN ||
+    process.env.CHROMIUM_PATH ||
+    process.env.REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE;
+  if (explicit) return explicit;
+
+  const roots = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    join(homedir(), '.cache', 'ms-playwright'),
+    join(homedir(), 'Library', 'Caches', 'ms-playwright'),
+  ].filter(Boolean);
+
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    for (const entry of readdirSync(root)) {
+      if (!entry.startsWith('chromium')) continue;
+      for (const candidate of [
+        join(root, entry, 'chrome-linux', 'chrome'),
+        join(root, entry, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
+      ]) {
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  }
+
+  return '/repl/tools/bin/chromium';
+}
+
+const CHROMIUM = findChromium();
 // 23205 is the artifact's own port (.replit-artifact `localPort`), i.e. the
-// server the Replit runner already has up. Override with APP_URL.
+// server the Replit runner already has up. Off Replit the dev server defaults
+// to 5173; override either with APP_URL.
 const APP_URL = process.env.APP_URL || 'http://localhost:23205/';
 const SHOT_DIR = process.env.SHOT_DIR || '/tmp/nfc-scanner-shots';
 

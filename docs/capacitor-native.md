@@ -1,5 +1,13 @@
 # Packaging the attendance scanner as a native app
 
+> **Scope note.** This document predates the migration to VS Code and still
+> covers what it always covered well: how IndexedDB survives on iOS and
+> Android, and why the native projects are committed. For the current build
+> commands, the Android SDK setup, signing, sideloading and kiosk mode, see
+> **[android-packaging.md](android-packaging.md)**; for macOS see
+> **[desktop-macos.md](desktop-macos.md)**; for data survival across all three
+> targets see **[data-and-backup.md](data-and-backup.md)**.
+
 The scanner is a Vite/React web app with no backend: the roster and every
 attendance tap live in the browser's IndexedDB, and the exported `.xlsx` is the
 system of record. Capacitor wraps that same bundle in a native shell so it can
@@ -252,18 +260,25 @@ Checked before committing: no keystore, no `local.properties`, no
 `google-services.json` ignore lines were uncommented so an accident cannot
 happen later.
 
-## Why there are two builds
+## Why there are three builds
 
-`vite.config.ts` refuses to run without `PORT` and `BASE_PATH`, and `BASE_PATH`
-becomes the base every asset URL is written against.
+> Updated after the move off Replit. `vite.config.ts` no longer *requires*
+> `PORT` and `BASE_PATH` — it takes a `BUILD_TARGET` and derives the base,
+> while still honouring both variables when they are set. There are now three
+> targets rather than two. See [vscode-setup.md](vscode-setup.md).
 
-| Script | `BASE_PATH` | `index.html` refers to | For |
+`BASE_PATH` still becomes the base every asset URL is written against.
+
+| Script | Base | `index.html` refers to | For |
 |---|---|---|---|
-| `build` | `/` | `/assets/index-*.js` | the Replit preview, served at a domain root |
+| `build` | `/` | `/assets/index-*.js` | a static host serving at a domain root |
 | `build:native` | `./` | `./assets/index-*.js` | the Capacitor shell |
+| `build:electron` | `./` | `./assets/index-*.js` | the macOS app, over `app://attendance` |
 
-Both were run and their output inspected: the favicon, script and stylesheet
-come out absolute in the first and relative in the second.
+All three were run and their output inspected: the favicon, script and
+stylesheet come out absolute in the first and relative in the other two. The
+web build alone also emits `manifest.webmanifest` and `sw.js`; neither appears
+in the Capacitor or Electron output, and the built APK was checked for both.
 
 Capacitor serves `webDir` from its own origin — `capacitor://localhost` on iOS,
 `https://localhost` on Android — so absolute paths would in fact also resolve.

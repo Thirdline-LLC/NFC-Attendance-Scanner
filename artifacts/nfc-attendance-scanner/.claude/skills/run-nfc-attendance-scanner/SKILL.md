@@ -21,13 +21,25 @@ All commands were run in this container and worked.
 
 ## Prerequisites
 
-Nothing to install. Chromium is already at `/repl/tools/bin/chromium`; the
-driver also accepts `$REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE` or `$CHROMIUM_BIN`.
+**On Replit:** nothing to install — Chromium is at `/repl/tools/bin/chromium`,
+and the driver also accepts `$REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE` or
+`$CHROMIUM_BIN`.
 
-## Use the dev server that is already running
+**On a local checkout or a Codespace:** none of those paths exist. Point the
+driver at a browser with `$CHROMIUM_BIN`, or install Playwright's:
 
-The Replit artifact runner serves this app itself, on **port 23205**
-(`.replit-artifact`: `localPort = 23205`, `PORT = "23205"`). Check for it before
+```bash
+pnpm exec playwright install chromium
+```
+
+`vitest.browser.config.ts` uses Playwright's own Chromium by default and takes
+`$CHROMIUM_PATH` as an override. Its old default was `/repl/tools/bin/chromium`,
+which made `run test:browser` unrunnable off Replit.
+
+## Which dev server to drive
+
+**On Replit**, the artifact runner already serves this app on **port 23205**
+(`.replit-artifact`: `localPort = 23205`, `PORT = "23205"`). Check before
 starting anything:
 
 ```bash
@@ -35,19 +47,28 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:23205/   # 200 => use 
 ```
 
 If it answers 200, drive that one. **Do not start a second dev server for this
-package** — see the duplicate-server gotcha below.
+package** — see the duplicate-server gotcha below. The runner's server is what
+`https://$REPLIT_DEV_DOMAIN` proxies, so that URL is what you hand to a human
+who wants to click it.
 
-The runner's server is what `https://$REPLIT_DEV_DOMAIN` proxies, so that URL is
-what you hand to a human who wants to click it.
+**Anywhere else** there is no runner and nothing on 23205. Just start one:
 
-### Only if 23205 is down
+```bash
+pnpm --filter @workspace/nfc-attendance-scanner run dev     # localhost:5173
+```
 
-`vite.config.ts` **throws** unless both `PORT` and `BASE_PATH` are set. Use the
-artifact's own port so the preview URL keeps working and so `strictPort` fails
-loudly instead of silently giving you a duplicate:
+`vite.config.ts` no longer requires `PORT` or `BASE_PATH`; it defaults to 5173
+and derives the asset base from `BUILD_TARGET`. Both variables still work:
 
 ```bash
 PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run dev
+```
+
+The driver defaults to `http://localhost:23205/` — set `APP_URL` when you are
+running on 5173:
+
+```bash
+APP_URL=http://localhost:5173/ node .claude/skills/run-nfc-attendance-scanner/driver.mjs smoke
 ```
 
 Start it as a persistent background process — a plain `&` from a one-shot shell
@@ -139,18 +160,25 @@ pressing Enter *is* a scan. Useless headless — use the driver instead.
 ## Test
 
 ```bash
-pnpm --filter nfc-attendance-scanner test        # vitest, 275 passing
-pnpm --filter nfc-attendance-scanner typecheck   # tsc --noEmit
-PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run build
-pnpm --filter @workspace/nfc-attendance-scanner run build:native   # BASE_PATH=./
+pnpm --filter @workspace/nfc-attendance-scanner run test          # vitest, 443 passing in 28 files
+pnpm --filter @workspace/nfc-attendance-scanner run test:browser  # real Chromium, 4 files
+pnpm --filter @workspace/nfc-attendance-scanner run typecheck     # the app AND electron/
+pnpm --filter @workspace/nfc-attendance-scanner run build           # PWA  -> dist/public
+pnpm --filter @workspace/nfc-attendance-scanner run build:native    # APK bundle
+pnpm --filter @workspace/nfc-attendance-scanner run build:electron  # macOS renderer + main + preload
 ```
+
+`run test` covers `electron/**/*.test.ts` too — the main process's input
+validation lives in `electron/validation.ts`, which imports no Electron
+precisely so it can be unit-tested here.
 
 There is **no ESLint config** anywhere in this repo. Don't try to lint.
 
 ## Gotchas
 
-- **Never run a second dev server for this package.** The artifact runner owns
-  one on 23205. A second one (the old version of this skill said 5173) competes
+- **On Replit, never run a second dev server for this package.** The artifact
+  runner owns one on 23205. (Off Replit this does not apply — there is no
+  runner, and starting your own on 5173 is the normal thing to do.) A second one (the old version of this skill said 5173) competes
   with it, and tearing yours down — session teardown, or any broad
   `pkill -f vite` — kills the runner's too. What the user then sees is the red
   *"Your NFC Attendance Scanner artifact crashed"* panel ending in:
@@ -219,6 +247,11 @@ There is **no ESLint config** anywhere in this repo. Don't try to lint.
   makes a fresh temp profile each time so the roster starts empty; pass
   `{ profile }` only if you *want* the carry-over, and expect collision
   behavior to change when you do.
+- **Three export routes, not one.** `src/lib/workbook-delivery.ts` picks
+  between a browser download, a Capacitor file write, and the Electron Save
+  dialog, in that last-to-first order of specificity. In the desktop app a
+  cancelled dialog throws `ExportCancelledError`, which both call sites render
+  as "Export cancelled" rather than as a failure.
 - **The export writes a real file under vitest.** `XLSX.writeFile` picks its
   branch from the environment: in Node it is `fs.writeFileSync`, so a test that
   calls `exportAttendanceWorkbook` for real drops an `attendance-*.xlsx` into

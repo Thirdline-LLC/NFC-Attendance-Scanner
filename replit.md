@@ -1,19 +1,31 @@
 # NFC Attendance Scanner
 
-A frontend-only kiosk screen for recording HID NFC attendance scans locally in the browser.
+A frontend-only kiosk screen for recording HID NFC attendance scans locally in
+the browser.
+
+**This app is no longer Replit-specific.** It now builds for three targets —
+an installable PWA, an Android APK and a macOS `.dmg` — from one source tree,
+and develops on any machine with Node and pnpm. `README.md` at the repository
+root is the entry point; `docs/vscode-setup.md` is the full guide.
 
 ## Run & Operate
 
-The Replit runner already serves the scanner on port 23205; check with
-`curl -s -o /dev/null -w '%{http_code}\n' http://localhost:23205/` before
-starting anything. `vite.config.ts` throws unless both `PORT` and `BASE_PATH`
-are set — including for `build`.
+`vite.config.ts` no longer requires `PORT` or `BASE_PATH`. It defaults to port
+5173 and derives the asset base from `BUILD_TARGET`, while still honouring both
+variables when they are set — so the Replit runner's `PORT=23205 BASE_PATH=/`
+environment continues to work unchanged.
 
-- `pnpm --filter @workspace/nfc-attendance-scanner run test` — vitest
-- `pnpm --filter @workspace/nfc-attendance-scanner run typecheck` — tsc --noEmit
-- `PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run build` — production build
-- `pnpm --filter @workspace/nfc-attendance-scanner run build:native` — the Capacitor bundle (sets both itself)
-- `PORT=23205 BASE_PATH=/ pnpm --filter @workspace/nfc-attendance-scanner run dev` — only if 23205 is down
+On Replit the runner still serves the scanner on port 23205; check with
+`curl -s -o /dev/null -w '%{http_code}\n' http://localhost:23205/` before
+starting anything.
+
+- `pnpm --filter @workspace/nfc-attendance-scanner run test` — vitest (443 tests)
+- `pnpm --filter @workspace/nfc-attendance-scanner run test:browser` — real Chromium
+- `pnpm --filter @workspace/nfc-attendance-scanner run typecheck` — the app *and* `electron/`
+- `pnpm --filter @workspace/nfc-attendance-scanner run build` — the PWA
+- `pnpm --filter @workspace/nfc-attendance-scanner run build:native` — the Capacitor bundle
+- `pnpm --filter @workspace/nfc-attendance-scanner run build:electron` — the macOS renderer + main + preload
+- `pnpm --filter @workspace/nfc-attendance-scanner run dev` — localhost:5173, or 23205 on Replit
 
 The scanner has no backend, authentication, analytics, API routes, or database server. Scan records are stored in the browser with Dexie/IndexedDB.
 
@@ -21,6 +33,8 @@ The scanner has no backend, authentication, analytics, API routes, or database s
 
 - pnpm workspaces, TypeScript, React 18, Vite
 - Tailwind CSS, react-router-dom, Dexie.js
+- vite-plugin-pwa (web target only), Capacitor 8 (Android), Electron 44 +
+  electron-builder (macOS)
 
 ## Where things live
 
@@ -28,6 +42,12 @@ The scanner has no backend, authentication, analytics, API routes, or database s
 - `artifacts/nfc-attendance-scanner/src/data/` — Dexie/IndexedDB persistence
 - `artifacts/nfc-attendance-scanner/src/ui/` — feedback and status presentation
 - `artifacts/nfc-attendance-scanner/src/app/` — router (`/`, `/roster`, `/dashboard`)
+- `artifacts/nfc-attendance-scanner/src/platform/` — which shell we are in
+  (`runtime.ts`) and the desktop bridge contract (`desktop-bridge.ts`)
+- `artifacts/nfc-attendance-scanner/src/pwa/` — service-worker registration,
+  which refuses to run outside a production web build
+- `artifacts/nfc-attendance-scanner/electron/` — the macOS main process,
+  preload, input validation, and the build and dev scripts
 - `artifacts/nfc-attendance-scanner/src/roster/` — the roster page container
 - `artifacts/nfc-attendance-scanner/src/dashboard/` — the dashboard page container
 - `artifacts/nfc-attendance-scanner/src/lib/scan-format.ts` — UID normalization, validation and on-screen masking
@@ -57,9 +77,10 @@ The scanner has no backend, authentication, analytics, API routes, or database s
   `'save-failed'` belongs to the session that hit it and clears with it. There
   is deliberately no silent localStorage fallback — a kiosk that quietly stops
   persisting is worse than one that says so.
-- **Base path is set per build target.** `vite.config.ts` throws unless `PORT`
-  and `BASE_PATH` are both set. The web build uses `/`; `build:native` uses
-  `./` so the Capacitor bundle resolves assets relative to
+- **Base path is set per build target.** `vite.config.ts` reads `BUILD_TARGET`
+  (`web`, `capacitor` or `electron`) and derives the base from it, defaulting
+  `PORT` to 5173. The web build uses `/`; `build:native` and `build:electron`
+  use `./` so the Capacitor bundle resolves assets relative to
   `capacitor://localhost`. `routerBasename` in `AppRouter.tsx` turns a
   non-absolute `BASE_URL` into an empty basename — trimming `./` would hand
   react-router `.`, which matches no location and renders a blank app.
@@ -114,10 +135,41 @@ input. Three routes:
 
 _Populate as you build — explicit user instructions worth remembering across sessions._
 
+## Architecture decisions (packaging)
+
+- **One app, three shells, no copies.** `src/` is shared verbatim. The only
+  place the targets diverge is `src/lib/workbook-delivery.ts`, which picks a
+  browser download, a Capacitor file write, or the desktop Save dialog.
+- **The service worker is a web-only feature.** `shouldRegisterServiceWorker`
+  requires a production *web* build AND a runtime that is neither a Capacitor
+  WebView nor the Electron shell. Both runtime checks are redundant with the
+  build target on purpose: a mistyped `BUILD_TARGET` must not put a
+  second, independently-updated copy of the app in front of assets that already
+  ship inside an APK.
+- **The desktop renderer is served over `app://attendance`, not `file://`.**
+  A `file://` origin is opaque and Chromium treats its storage as
+  untrustworthy; everything here lives in IndexedDB. That origin, the
+  `org.stjohnschs.attendance` bundle id and the `SJC Attendance` userData
+  directory are permanent identity — changing any of them orphans every
+  installed machine's records.
+- **The renderer never names a filesystem path.** It hands the main process
+  bytes and a suggested filename; the operator picks the destination in the
+  system Save dialog, and the main process confirms the written size before
+  reporting success. Cancelling that dialog is reported as a cancellation, not
+  a failure.
+
 ## Gotchas
 
-- **`PORT` and `BASE_PATH` are required for `build` too**, not just `dev` —
-  `vite.config.ts` throws without them.
+- **`PORT` and `BASE_PATH` are optional now.** They used to be required and
+  `vite.config.ts` threw without them; it now defaults to 5173 and derives the
+  base from `BUILD_TARGET`. Setting them still works.
+- **`pnpm run <anything>` fails if `allowBuilds:` in `pnpm-workspace.yaml` is
+  incomplete.** pnpm 11 makes an un-approved install script an error, and the
+  dependency-status check runs before every script. That file had placeholder
+  `set this to true or false` values, which is what made a fresh checkout
+  unusable.
+- **Run `native:sync` after every `src/` change** before a Gradle build. Gradle
+  has no idea the web assets moved.
 - **The Replit runner already serves this app on 23205.** Never start a second
   dev server for the package, and never `pkill -f vite` — it kills every
   session's server in the container.

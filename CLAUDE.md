@@ -1,7 +1,16 @@
 # Working in this repo
 
-A pnpm workspace on Replit. Apps live in `artifacts/*`, shared packages in `lib/*`.
-Per-app details are in each app's `.claude/skills/`; `replit.md` describes the scanner.
+A pnpm workspace. Apps live in `artifacts/*`, shared packages in `lib/*`.
+Per-app details are in each app's `.claude/skills/`; `replit.md` describes the
+scanner and `README.md` is the entry point for a local checkout.
+
+**The scanner is no longer Replit-specific.** It builds for three targets — an
+installable PWA, an Android APK and a macOS `.dmg` — from one source tree, and
+develops on any machine with Node 22+ and pnpm. `docs/vscode-setup.md` is the
+full guide. Everything in the "Several Claude sessions share ONE checkout" and
+"Never `pkill -f vite`" sections below applies **only when running inside the
+Replit container**; on a local checkout or a Codespace there is no runner, no
+port 23205, and `pnpm ... run dev` on 5173 is simply correct.
 
 ## Several Claude sessions share ONE checkout
 
@@ -49,13 +58,29 @@ you must drive the app, use a free port and point the driver at it with `APP_URL
 
 ## Commands
 
-`pnpm` only — the root `preinstall` rejects npm and yarn. Vite configs **throw**
-unless both `PORT` and `BASE_PATH` are set, including for `build`.
+`pnpm` only — the root `preinstall` rejects npm and yarn.
+
+**The scanner's vite config no longer requires `PORT` and `BASE_PATH`.** It
+takes a `BUILD_TARGET` of `web`, `capacitor` or `electron`, defaults the port
+to 5173, and derives the asset base. Both variables are still honoured when
+set, so the Replit runner's environment keeps working. `mockup-sandbox` still
+throws without them.
 
 ```bash
 pnpm --filter @workspace/<app> run test        # vitest
 pnpm --filter @workspace/<app> run typecheck   # tsc --noEmit
-PORT=<port> BASE_PATH=/ pnpm --filter @workspace/<app> run build
+pnpm --filter @workspace/nfc-attendance-scanner run build            # PWA
+pnpm --filter @workspace/nfc-attendance-scanner run build:native     # Capacitor
+pnpm --filter @workspace/nfc-attendance-scanner run build:electron   # macOS
+PORT=<port> BASE_PATH=/ pnpm --filter @workspace/mockup-sandbox run build
 ```
 
 There is no ESLint config anywhere in this repo. Don't try to lint.
+
+## `allowBuilds` is not optional
+
+pnpm 11 treats an un-approved install script as an **error**, and the
+dependency-status check runs before every `pnpm run`. A dependency with a
+postinstall that is missing from `allowBuilds:` in `pnpm-workspace.yaml` — or
+given a non-boolean value — makes every script in the workspace fail. Add new
+ones there, or run `pnpm approve-builds`.
