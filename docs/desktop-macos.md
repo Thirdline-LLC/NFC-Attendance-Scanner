@@ -205,10 +205,33 @@ xattr -dr com.apple.quarantine "/Applications/SJC Attendance.app"
 
 After that it opens normally, every time, with no warning.
 
+**What they see if they open it first.** Verified on macOS 26.5 (25F71), Apple
+Silicon, against a quarantined copy of this build that the Mac had never
+approved:
+
+> **"SJC Attendance" Not Opened**
+>
+> Apple could not verify "SJC Attendance" is free of malware that may harm your
+> Mac or compromise your privacy.
+>
+> \[ Move to Trash ]  \[ Done ]
+
+There is **no "Open Anyway" button in that dialog** — that is the macOS 15
+change, and it still holds on macOS 26. "Open Anyway" is in System Settings,
+which is why the Terminal one-liner above is the shorter route.
+
 If they would rather not touch Terminal: open the app once and let macOS refuse,
 then go to **System Settings → Privacy & Security**, scroll down to the
 Security section, and click **Open Anyway** next to *SJC Attendance*. Same
 result, more clicks.
+
+> **Reproducing this on a Mac that has already run the app does not work.**
+> Once a Mac has opened the app successfully, macOS records the approval and
+> re-applying the quarantine flag no longer blocks it. A simulation also has to
+> set the flag **recursively** (`xattr -w -r …`), because that is what a real
+> download carries; `xattr -w` on the bundle alone let this build launch. Both
+> were observed while verifying the above, so a "it wasn't quarantined after
+> all" result on your own Mac is most likely the test, not the app.
 
 ## 5. Why macOS does that, and what would stop it
 
@@ -219,9 +242,12 @@ it.
 That distinction is exactly what the two behaviours above come from:
 
 - **Signed at all** is why it runs. Apple Silicon refuses to launch a binary
-  with no signature whatsoever; such an app usually surfaces to the user as
-  *"the application is damaged and can't be opened"*, which is misleading — it
-  is not damaged, it is unsigned.
+  with no signature whatsoever. Older macOS surfaced that as *"the application
+  is damaged and can't be opened"*; on macOS 26.5 a signature-stripped copy of
+  this build was refused with the same *"Not Opened" / "Apple could not
+  verify…"* alert quoted in §4, so the wording no longer distinguishes
+  "unsigned" from "not notarized". Either way it is misleading — the app is not
+  damaged, it is unsigned.
 - **No identity** is why it is quarantined. Gatekeeper's question is "do I know
   who made this and has Apple seen it?", and for an ad-hoc build the answer is
   no on both counts.
