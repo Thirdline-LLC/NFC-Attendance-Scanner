@@ -97,6 +97,15 @@ export const SEL = {
   rosterTable: '[data-testid="table-roster"]',
   dashboardPage: '[data-testid="dashboard-page"]',
   dashboard: '[data-testid="dashboard"]',
+  // The teacher PIN gate. End Session, `/roster` and `/dashboard` all open
+  // this dialog first; on a fresh database it is the *set* form (pin + confirm),
+  // afterwards the *unlock* form (pin only). Submit by clicking pinSubmit —
+  // Enter is ignored unless ≥100 ms have passed since the last keystroke,
+  // which is how the field tells a person from the card reader.
+  pinDialog: '[data-testid="dialog-pin"]',
+  pinInput: '[data-testid="input-pin"]',
+  pinConfirm: '[data-testid="input-pin-confirm"]',
+  pinSubmit: '[data-testid="button-pin-submit"]',
   uniqueStudents: '[data-testid="text-unique-students"]',
   sessionsCount: '[data-testid="text-sessions-count"]',
   unidentifiedTaps: '[data-testid="text-unidentified-taps"]',

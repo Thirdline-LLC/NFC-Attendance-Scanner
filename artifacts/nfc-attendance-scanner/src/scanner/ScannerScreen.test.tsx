@@ -14,13 +14,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as attendanceStore from '@/data/attendance-store';
 import { addPerson, listTapRecords, type Person } from '@/data/attendance-store';
 import * as attendanceExport from '@/lib/attendance-export';
+import { setOperatorPin } from '@/data/operator-pin';
+import { OperatorLockProvider } from '@/lock/OperatorLockProvider';
 import { ScannerScreen } from './ScannerScreen';
 
 /** The header links out to the roster and dashboard, so the screen needs a router. */
 function renderScanner() {
   return render(
     <MemoryRouter>
-      <ScannerScreen />
+      <OperatorLockProvider>
+        <ScannerScreen />
+      </OperatorLockProvider>
     </MemoryRouter>,
   );
 }
@@ -37,6 +41,14 @@ const knownPerson: Omit<Person, 'id'> = {
 };
 
 /** The reader is a keyboard wedge: a burst of characters, then Enter. */
+/** End Session is the teacher's: types the PIN into the gate and submits by button. */
+async function passGate(user: ReturnType<typeof userEvent.setup>, pin = '2468') {
+  await screen.findByTestId('dialog-pin');
+  await user.type(screen.getByTestId('input-pin'), pin);
+  await user.click(screen.getByTestId('button-pin-submit'));
+  await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+}
+
 async function scanCard(user: ReturnType<typeof userEvent.setup>, uid: string) {
   await user.type(screen.getByTestId('input-scanner-hidden'), `${uid}{Enter}`);
 }
@@ -45,6 +57,7 @@ describe('ScannerScreen storage recovery', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    await setOperatorPin('2468');
   });
 
   afterEach(() => {
@@ -132,6 +145,7 @@ describe('ScannerScreen session summary', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    await setOperatorPin('2468');
     await addPerson(knownPerson);
   });
 
@@ -149,6 +163,7 @@ describe('ScannerScreen session summary', () => {
       expect(screen.getByTestId('text-attendance-count').textContent).toBe('1'),
     );
     await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
     await screen.findByTestId('dialog-session-summary');
     return user;
   }
@@ -178,6 +193,7 @@ describe('ScannerScreen session summary', () => {
     await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
 
     await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
 
     await screen.findByTestId('dialog-session-summary');
     expect(screen.getByTestId('text-session-meeting').textContent).toMatch(
@@ -271,6 +287,7 @@ describe('ScannerScreen reader focus', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    await setOperatorPin('2468');
     await addPerson(knownPerson);
   });
 
@@ -324,6 +341,7 @@ describe('ScannerScreen reader focus', () => {
     await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
 
     await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
 
     // The summary opened, so the press was not stolen back by the reader.
     expect(await screen.findByTestId('dialog-session-summary')).toBeTruthy();
@@ -374,6 +392,7 @@ describe('ScannerScreen new-session confirmation', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    await setOperatorPin('2468');
     await addPerson(knownPerson);
   });
 
@@ -398,6 +417,7 @@ describe('ScannerScreen new-session confirmation', () => {
     const user = await renderWithOneTap();
 
     await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
     await user.click(await screen.findByTestId('button-summary-new-session'));
 
     const dialog = await screen.findByTestId('dialog-new-session');
@@ -505,6 +525,7 @@ describe('ScannerScreen new-session confirmation', () => {
     );
 
     await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
     await screen.findByTestId('dialog-session-summary');
     expect(screen.queryByTestId('text-export-saved')).toBeNull();
   });
@@ -578,6 +599,7 @@ describe('ScannerScreen reader chip', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    await setOperatorPin('2468');
   });
 
   afterEach(() => {
@@ -620,6 +642,7 @@ describe('ScannerScreen reader chip', () => {
     await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
 
     await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
     await screen.findByTestId('dialog-session-summary');
 
     const chip = screen.getByTestId('text-scanner-focus').textContent ?? '';
@@ -632,6 +655,7 @@ describe('ScannerScreen first run', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    await setOperatorPin('2468');
   });
 
   afterEach(() => {
@@ -689,6 +713,7 @@ describe('ScannerScreen activity log', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    await setOperatorPin('2468');
     await addPerson(knownPerson);
   });
 
@@ -707,6 +732,7 @@ describe('ScannerScreen activity log', () => {
       expect(screen.getByTestId('text-attendance-count').textContent).toBe('1'),
     );
     await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
     await screen.findByTestId('dialog-session-summary');
     return user;
   }
@@ -768,5 +794,89 @@ describe('ScannerScreen activity log', () => {
       ),
     );
     expect(screen.queryByTestId('text-export-failed')).toBeNull();
+  });
+});
+
+describe('ScannerScreen teacher gate', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+    await addPerson(knownPerson);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('asks for the PIN before the summary, and the summary follows the right PIN', async () => {
+    await setOperatorPin('2468');
+    const user = userEvent.setup();
+    renderScanner();
+    await screen.findByText('Tap to check in');
+
+    await user.click(screen.getByTestId('button-end-session'));
+    expect(await screen.findByTestId('dialog-pin')).toBeTruthy();
+    expect(screen.queryByTestId('dialog-session-summary')).toBeNull();
+    expect(screen.getByTestId('text-scanner-focus').textContent).toContain('Scanner off');
+
+    await user.type(await screen.findByTestId('input-pin'), '0000');
+    await user.click(screen.getByTestId('button-pin-submit'));
+    expect((await screen.findByTestId('text-pin-error')).textContent).toBe(
+      'That PIN is not right.',
+    );
+
+    await passGate(user);
+    expect(await screen.findByTestId('dialog-session-summary')).toBeTruthy();
+  });
+
+  it('drops a card tapped while the PIN dialog is up', async () => {
+    await setOperatorPin('2468');
+    const user = userEvent.setup();
+    renderScanner();
+    await screen.findByText('Tap to check in');
+    await user.click(screen.getByTestId('button-end-session'));
+    await screen.findByTestId('dialog-pin');
+
+    await user.keyboard(`${knownUid}{Enter}`);
+
+    expect(screen.getByTestId('text-attendance-count').textContent).toBe('0');
+    expect(await listTapRecords()).toHaveLength(0);
+  });
+
+  it('locks again when the summary closes', async () => {
+    await setOperatorPin('2468');
+    const user = userEvent.setup();
+    renderScanner();
+    await screen.findByText('Tap to check in');
+    await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
+    await user.click(await screen.findByTestId('button-summary-dismiss'));
+
+    await user.click(screen.getByTestId('button-end-session'));
+    expect(await screen.findByTestId('dialog-pin')).toBeTruthy();
+  });
+
+  it('marks the admin links locked, and says so until a PIN exists', async () => {
+    const user = userEvent.setup();
+    renderScanner();
+    await screen.findByText('Tap to check in');
+    expect((await screen.findByTestId('text-pin-unset')).textContent).toContain(
+      'No teacher PIN set',
+    );
+    expect(screen.getByTestId('link-roster').getAttribute('aria-label')).toContain(
+      'teacher PIN required',
+    );
+
+    await user.click(screen.getByTestId('button-end-session'));
+    expect((await screen.findByTestId('text-pin-title')).textContent).toBe(
+      'Set a teacher PIN',
+    );
+    await user.type(screen.getByTestId('input-pin'), '2468');
+    await user.type(screen.getByTestId('input-pin-confirm'), '2468');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    await screen.findByTestId('dialog-session-summary');
+    expect(screen.queryByTestId('text-pin-unset')).toBeNull();
   });
 });

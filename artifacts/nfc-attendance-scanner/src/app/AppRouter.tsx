@@ -1,5 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { DashboardPage } from '@/dashboard/DashboardPage';
+import { LockedRoute } from '@/lock/LockedRoute';
+import {
+  OperatorLockProvider,
+  RelockOnScanner,
+} from '@/lock/OperatorLockProvider';
 import { RosterPage } from '@/roster/RosterPage';
 import { ScannerScreen } from '@/scanner/ScannerScreen';
 
@@ -26,14 +31,33 @@ export function routerBasename(baseUrl: string): string {
 export function AppRouter() {
   return (
     <BrowserRouter basename={routerBasename(import.meta.env.BASE_URL)}>
-      <Routes>
-        <Route path="/" element={<ScannerScreen />} />
-        <Route path="/roster" element={<RosterPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        {/* A kiosk has no address bar to correct a stale or mistyped path
-            with, so anything unknown lands back on the scanner. */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      {/* One unlock per visit to the teacher's side. The way back to the
+          scanner is the way the device is handed back, so it relocks there. */}
+      <OperatorLockProvider>
+        <RelockOnScanner />
+        <Routes>
+          <Route path="/" element={<ScannerScreen />} />
+          <Route
+            path="/roster"
+            element={
+              <LockedRoute>
+                <RosterPage />
+              </LockedRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <LockedRoute>
+                <DashboardPage />
+              </LockedRoute>
+            }
+          />
+          {/* A kiosk has no address bar to correct a stale or mistyped path
+              with, so anything unknown lands back on the scanner. */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </OperatorLockProvider>
     </BrowserRouter>
   );
 }

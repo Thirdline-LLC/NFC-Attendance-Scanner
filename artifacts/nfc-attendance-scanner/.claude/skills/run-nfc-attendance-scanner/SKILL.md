@@ -277,3 +277,17 @@ There is **no ESLint config** anywhere in this repo. Don't try to lint.
 | `timed out waiting for: app boot` | Dev server isn't up. `curl` returns `000`. Restart it as a persistent background process. |
 | Roster isn't empty / a collision fires on the first enrollment | Reused browser profile. Drop `profile` so `launch()` makes a fresh one. |
 | `no element for <sel>[n]` | The form isn't open yet. `await app.waitFor(...)` on `SEL.form` after scanning. |
+
+## The teacher PIN
+
+Since branch `lock/operator-pin` (2026-09-08), **End Session, `/roster` and
+`/dashboard` sit behind a PIN dialog** (`SEL.pinDialog` in the driver). On a
+fresh database the dialog is the *set* form — `SEL.pinInput` and
+`SEL.pinConfirm`, 4–8 digits, then `SEL.pinSubmit`; afterwards it is the
+*unlock* form with `SEL.pinInput` alone. Click `SEL.pinSubmit` rather than
+sending Enter: the field ignores an Enter that arrives within 100 ms of the
+previous keystroke, which is how it tells a person from the card reader.
+
+The `smoke` flow in `driver.mjs` only enrolls two cards and reads IndexedDB,
+so it never meets the gate. A flow that ends a session or opens the roster
+has to pass it first.

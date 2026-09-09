@@ -11,6 +11,7 @@ import {
   recordSessionTap,
   type Person,
 } from '@/data/attendance-store';
+import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
 import * as attendanceExport from '@/lib/attendance-export';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
 import { DashboardPage } from './DashboardPage';
@@ -396,5 +397,54 @@ describe('DashboardPage activity log', () => {
         'The activity log entry could not be written.',
       ),
     );
+  });
+});
+
+describe('DashboardPage teacher PIN', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('changes the teacher PIN from the dashboard and logs it', async () => {
+    await setOperatorPin('2468');
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-pin'));
+    await user.type(await screen.findByTestId('input-pin-current'), '2468');
+    await user.type(screen.getByTestId('input-pin'), '1357');
+    await user.type(screen.getByTestId('input-pin-confirm'), '1357');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    expect((await screen.findByTestId('text-pin-changed')).textContent).toContain(
+      'Teacher PIN changed',
+    );
+    expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('list-activity')).getAllByRole('listitem')[0]
+          .textContent,
+      ).toContain('Teacher PIN changed'),
+    );
+  });
+
+  it('keeps the old PIN when the dialog is cancelled', async () => {
+    await setOperatorPin('2468');
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-pin'));
+    await user.click(await screen.findByTestId('button-pin-cancel'));
+
+    expect(screen.queryByTestId('dialog-pin')).toBeNull();
+    expect(await verifyOperatorPin('2468')).toEqual({ status: 'ok' });
   });
 });

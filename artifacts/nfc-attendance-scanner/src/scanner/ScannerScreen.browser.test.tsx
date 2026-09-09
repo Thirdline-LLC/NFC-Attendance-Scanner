@@ -14,6 +14,8 @@ import {
   listTapRecords,
   type Person,
 } from '@/data/attendance-store';
+import { setOperatorPin } from '@/data/operator-pin';
+import { OperatorLockProvider } from '@/lock/OperatorLockProvider';
 import { ScannerScreen } from './ScannerScreen';
 
 const knownUid = '04A1B2C3D4E5F6';
@@ -30,9 +32,19 @@ const knownPerson: Omit<Person, 'id'> = {
 function renderScanner() {
   return render(
     <MemoryRouter>
-      <ScannerScreen />
+      <OperatorLockProvider>
+        <ScannerScreen />
+      </OperatorLockProvider>
     </MemoryRouter>,
   );
+}
+
+/** End Session is the teacher's: types the PIN into the gate and submits by button. */
+async function passGate(user: ReturnType<typeof userEvent.setup>, pin = '2468') {
+  await screen.findByTestId('dialog-pin');
+  await user.type(screen.getByTestId('input-pin'), pin);
+  await user.click(screen.getByTestId('button-pin-submit'));
+  await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
 }
 
 async function scanCard(
@@ -46,6 +58,7 @@ describe('ScannerScreen session reset browser smoke flow', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    await setOperatorPin('2468');
     await addPerson(knownPerson);
   });
 
@@ -70,6 +83,7 @@ describe('ScannerScreen session reset browser smoke flow', () => {
     const previousSessionId = previousTap.sessionId;
 
     await user.click(screen.getByTestId('button-end-session'));
+    await passGate(user);
     await screen.findByTestId('dialog-session-summary');
     await user.click(screen.getByTestId('button-summary-new-session'));
 

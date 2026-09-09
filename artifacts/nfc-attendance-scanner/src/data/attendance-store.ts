@@ -273,6 +273,18 @@ export async function setAttendanceTarget(target: number): Promise<void> {
   });
 }
 
+/**
+ * Raw access to the device settings table for modules that own a setting of
+ * their own (the teacher PIN). Values are strings; callers encode.
+ */
+export async function readSetting(key: string): Promise<string | undefined> {
+  return (await settingsTable.get(key))?.value;
+}
+
+export async function writeSetting(key: string, value: string): Promise<void> {
+  await settingsTable.put({ key, value });
+}
+
 /** What removing a student would take with them. */
 export type PersonRemoval = {
   tapCount: number;
