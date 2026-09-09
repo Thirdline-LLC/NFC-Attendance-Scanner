@@ -2,6 +2,7 @@ import Dexie from 'dexie';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  ACTIVITY_LOG_CAP,
   addPerson,
   clearAllAttendanceHistory,
   countSessionAttendance,
@@ -12,8 +13,10 @@ import {
   listPersons,
   listSessionIds,
   listSessionTapRecords,
+  listActivity,
   listTapRecords,
   previewPersonRemoval,
+  recordActivity,
   recordSessionTap,
   setAttendanceTarget,
   updatePerson,
@@ -542,5 +545,68 @@ describe('attendance history', () => {
     expect(await listPersons()).toEqual([
       expect.objectContaining({ id: saved.id, cardUid: jane.cardUid }),
     ]);
+  });
+});
+
+describe('activity log', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  it('lists entries newest first and never returns more than asked for', async () => {
+    await recordActivity({ at: '2026-09-15T20:00:00.000Z', kind: 'pin-set' });
+    await recordActivity({
+      at: '2026-09-15T21:00:00.000Z',
+      kind: 'export-session',
+      filename: 'attendance-2026-09-15-20260915T210000Z.xlsx',
+      delivery: 'saved',
+      taps: 12,
+      sessions: 1,
+    });
+    await recordActivity({
+      at: '2026-09-16T20:00:00.000Z',
+      kind: 'remove-student',
+      taps: 3,
+      sessions: 2,
+    });
+
+    const all = await listActivity();
+    expect(all.map((entry) => entry.kind)).toEqual([
+      'remove-student',
+      'export-session',
+      'pin-set',
+    ]);
+    expect(all[1]).toMatchObject({
+      filename: expect.stringContaining('.xlsx'),
+      taps: 12,
+    });
+
+    expect((await listActivity(2)).map((entry) => entry.kind)).toEqual([
+      'remove-student',
+      'export-session',
+    ]);
+  });
+
+  it('trims the oldest rows once the cap is passed, in the same write', async () => {
+    const cap = 3;
+    for (let index = 0; index < 5; index += 1) {
+      await recordActivity(
+        { at: `2026-09-1${index}T20:00:00.000Z`, kind: 'pin-changed', taps: index },
+        cap,
+      );
+    }
+
+    const kept = await listActivity(10);
+    expect(kept).toHaveLength(cap);
+    // The three newest survive; the two oldest went.
+    expect(kept.map((entry) => entry.taps)).toEqual([4, 3, 2]);
+    expect(ACTIVITY_LOG_CAP).toBe(500);
+  });
+
+  it('keeps the log out of clearAllAttendanceHistory', async () => {
+    await recordActivity({ at: '2026-09-15T20:00:00.000Z', kind: 'pin-set' });
+    await clearAllAttendanceHistory();
+    expect(await listActivity()).toHaveLength(1);
   });
 });

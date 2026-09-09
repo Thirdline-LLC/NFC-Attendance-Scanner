@@ -4,6 +4,8 @@ import {
   addPerson,
   clearAllAttendanceHistory,
   countSessionAttendance,
+  getAttendanceTarget,
+  listActivity,
   listPersons,
   listSessionIds,
   listSessionTapRecords,
@@ -359,5 +361,66 @@ describe('upgrading a version 3 database', () => {
       'Rosa Alvarez',
     ]);
     expect(rows.every((row) => row['Meeting Date'] === '2025-09-24')).toBe(true);
+  });
+});
+
+describe('version 5 to 6', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  /** A database frozen at version 5: every table the app had before the activity log. */
+  async function seedVersion5(): Promise<void> {
+    const legacy = new Dexie(DATABASE_NAME);
+    legacy.version(5).stores({
+      scans: 'uid, scannedAt',
+      persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
+      taps: '++id, uid, scannedAt, personId, sessionId',
+      settings: 'key',
+    });
+    await legacy.open();
+    await legacy.table('persons').bulkAdd([ROSA, KAI]);
+    await legacy.table('taps').bulkAdd([
+      {
+        uid: ROSA_CARD,
+        scannedAt: '2025-09-10T22:31:00.000Z',
+        personId: ROSA.id,
+        sessionId: 'session-a',
+        counted: true,
+      },
+      {
+        uid: STRANGER_CARD,
+        scannedAt: '2025-09-10T22:33:00.000Z',
+        personId: null,
+        sessionId: 'session-a',
+        counted: false,
+      },
+    ]);
+    await legacy.table('settings').put({ key: 'attendance-target', value: '35' });
+    legacy.close();
+  }
+
+  it('opens a version 5 database at version 6 with every row intact and an empty log', async () => {
+    await seedVersion5();
+
+    expect((await listPersons()).map((person) => person.lastName)).toEqual([
+      'Alvarez',
+      'Nakamura',
+    ]);
+    expect(await listTapRecords()).toHaveLength(2);
+    expect(await getAttendanceTarget()).toBe(35);
+    expect(await listActivity()).toEqual([]);
+
+    await withRawDatabase(async (raw) => {
+      expect(raw.verno).toBe(6);
+      expect(raw.tables.map((table) => table.name).sort()).toEqual([
+        'activity',
+        'persons',
+        'scans',
+        'settings',
+        'taps',
+      ]);
+    });
   });
 });
