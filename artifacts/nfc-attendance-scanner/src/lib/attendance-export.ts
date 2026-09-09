@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { Person, TapRecord } from '@/data/attendance-store';
+import { maskCardUid } from '@/lib/scan-format';
 import { indexRoster, resolveTapPerson } from '@/lib/tap-identity';
 import {
   deliverWorkbook,
@@ -19,10 +20,17 @@ export {
   formatSessionDateTime as formatMeetingDateTime,
 };
 
-/** One worksheet row. The keys are the column headers, verbatim. */
+/**
+ * One worksheet row. The keys are the column headers, verbatim.
+ *
+ * The card column carries the same `••••` + last-four the screen shows, never
+ * the full UID: a UID opens a building, and the file is the one artefact that
+ * routinely leaves the device. Nothing reads an export back in, so the full
+ * value would serve no purpose here that the tail does not.
+ */
 export type AttendanceRow = {
   Timestamp: string;
-  'Card UID': string;
+  'Card (last 4)': string;
   'Meeting Date': string;
   Name: string;
   Email: string;
@@ -31,7 +39,7 @@ export type AttendanceRow = {
 
 const EXPORT_COLUMNS: (keyof AttendanceRow)[] = [
   'Timestamp',
-  'Card UID',
+  'Card (last 4)',
   'Meeting Date',
   'Name',
   'Email',
@@ -182,7 +190,7 @@ export function buildAttendanceRows(
 
     return {
       Timestamp: formatExportTimestamp(tap.scannedAt),
-      'Card UID': tap.uid,
+      'Card (last 4)': maskCardUid(tap.uid),
       'Meeting Date': formatSessionDate(tap.scannedAt),
       Name: person ? formatPersonName(person) : UNKNOWN_CARD_NAME,
       Email: person?.email ?? '',
