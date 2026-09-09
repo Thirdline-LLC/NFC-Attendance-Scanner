@@ -14,6 +14,7 @@ import {
 import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
 import * as attendanceExport from '@/lib/attendance-export';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
+import { schoolYearStart } from '@/lib/attendance-metrics';
 import { DashboardPage } from './DashboardPage';
 
 const DATABASE_NAME = 'attendance-scanner-local';
@@ -446,5 +447,126 @@ describe('DashboardPage teacher PIN', () => {
 
     expect(screen.queryByTestId('dialog-pin')).toBeNull();
     expect(await verifyOperatorPin('2468')).toEqual({ status: 'ok' });
+  });
+});
+
+describe('DashboardPage retention', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** A graduate with one tap last school year and one this year. */
+  async function seedGraduate() {
+    const now = new Date().toISOString();
+    const start = schoolYearStart(now);
+    const lastYear = new Date(
+      Date.parse(`${start}T12:00:00.000Z`) - 86_400_000,
+    ).toISOString();
+    const grace = await addPerson({
+      cardUid: '04AAAAAAAAAAAA',
+      firstName: 'Grace',
+      lastName: 'Old',
+      gradYear: currentSeniorGradYear(now) - 1,
+      email: 'gold@stjohnschs.org',
+      enrolledAt: lastYear,
+    });
+    await recordSessionTap({
+      sessionId: 'last-year',
+      uid: grace.cardUid,
+      scannedAt: lastYear,
+      personId: grace.id as number,
+    });
+    await recordSessionTap({
+      sessionId: 'session-two',
+      uid: grace.cardUid,
+      scannedAt: secondsAgo(30),
+      personId: grace.id as number,
+    });
+    return { grace, start };
+  }
+
+  it('previews, confirms, logs and reloads both retention actions', async () => {
+    await seedTwoSessions();
+    const { grace } = await seedGraduate();
+    const user = userEvent.setup();
+    renderPage();
+
+    const historyText = await screen.findByTestId('text-retention-history');
+    expect(historyText.textContent).toContain('1 tap');
+    expect(historyText.textContent).toContain('1 session');
+    expect(screen.getByTestId('text-retention-alumni').textContent).toContain(
+      '1 graduated student',
+    );
+
+    await user.click(screen.getByTestId('button-purge-history'));
+    expect(screen.getByTestId('text-retention-cost').textContent).toContain('1 tap');
+    await user.click(screen.getByTestId('button-retention-confirm'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-retention-done').textContent).toMatch(
+        /^Deleted 1 tap from 1 session before /,
+      ),
+    );
+    expect(
+      (await attendanceStore.listTapRecords()).some((tap) => tap.sessionId === 'last-year'),
+    ).toBe(false);
+    await waitFor(() =>
+      expect(screen.getByTestId('text-retention-history').textContent).toBe(
+        'Nothing older than this school year.',
+      ),
+    );
+    expect(screen.getByTestId('button-purge-history').hasAttribute('disabled')).toBe(true);
+    expect(
+      within(screen.getByTestId('list-activity')).getAllByRole('listitem')[0].textContent,
+    ).toContain('Deleted attendance');
+
+    await user.click(screen.getByTestId('button-remove-alumni'));
+    expect(screen.getByTestId('text-retention-cost').textContent).toContain(
+      '1 graduated student',
+    );
+    await user.click(screen.getByTestId('button-retention-confirm'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-retention-done').textContent).toBe(
+        'Removed 1 graduated student and 1 tap.',
+      ),
+    );
+    expect(
+      (await attendanceStore.listPersons()).some((person) => person.id === grace.id),
+    ).toBe(false);
+    await waitFor(() =>
+      expect(screen.getByTestId('text-retention-alumni').textContent).toBe(
+        'No graduated students on this device.',
+      ),
+    );
+    expect(screen.getByTestId('button-remove-alumni').hasAttribute('disabled')).toBe(true);
+    expect(
+      within(screen.getByTestId('list-activity')).getAllByRole('listitem')[0].textContent,
+    ).toContain('Removed graduated students');
+    const logged = await attendanceStore.listActivity();
+    expect(logged[0]).toMatchObject({ kind: 'remove-alumni', students: 1, taps: 1 });
+    expect(logged[1]).toMatchObject({ kind: 'purge-history', taps: 1, sessions: 1 });
+    expect(typeof logged[1].before).toBe('string');
+    expect(JSON.stringify(logged)).not.toContain('Grace');
+  });
+
+  it('disables both actions when there is nothing to do', async () => {
+    await seedTwoSessions();
+    renderPage();
+
+    expect((await screen.findByTestId('text-retention-history')).textContent).toBe(
+      'Nothing older than this school year.',
+    );
+    expect(screen.getByTestId('text-retention-alumni').textContent).toBe(
+      'No graduated students on this device.',
+    );
+    expect(screen.getByTestId('button-purge-history').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('button-remove-alumni').hasAttribute('disabled')).toBe(true);
   });
 });

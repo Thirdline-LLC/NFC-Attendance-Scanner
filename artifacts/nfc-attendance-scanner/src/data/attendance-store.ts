@@ -360,6 +360,104 @@ export async function deletePerson(personId: number): Promise<PersonRemoval> {
   });
 }
 
+/** What a history purge would take, or took. */
+export type HistoryPurge = { tapCount: number; sessionCount: number };
+
+/** What removing the graduated students would take, or took. */
+export type AlumniRemoval = { studentCount: number; tapCount: number };
+
+function summarizeTaps(taps: readonly TapRecord[]): HistoryPurge {
+  return {
+    tapCount: taps.length,
+    sessionCount: new Set(taps.map((tap) => tap.sessionId)).size,
+  };
+}
+
+/**
+ * Taps older than a boundary the caller defines. The predicate is handed in
+ * rather than a date because "before this school year" is a calendar
+ * judgement in Eastern time, which the dashboard already knows how to make;
+ * the store only knows timestamps.
+ */
+export async function previewHistoryPurge(
+  isStale: (scannedAt: string) => boolean,
+): Promise<HistoryPurge> {
+  const taps = (await tapsTable.toArray()).filter((tap) =>
+    isStale(tap.scannedAt),
+  );
+  return summarizeTaps(taps);
+}
+
+/**
+ * Deletes every tap the predicate marks stale, and the same rows from the
+ * legacy `scans` table. The roster is untouched: a card's identity outlives
+ * its attendance record. One transaction over both tables.
+ */
+export async function purgeHistoryBefore(
+  isStale: (scannedAt: string) => boolean,
+): Promise<HistoryPurge> {
+  return database.transaction('rw', scansTable, tapsTable, async () => {
+    const stale = (await tapsTable.toArray()).filter((tap) =>
+      isStale(tap.scannedAt),
+    );
+    await tapsTable.bulkDelete(
+      stale.map((tap) => tap.id).filter((id): id is number => id !== undefined),
+    );
+    const staleScans = (await scansTable.toArray()).filter((scan) =>
+      isStale(scan.scannedAt),
+    );
+    await scansTable.bulkDelete(staleScans.map((scan) => scan.uid));
+    return summarizeTaps(stale);
+  });
+}
+
+/** The graduates and every tap that resolves to them, by id or by card. */
+async function alumniWithTaps(
+  isAlumni: (person: Person) => boolean,
+): Promise<{ alumni: Person[]; taps: TapRecord[] }> {
+  const alumni = (await personsTable.toArray()).filter(isAlumni);
+  const ids = new Set(alumni.map((person) => person.id));
+  const cards = new Set(alumni.map((person) => person.cardUid));
+  const taps = (await tapsTable.toArray()).filter(
+    (tap) =>
+      (tap.personId !== null && ids.has(tap.personId)) || cards.has(tap.uid),
+  );
+  return { alumni, taps };
+}
+
+/**
+ * Who would go, and how many taps with them. Grade is a calendar judgement
+ * (`deriveGrade` in `attendance-export.ts`), so the caller passes the test.
+ */
+export async function previewAlumniRemoval(
+  isAlumni: (person: Person) => boolean,
+): Promise<AlumniRemoval> {
+  const { alumni, taps } = await alumniWithTaps(isAlumni);
+  return { studentCount: alumni.length, tapCount: taps.length };
+}
+
+/**
+ * Removes every graduated student and their taps, exactly as `deletePerson`
+ * would one at a time, in one transaction so the roster and the history
+ * cannot disagree about who is gone.
+ */
+export async function removeAlumni(
+  isAlumni: (person: Person) => boolean,
+): Promise<AlumniRemoval> {
+  return database.transaction('rw', personsTable, tapsTable, async () => {
+    const { alumni, taps } = await alumniWithTaps(isAlumni);
+    await tapsTable.bulkDelete(
+      taps.map((tap) => tap.id).filter((id): id is number => id !== undefined),
+    );
+    await personsTable.bulkDelete(
+      alumni
+        .map((person) => person.id)
+        .filter((id): id is number => id !== undefined),
+    );
+    return { studentCount: alumni.length, tapCount: taps.length };
+  });
+}
+
 export async function listTapRecords(): Promise<TapRecord[]> {
   return tapsTable.orderBy('scannedAt').toArray();
 }
