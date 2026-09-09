@@ -1,6 +1,6 @@
 # Making the attendance kiosk FERPA-safe
 
-**Date:** 2026-09-08 · **Status:** design approved in chat; implementation not started ·
+**Date:** 2026-09-08 · **Status:** approved in chat and gap-reviewed the same evening (nine gaps closed, one by Asher's call); implementation not started ·
 **Owner:** Asher Mills
 
 ## Why
@@ -67,7 +67,11 @@ server and no account, every FERPA duty collapses to three questions:
 
 - **Desk** — the default, whoever is at the device. The scanner screen: check-in taps, the
   count, `First L.` feedback, and Enroll (the operator types a peer's name and year and sees that
-  one peer's derived email while doing it).
+  one peer's derived email while doing it). Enroll keeps its existing behaviour for a card that is
+  already enrolled: the form opens pre-filled and the details can be corrected in place. **The
+  physical card is the credential** — its holder is present, which is FERPA's eligible-student
+  case — so that stays open to the desk (Asher's call, 2026-09-08). Roster-wide viewing and
+  editing does not.
 - **Teacher** — after the PIN. The End Session overlay (totals, *Export this session*, *Start
   New Session*), `/roster` and `/dashboard`, and everything inside them: edit, remove, the
   attendance target, retention, the activity log, *Export all history*, and changing the PIN.
@@ -124,6 +128,9 @@ In-memory only; a reload is locked. Mounted inside `AppRouter`'s `BrowserRouter`
   (`IDLE_RELOCK_MS = 300_000`);
 - **reload.**
 
+A relock unmounts whatever protected page was open, so an edit left unsaved on the roster is
+dropped. Keystrokes and taps reset the timer, so this only happens when nobody is at the device.
+
 ### `src/lock/PinDialog.tsx`
 
 One modal, using the existing `useModalFocusTrap`; Escape and *Cancel* call `onCancel`.
@@ -140,6 +147,17 @@ type PinDialogProps =
 - `change` asks for the current PIN and the new one twice; records `pin-changed`.
 - Input: `<input type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off">`;
   Enter submits; the submit button is disabled until the field is a valid PIN.
+- **The reader is a keyboard, and on a locked page the PIN field is what has focus.** A card
+  tapped there would type fourteen characters and Enter, and five such taps would lock the
+  teacher out for five minutes. Three rules stop that: the field drops any non-digit; it stops
+  accepting at `PIN_MAX_LENGTH`; and **Enter is honoured only when at least 100 ms have passed
+  since the previous keystroke** — a person pauses before Enter, a reader presses it within about
+  10 ms. A burst therefore leaves at most eight digits in the field and submits nothing. Tested
+  with fake timers.
+- If `crypto.subtle` is missing (an insecure origin — a PWA served over plain http on a LAN),
+  the PIN module throws `PinUnavailableError` and the dialog shows the *No Web Crypto* text
+  below rather than crashing. Every shipped shell is a secure context; this is the dev-server
+  and misconfigured-host case.
 - While reading settings: *Checking this device…*; a read failure shows *This device isn't
   letting the app read its settings.* with a Retry.
 - Test ids: `dialog-pin`, `input-pin`, `input-pin-confirm`, `input-pin-current`,
@@ -151,9 +169,10 @@ type PinDialogProps =
 <Route path="/roster" element={<LockedRoute><RosterPage /></LockedRoute>} />
 ```
 
-Unlocked → renders children. Locked → a minimal `<main data-testid="locked-page">` shell with the
-`PinDialog mode="gate"`; **the page component does not mount**, so no roster or history read
-happens before the unlock. `onUnlocked` → `unlock()`; `onCancel` → `navigate('/')`.
+Unlocked → renders children. Locked → a minimal `<main data-testid="locked-page">` shell carrying
+the same `ScansPausedNotice` the admin pages show, and the `PinDialog mode="gate"`; **the page
+component does not mount**, so no roster or history read happens before the unlock.
+`onUnlocked` → `unlock()`; `onCancel` → `navigate('/')`.
 
 ### Scanner changes (`ScannerScreen.tsx`)
 
@@ -179,6 +198,8 @@ happens before the unlock. `onUnlocked` → `unlock()`; `onCancel` → `navigate
 | Locked | Too many tries — wait {n} seconds. |
 | Mismatch | The PINs do not match. |
 | Storage | This device isn't letting the app read its settings. |
+| No Web Crypto | This device cannot secure a PIN — open the app from its installed or https address. |
+| Unset banner (scanner, `text-pin-unset`) | No teacher PIN set — the roster, dashboard and exports are open to anyone at this device. A teacher sets one from End Session or the Students page. |
 
 ### Stated limits (these go in the docs verbatim in spirit)
 
@@ -186,6 +207,20 @@ A PIN is a **screen gate against whoever is at the desk**. It is not encryption:
 readable to anyone with the device's OS account and a developer console. There is **no
 recovery**: a forgotten PIN means clearing the app's data, which loses everything not yet
 exported — one more reason the export-every-session rule matters.
+
+### The unset state
+
+Until a PIN exists every gated surface is open, and **whoever sets the PIN first owns the
+device's records** — there is no credential that could tell a teacher from a student on day one.
+The app cannot prevent that; it can refuse to be quiet about it. The scanner shows a persistent
+banner (`text-pin-unset`, wording above) until a PIN is set, and the teacher's document makes
+setting it **step 0: at install, before the device is handed to anyone.** An install upgraded from
+a version with no PIN behaves exactly the same way.
+
+### Dashboard — *Teacher PIN* card (`section-teacher-pin`)
+
+One button, `button-change-pin`, opening `PinDialog mode="change"`. It sits beside *Data
+retention* (section 2), gated with the page.
 
 ---
 
@@ -244,7 +279,8 @@ than a year plus the summer.
   replacement device. There was never an import; a replacement device is rebuilt by tapping cards.
 - `buildAttendanceWorkbook(taps, persons, now, activity?)` gains an optional fourth argument. When
   given, a second sheet **`Activity`** (columns *When*, *Action*, *Detail*) follows *Attendance*.
-  Only *Export all history* passes it; the session export stays one sheet.
+  Only *Export all history* passes it; the session export stays one sheet. The row for the export
+  being produced is written after delivery, so it is never in the sheet it produces.
 - Every export success notice adds one sentence: **Send this file only to a school account.**
 - Filenames are unchanged.
 
@@ -317,9 +353,12 @@ The last 50 rows, newest first, in plain words:
 
 ### Docs
 
-- `docs/data-protection.md` — the applicability table above; the two roles; what the PIN is and
-  is not; the retention schedule; the export's contents (masked tail, second sheet); the activity
-  log; the destination rule ("a school account, never a personal one"); no recovery.
+- `docs/data-protection.md` — the applicability table above; the two roles, including the
+  card-holder-present rule for correcting a record at the desk; what the PIN is and is not; the
+  unset state; the retention schedule; the export's contents (masked tail, second sheet); the
+  activity log; the destination rule ("a school account, never a personal one"); no recovery;
+  and how a parent's or student's request to inspect their record is answered — the roster row
+  and a filtered export, no feature needed.
 - `docs/operating-the-kiosk.md` — a *For the teacher* section: setting the PIN on day one, what
   it unlocks, that the desk never needs it; End Session now asks for it.
 - `docs/data-and-backup.md` — the v6 row in the schema table; `activity` in the tables list; the
@@ -333,9 +372,9 @@ The last 50 rows, newest first, in plain words:
 |---|---|
 | `src/data/operator-pin.test.ts` | valid/invalid PIN; set then verify ok/wrong; `unset`; set twice throws; change requires current; lockout after 5, doubling, cap, clears on success; `now` injected |
 | `src/data/attendance-store.test.ts` (+ `.migrations.test.ts`) | v5 → v6 upgrade keeps every row; `recordActivity` / `listActivity` order and cap; `purgeHistoryBefore` boundary (< not ≤), legacy and `scans` rows, roster untouched; `removeAlumni` by id and by card; both atomic on a forced failure |
-| `src/lock/PinDialog.test.tsx` | set mode (twice, mismatch, no-recovery text, records `pin-set`); unlock mode (ok, wrong, locked countdown); change mode; Escape/Cancel; storage failure + retry |
+| `src/lock/PinDialog.test.tsx` | set mode (twice, mismatch, no-recovery text, records `pin-set`); unlock mode (ok, wrong, locked countdown); change mode; Escape/Cancel; storage failure + retry; a reader burst leaves ≤ 8 digits and submits nothing (fake timers); `PinUnavailableError` wording |
 | `src/lock/LockedRoute.test.tsx` / `AppRouter.test.tsx` | locked route shows the dialog and does not mount the page; unlock renders it; cancel returns to `/`; navigating to `/` relocks; idle timer relocks (fake timers) |
-| `src/scanner/ScannerScreen.test.tsx` | End Session gated; unlock opens the summary; taps ignored while the dialog is up; summary dismiss relocks; export records `export-session`; notice carries the school-account sentence |
+| `src/scanner/ScannerScreen.test.tsx` | End Session gated; unlock opens the summary; taps ignored while the dialog is up; summary dismiss relocks; export records `export-session`; notice carries the school-account sentence; the unset banner shows until a PIN exists and an enrolled card in Enroll mode still opens the pre-filled form |
 | `src/dashboard/DashboardPage.test.tsx` | retention previews, disabled states, confirm → store call → activity row; export-all passes activity and records `export-all`; Activity list wording; log-write failure shows the sentence without failing the action |
 | `src/roster/RosterPage.test.tsx` | removal records `remove-student` with counts only |
 | `src/lib/attendance-export.test.ts` | `Card (last 4)` header and masked value; unknown-card rows; `Activity` sheet only when passed |
@@ -348,7 +387,7 @@ green; `run test:browser` where Chromium is available. Total today: 446 tests in
 | # | Branch | Contents | Why this order |
 |---|---|---|---|
 | 1 | `export/masked-uid-and-activity` | Dexie v6, `recordActivity`/`listActivity`, masked column, `Activity` sheet, dashboard Activity section, logging in the existing export and remove paths, the school-account sentence | Everything later logs to this table |
-| 2 | `lock/operator-pin` | PIN module, provider, dialog, `LockedRoute`, scanner gate, header glyph, *Change PIN* on the dashboard | Gates what 1 and 3 expose |
+| 2 | `lock/operator-pin` | PIN module, provider, dialog, `LockedRoute`, scanner gate, header glyph, the unset banner, the *Teacher PIN* card; and the run-skill driver (`.claude/skills/run-nfc-attendance-scanner/driver.mjs` and its `SKILL.md`) taught to set and enter a PIN, since it clicks End Session and walks to `/roster` | Gates what 1 and 3 expose |
 | 3 | `retention/purge` | Store functions, shared confirm dialog, *Data retention* section | Logs to 1, gated by 2 |
 | 4 | `docs/data-protection` | The four documents above, and the memory/skill notes if any wording changed on screen | Written last so it describes what shipped |
 
