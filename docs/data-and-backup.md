@@ -7,13 +7,14 @@ say exactly what it protects you from.
 
 ## What is stored
 
-One IndexedDB database, `attendance-scanner-local`, with four tables:
+One IndexedDB database, `attendance-scanner-local`, with five tables:
 
 | Table | Holds |
 |---|---|
 | `persons` | The roster: card UID, name, graduation year, email, enrolled-at |
 | `taps` | Every tap ever recorded: UID, timestamp, person id, session id, counted flag |
-| `settings` | This device's settings, e.g. the per-session attendance target |
+| `settings` | This device's settings: the per-session attendance target, and the teacher PIN as a salted PBKDF2 hash with its lockout counter (`operator-pin`, `operator-pin-attempts`). The PIN itself is never stored |
+| `activity` | The device's activity log: every export, removal, retention purge and PIN change, as a timestamp, a kind, counts, a filename and a delivery route. Never a name, an email or a UID. Capped at 500 rows |
 | `scans` | Legacy. Nothing writes it; it exists so a database upgraded from v1/v2 still has its rows purged |
 
 Plus two `localStorage` keys for the current session id and its start time.
@@ -24,8 +25,13 @@ Two properties matter more than the rest:
   session id — every previous tap stays exactly where it was, which is what
   makes year-to-date figures possible. Duplicate taps are recorded and flagged,
   never deleted.
-- **Only `clearAllAttendanceHistory()` deletes taps**, and it leaves `persons`
-  alone. Clearing attendance history never costs you the roster.
+- **Taps are deleted only by an explicit, confirmed teacher action** — *Remove*
+  (one student and their taps), *Delete attendance before {August 1}* (every
+  tap before the school-year boundary; the roster is untouched), *Remove
+  graduated students* (each graduate and their taps) — or by
+  `clearAllAttendanceHistory()`, which nothing in the UI calls. Each of the
+  three on-screen actions shows what it will delete before asking, and each
+  leaves a row in the activity log.
 
 ## The schema, version by version
 
@@ -40,6 +46,7 @@ macOS** — packaging changed nothing about how data is stored.
 | **3** | Added `sessionId` and `counted` to `taps`, with a real upgrade function. Its subtlety: stamping every identified tap `counted: true` would have been wrong, because a v1/v2 database predates sessions entirely and all its taps land in one `'legacy'` session — a student who tapped at ten meetings would have arrived counted ten times. The first tap of each card in each session wins, in primary-key order. |
 | **4** | Dropped the `counted` index and the two compound indexes over it. IndexedDB has no boolean key type, so they could never hold an entry; a declared index that does not exist invites a query that silently returns nothing. |
 | **5** | Added `settings`, keyed by name. Device configuration, not student data — it sits beside the records so it survives with them and is cleared with them. |
+| **6** | Added `activity` — what left the device and what was deleted, as counts, timestamps and filenames, never who. No upgrade function: an existing database simply gains an empty table. |
 
 **Leave these blocks alone.** Old databases upgrade through them.
 
@@ -95,7 +102,22 @@ The app **never clears this directory at startup**, and the bundle id, the
 `app://attendance` origin and the directory name are all fixed. Changing any of
 them would leave the data on disk but invisible to the app.
 
+## The teacher PIN
+
+End Session, `/roster` and `/dashboard` — and therefore every export — sit
+behind a PIN stored only as a salted hash. **It is not recoverable.** A
+forgotten PIN leaves the records on the device but unreachable: nothing can be
+exported until the app's data is cleared, which erases everything that was not
+already exported. Treat the PIN like the records themselves: written down,
+somewhere the school keeps such things.
+
+The unlock is in memory only — it ends on the way back to the scanner, when
+the summary closes, after five idle minutes, and on reload — so a reload is
+never an open door.
+
 ## Exports
+
+Both exports ask for the teacher PIN first.
 
 | Platform | Route | Can it promise the file exists? |
 |---|---|---|
@@ -106,7 +128,10 @@ them would leave the data on disk but invisible to the app.
 Two exports, two scopes: **End Session** covers the session on screen;
 **Export all history** on the dashboard covers every tap ever recorded on the
 device, including sessions that have rotated away and the taps the v3 upgrade
-stamped `'legacy'`.
+stamped `'legacy'`, and adds a second sheet, *Activity*, with the device's
+activity log. The card column in both is the card's last four (`••••1F90`),
+never the full UID. Every export notice ends with *Send this file only to a
+school account.*
 
 ## The procedure for teachers
 
@@ -156,7 +181,13 @@ there.
   stops persisting without saying so is worse than one that says so.
 - Report an export as successful before the platform confirms it, on the two
   platforms that can confirm it.
-- Delete a tap for any reason other than the explicit clear-all action.
-- Delete roster entries when attendance history is cleared.
-- Show a full card UID anywhere on screen. One helper, `maskCardUid`, produces
-  the `••••` + last-four string everywhere a card is named.
+- Delete a tap except through an explicit, confirmed, logged teacher action —
+  *Remove*, *Delete attendance before {August 1}*, *Remove graduated
+  students* — or the clear-all function nothing in the UI calls. Nothing is
+  deleted on a schedule.
+- Delete roster entries when attendance history is purged.
+- Show a full card UID anywhere — on screen or in an export. One helper,
+  `maskCardUid`, produces the `••••` + last-four string everywhere a card is
+  named, the workbook included.
+- Store the teacher PIN in plain text, or write a name, an email or a UID into
+  the activity log.
