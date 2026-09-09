@@ -117,7 +117,10 @@ export function DashboardPage() {
         history.persons,
         await listActivity(ACTIVITY_LOG_CAP),
       );
-      let logFailed = false;
+      // The notice goes up as soon as the file is delivered; the log row
+      // follows, and if it cannot be written the notice says so rather than
+      // calling a finished export a failure.
+      setExportResult({ ok: true, ...delivered });
       try {
         await recordActivity({
           at: new Date().toISOString(),
@@ -130,11 +133,10 @@ export function DashboardPage() {
         // Only the log is re-read: the numbers on screen are still true.
         setActivity(await listActivity());
       } catch {
-        // The file is already delivered; the notice says the row is missing
-        // rather than calling a finished export a failure.
-        logFailed = true;
+        setExportResult((current) =>
+          current?.ok ? { ...current, logFailed: true } : current,
+        );
       }
-      setExportResult({ ok: true, ...delivered, logFailed });
     } catch (error) {
       // See ScannerScreen: a cancelled Save dialog must not read as a failure.
       setExportResult({

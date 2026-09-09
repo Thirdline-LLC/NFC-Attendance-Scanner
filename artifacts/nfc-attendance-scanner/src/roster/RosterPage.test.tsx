@@ -391,8 +391,11 @@ describe('RosterPage activity log', () => {
 
     await removeStudent(saved.id as number);
 
-    const notice = await screen.findByTestId('text-roster-removed');
-    expect(notice.textContent).toContain('The activity log entry could not be written.');
+    await waitFor(() =>
+      expect(screen.getByTestId('text-roster-removed').textContent).toContain(
+        'The activity log entry could not be written.',
+      ),
+    );
     expect(await listPersons()).toHaveLength(0);
   });
 });

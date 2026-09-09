@@ -80,9 +80,13 @@ export function RosterPage() {
     try {
       const removed = await deletePerson(person.id);
       setPersons((current) => current.filter((item) => item.id !== person.id));
+      setRemovedNotice(
+        removed.tapCount === 0
+          ? `Removed ${person.firstName} ${person.lastName}.`
+          : `Removed ${person.firstName} ${person.lastName} and ${removed.tapCount} tap${removed.tapCount === 1 ? '' : 's'}.`,
+      );
       // Counts only. The student is gone from the store, and the log must not
       // be the place their name survives.
-      let logNote = '';
       try {
         await recordActivity({
           at: new Date().toISOString(),
@@ -93,14 +97,12 @@ export function RosterPage() {
       } catch {
         // The removal is done; a log that could not be written is said, not
         // hidden, and must not read as the removal having failed.
-        logNote = ' The activity log entry could not be written.';
+        setRemovedNotice((current) =>
+          current
+            ? `${current} The activity log entry could not be written.`
+            : current,
+        );
       }
-      setRemovedNotice(
-        (removed.tapCount === 0
-          ? `Removed ${person.firstName} ${person.lastName}.`
-          : `Removed ${person.firstName} ${person.lastName} and ${removed.tapCount} tap${removed.tapCount === 1 ? '' : 's'}.`) +
-          logNote,
-      );
       setPendingRemoval(null);
       setRemovalCost(null);
     } catch {

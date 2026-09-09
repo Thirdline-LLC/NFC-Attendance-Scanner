@@ -762,8 +762,11 @@ describe('ScannerScreen activity log', () => {
 
     await user.click(screen.getByTestId('button-summary-export'));
 
-    const notice = await screen.findByTestId('text-export-saved');
-    expect(notice.textContent).toContain('The activity log entry could not be written.');
+    await waitFor(() =>
+      expect(screen.getByTestId('text-export-saved').textContent).toContain(
+        'The activity log entry could not be written.',
+      ),
+    );
     expect(screen.queryByTestId('text-export-failed')).toBeNull();
   });
 });
