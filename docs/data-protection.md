@@ -4,19 +4,83 @@ Written for whoever has to answer that question at St. John's. It describes the
 software factually. It is not legal advice, and it does not claim compliance
 with FERPA, COPPA or any other regime — that judgement belongs to the school.
 
+## Which laws were checked, and what they said
+
+Checked on 2026-09-08, each at its source, so the school can verify the
+reasoning rather than take it on trust. **None of the three binds this app.**
+
+| Regime | Applies? | Why |
+|---|---|---|
+| COPPA — 16 CFR 312, amended 2025, compliance due 2026-04-22 | No | It covers *commercial* online services that collect personal information from children **under 13**. St. John's is grades 9–12. The FTC's own FAQ (F.5) says an app that only interacts with information stored on the device and never transmitted is not "collecting" — and this app has no server and makes no network request at all. |
+| FERPA — 34 CFR 99 | Probably not directly; the school should confirm | It binds institutions that receive funds under programs the U.S. Department of Education administers. Private K-12 schools generally do not, and receiving Title I equitable services through DCPS does not count. Most private schools adopt FERPA as policy regardless. |
+| DC Protecting Students Digital Privacy Act — D.C. Code § 38-831.01 ff | No | Its "educational institution" is a DC public school or public charter. |
+
+The app is built to a FERPA-style bar anyway: attendance tied to a named
+student is treated as an education record, shown only to the teacher, kept no
+longer than the school year, and open to inspection and correction. The two
+duties the amended COPPA rule added — a written retention policy with no
+indefinite retention, and a stated security posture — are met below because
+they were the two things this app could not previously answer for.
+
 ## What is stored, and where
 
-Two kinds of record, both in the browser's IndexedDB on the device running the
+Three kinds of record, all in the browser's IndexedDB on the device running the
 kiosk, in a database named `attendance-scanner-local`:
 
 | Record | Fields |
 |---|---|
 | Student | first name, last name, graduation year, school email address, card UID, enrolment timestamp |
 | Tap | card UID, timestamp, which student (if known), which session, whether it counted |
+| Activity | timestamp; what happened (an export, a removal, a purge, a PIN change); counts, a filename and how it was delivered — **never a name, an email or a UID** |
+
+Plus two device settings: the per-session attendance target, and the teacher
+PIN as a salted PBKDF2 hash with its lockout counter. The PIN itself is never
+stored.
 
 Nothing else about a student is collected. There is no date of birth, no
 address, no photograph, no guardian information, no free-text notes, and no
 identifier issued by anyone but the school.
+
+## Two roles at the device
+
+A student can run the desk. What the desk can do **without** the PIN:
+
+- **Check in.** A card is tapped; the screen shows the count and the student's
+  first name and last initial with the time.
+- **Enroll.** A new card is tapped, the operator types the student's name and
+  year, and the school email derives itself. Tapping an *already enrolled*
+  card in Enroll mode opens the form pre-filled so a typo can be corrected.
+  That stays open to the desk on purpose: **the physical card is the
+  credential** — its holder is present, which is FERPA's own "eligible
+  student" case.
+
+Everything else asks for the **teacher PIN**:
+
+- **End Session** — the totals, *Export this session*, *Start New Session*.
+- **The Students page** — every name, email and class year on the device;
+  editing; removing.
+- **The Dashboard** — the year's figures, *Export all history*, the activity
+  log, the two retention actions, and changing the PIN.
+
+The PIN is 4 to 8 digits, stored only as a salted hash, and locked for
+30 seconds after five wrong attempts, doubling to five minutes. Two things
+have to be said plainly about it:
+
+- It is **a screen gate against whoever is at the desk, not encryption**.
+  IndexedDB stays readable to anyone with the device's own account and a
+  developer console.
+- **There is no recovery.** A forgotten PIN means clearing the app's data,
+  which loses everything not yet exported — one more reason the
+  export-every-session rule matters.
+
+Set the PIN when the app is installed, before the device is handed to anyone.
+Until one exists the scanner shows a banner saying the records are open,
+because whoever sets the PIN first owns the device's records and nothing in
+software can tell a teacher from a student on day one.
+
+A teacher's unlock lasts one visit: it ends on the way back to the scanner,
+when the End Session overlay closes, after five minutes without a key or a
+tap, and on reload.
 
 ## What leaves the device
 
@@ -40,8 +104,8 @@ grep -rnE '\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|axios' src 
 grep -oF 'fetch(' dist/public/assets/index-*.js
 ```
 
-Data leaves only when a person deliberately exports it, and then only to
-wherever that person sends it.
+Data leaves only when a teacher deliberately exports it, and then only to
+wherever that teacher sends it.
 
 ## No AI, and what that means precisely
 
@@ -62,30 +126,79 @@ this document says stays local.
 ## The exported workbook is the real exposure
 
 The `.xlsx` export contains, for every tap: the student's name, school email
-address and grade level, the card's full UID, and the timestamp — all in plain
-text. The card UID is masked everywhere on screen but deliberately complete
-here, because the export is the record and a masked identifier could not be
-reconciled later. That makes the file more identifying than any single screen
-in the app. It is the app's system of record by design — the point is
+address and grade level, the **last four characters of the card** — `••••1F90`,
+exactly as on screen, never the full UID, which opens a building — and the
+timestamp, all in plain text. *Export all history* adds a second sheet,
+*Activity*, listing every export and deletion the device has recorded, as
+counts and filenames. That makes the file more identifying than any single
+screen in the app. It is the app's system of record by design — the point is
 that attendance survives a lost device — but it is also the only way this data
 travels.
 
+Both exports sit behind the teacher PIN, and every export notice ends with the
+one rule about destinations: **Send this file only to a school account.**
+
 Once exported, the app's guarantees stop applying. The file is an ordinary
 student-records disclosure and should be handled under whatever rules the
-school already applies to a spreadsheet of student names. Worth deciding
-before the first session:
+school already applies to a spreadsheet of student names. Three things the
+school still decides:
 
-- Where the file is allowed to go, and who may send it there.
-- Whether the native build's share sheet is acceptable, since it can send the
-  file to any app on the device.
+- Which school account the file goes to, and who may send it there. The
+  design assumes the teacher's school OneDrive.
+- Whether the native build's share sheet is acceptable. It can send the file
+  to any app on the device, but only a teacher who has entered the PIN reaches
+  it.
 - How long exports are kept, and who deletes them.
+
+## The activity log
+
+Every export, every removal, every retention purge and every PIN change leaves
+one row on the device: when, what, how many, and for an export the filename
+and how it was delivered. A row never carries a name, an email or a UID, so
+the log can be read — and exported — without itself being a disclosure. It is
+how a teacher answers "where did that file go?" and "when was that student
+removed?", and it is the record of disclosures a FERPA-style policy expects.
+The last fifty rows are on the dashboard; the whole log (capped at five
+hundred rows) is the second sheet of *Export all history*.
+
+If a log row cannot be written, the action it describes still completes and
+the notice on screen says the row is missing. A log that could fail an export
+would push a teacher to export twice.
+
+## Retention — the written schedule
+
+Taps are kept for the **current school year only**. At the start of each
+school year, the teacher:
+
+1. runs *Export all history* and confirms the file opens;
+2. presses **Delete attendance before {August 1}** on the dashboard, which
+   deletes every tap recorded before the school-year boundary and nothing from
+   the roster;
+3. presses **Remove graduated students**, which removes every student whose
+   class has graduated, with every tap that resolves to them.
+
+Both actions show what they will delete before asking, both are confirmed
+with their cost named, both are logged as counts, and neither ever runs on its
+own. The exported workbooks are the retained record and fall under the
+school's own records policy; the device keeps nothing longer than a year plus
+the summer.
+
+## Answering a request to see a student's record
+
+A parent, or the student, may ask to see what the device holds about them.
+No feature is needed: the Students page shows the roster row (name, class
+year, email, the card's last four), and *Export all history* filtered on the
+student's name is their attendance. Corrections are made in place on the
+Students page; erasure is the *Remove* button below.
 
 ## The device is the other one
 
 The roster and the term's attendance sit on one device. That makes physical
 control of it the main safeguard:
 
-- A shared or unlocked tablet exposes the roster to anyone who picks it up.
+- A shared or unlocked tablet exposes the scanner — the count and the last
+  student's first name — to anyone who picks it up. The roster, the dashboard
+  and the exports are behind the PIN.
 - "Clear storage" (Android) or deleting the app (iOS) erases everything with
   no confirmation from the app's side and no way to recover it except from an
   export.
@@ -93,11 +206,13 @@ control of it the main safeguard:
 
 ## Erasing a student
 
-The roster page has a **Remove** button on each student. It deletes the student
-record and every attendance tap that resolves to them — both the taps recorded
-against their id and any recorded against their card before it was enrolled.
-Afterwards nothing in the database carries their name, address or card UID, and
-the card can be enrolled again as a new student.
+The Students page has a **Remove** button on each student. It deletes the
+student record and every attendance tap that resolves to them — both the taps
+recorded against their id and any recorded against their card before it was
+enrolled. Afterwards nothing in the database carries their name, address or
+card UID, and the card can be enrolled again as a new student. The removal is
+logged as a count of taps and sessions only; the log is not where a name
+survives.
 
 Two things follow from that, and the confirmation dialog says both before
 anything happens:
@@ -105,8 +220,8 @@ anything happens:
 - **It cannot be undone.** There is no server copy and no recycle bin.
 - **Past attendance changes.** Their check-ins leave finished sessions too, so
   the dashboard's year-to-date figures and any later export will differ from
-  one taken before the removal. Export first if those numbers have already been
-  reported to anyone.
+  one taken before the removal. Export first if those numbers have already
+  been reported to anyone.
 
 The taps go deliberately rather than being detached from the student. Keeping
 them would leave rows carrying the UID of a card that is still in somebody's
