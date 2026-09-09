@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
-import type { Person, TapRecord } from '@/data/attendance-store';
+import type { ActivityEntry, Person, TapRecord } from '@/data/attendance-store';
+import { describeActivity } from '@/lib/activity-wording';
 import { maskCardUid } from '@/lib/scan-format';
 import { indexRoster, resolveTapPerson } from '@/lib/tap-identity';
 import {
@@ -199,6 +200,25 @@ export function buildAttendanceRows(
   });
 }
 
+/** One row of the export's second sheet. Keys are the headers, verbatim. */
+export type ActivitySheetRow = { When: string; Action: string; Detail: string };
+
+const ACTIVITY_COLUMNS: (keyof ActivitySheetRow)[] = ['When', 'Action', 'Detail'];
+
+/** The log as sheet rows, in the order it was handed over (newest first). */
+export function buildActivityRows(
+  activity: readonly ActivityEntry[],
+): ActivitySheetRow[] {
+  return activity.map((entry) => {
+    const { action, detail } = describeActivity(entry);
+    return {
+      When: formatSessionTimestamp(entry.at),
+      Action: action,
+      Detail: detail,
+    };
+  });
+}
+
 /** A finished workbook and the name it should be saved under. */
 export type AttendanceWorkbook = {
   filename: string;
@@ -217,16 +237,32 @@ export type AttendanceWorkbook = {
  *
  * `now` is injectable so the filename is assertable; it is also read once, so
  * the meeting date and the stamp cannot straddle a second boundary.
+ *
+ * `activity`, when given, becomes a second sheet. Only the whole-history
+ * export passes it: that file is the record a school keeps, and the log is
+ * what says where earlier copies of it went.
  */
 export function buildAttendanceWorkbook(
   taps: readonly TapRecord[],
   persons: readonly Person[],
   now: Date = new Date(),
+  activity?: readonly ActivityEntry[],
 ): AttendanceWorkbook {
   const rows = buildAttendanceRows(taps, persons);
   const worksheet = XLSX.utils.json_to_sheet(rows, { header: EXPORT_COLUMNS });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
+  // The row for this very export is written after delivery, so it is never in
+  // the sheet it produces.
+  if (activity) {
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(buildActivityRows(activity), {
+        header: ACTIVITY_COLUMNS,
+      }),
+      'Activity',
+    );
+  }
   const timestamp = now.toISOString();
   const exportStamp = timestamp.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
@@ -247,6 +283,9 @@ export function buildAttendanceWorkbook(
 export async function exportAttendanceWorkbook(
   taps: readonly TapRecord[],
   persons: readonly Person[],
+  activity?: readonly ActivityEntry[],
 ): Promise<DeliveredExport> {
-  return deliverWorkbook(buildAttendanceWorkbook(taps, persons));
+  return deliverWorkbook(
+    buildAttendanceWorkbook(taps, persons, new Date(), activity),
+  );
 }

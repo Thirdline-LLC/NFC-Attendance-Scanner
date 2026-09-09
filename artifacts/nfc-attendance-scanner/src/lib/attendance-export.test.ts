@@ -574,3 +574,49 @@ describe('the card column', () => {
     expect(JSON.stringify(rows)).not.toContain('04A1B2C3D4E5F6');
   });
 });
+
+describe('the Activity sheet', () => {
+  it('is written only when a log is handed over', () => {
+    const now = new Date('2026-09-15T21:00:00.000Z');
+    const without = buildAttendanceWorkbook([], [], now);
+    expect(without.workbook.SheetNames).toEqual(['Attendance']);
+
+    const withLog = buildAttendanceWorkbook([], [], now, [
+      {
+        id: 2,
+        at: '2026-09-15T20:30:00.000Z',
+        kind: 'export-session',
+        filename: 'attendance-2026-09-15-20260915T203000Z.xlsx',
+        delivery: 'file',
+        taps: 12,
+        sessions: 1,
+      },
+      { id: 1, at: '2026-09-10T20:00:00.000Z', kind: 'pin-set' },
+    ]);
+    expect(withLog.workbook.SheetNames).toEqual(['Attendance', 'Activity']);
+
+    const reopened = XLSX.read(
+      XLSX.write(withLog.workbook, { type: 'array', bookType: 'xlsx' }),
+      { type: 'array' },
+    );
+    const rows = XLSX.utils.sheet_to_json<Record<string, string>>(
+      reopened.Sheets.Activity,
+    );
+    expect(Object.keys(rows[0])).toEqual(['When', 'Action', 'Detail']);
+    expect(rows[0].Action).toBe('Exported this session');
+    expect(rows[0].Detail).toContain('saved to Documents');
+    // A PIN row has no detail, so the cell is absent from the reopened JSON.
+    expect(rows[1].Action).toBe('Teacher PIN set');
+  });
+
+  it('reaches the delivered workbook through exportAttendanceWorkbook', async () => {
+    await exportAttendanceWorkbook([], [], [
+      { id: 1, at: '2026-09-10T20:00:00.000Z', kind: 'pin-set' },
+    ]);
+    const [workbook] = vi.mocked(XLSX.writeFile).mock.calls.at(-1) as [
+      XLSX.WorkBook,
+      string,
+    ];
+    expect(workbook.SheetNames).toEqual(['Attendance', 'Activity']);
+  });
+});
