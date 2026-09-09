@@ -5,6 +5,7 @@ import {
   BarChart3,
   Database,
   Download,
+  Lock,
   LockKeyhole,
   Radio,
   RotateCcw,
@@ -14,6 +15,9 @@ import {
   Users,
 } from 'lucide-react';
 import { recordActivity } from '@/data/attendance-store';
+import { hasOperatorPin } from '@/data/operator-pin';
+import { useOperatorLock } from '@/lock/OperatorLockProvider';
+import { PinDialog } from '@/lock/PinDialog';
 import { exportAttendanceWorkbook } from '@/lib/attendance-export';
 import { type ExportResult } from '@/ui/ExportNotice';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
@@ -42,6 +46,13 @@ export function ScannerScreen() {
   // every entry point routes through one confirmation instead of firing.
   const [isConfirmingNewSession, setIsConfirmingNewSession] = useState(false);
   const [exportResult, setExportResult] = useState<ExportResult>(null);
+  // The teacher's gate. End Session opens the summary — totals, the export,
+  // Start New Session — which is the teacher's side of the desk; a student
+  // operator never needs it. `pinIsSet` drives the banner that says so out
+  // loud while no PIN exists yet; null means the read has not answered.
+  const { unlocked, unlock, relock } = useOperatorLock();
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinIsSet, setPinIsSet] = useState<boolean | null>(null);
   const {
     count,
     sessionStartedAt,
@@ -88,10 +99,21 @@ export function ScannerScreen() {
   }, []);
 
   useEffect(() => {
+    // The PIN dialog counts as a modal for the same reason the others do: the
+    // reader types into whatever has focus, and here that is the PIN field.
     setCaptureEnabled(
-      !enrollmentCandidate && !sessionSummary && !isConfirmingNewSession,
+      !enrollmentCandidate &&
+        !sessionSummary &&
+        !isConfirmingNewSession &&
+        !pinOpen,
     );
-  }, [enrollmentCandidate, sessionSummary, isConfirmingNewSession]);
+  }, [enrollmentCandidate, sessionSummary, isConfirmingNewSession, pinOpen]);
+
+  useEffect(() => {
+    void hasOperatorPin()
+      .then(setPinIsSet)
+      .catch(() => setPinIsSet(null));
+  }, []);
 
   useEffect(() => {
     if (storageStatus === 'unavailable') setSawStorageUnavailable(true);
@@ -215,10 +237,12 @@ export function ScannerScreen() {
     // filename make a later session look exported before it has been saved.
     setExportResult(null);
     await startNewSession();
+    // The summary is gone with the session; so is the teacher's unlock.
+    relock();
     window.setTimeout(() => {
       if (captureEnabledRef.current) inputRef.current?.focus();
     }, 0);
-  }, [startNewSession]);
+  }, [startNewSession, relock]);
 
   const handleCancelNewSession = useCallback(() => {
     setIsConfirmingNewSession(false);
@@ -228,11 +252,35 @@ export function ScannerScreen() {
   }, []);
 
   const handleDismissSummary = useCallback(() => {
+    // Closing the summary hands the desk back, so the unlock goes with it.
+    relock();
     dismissSummary();
     window.setTimeout(() => {
       if (captureEnabledRef.current) inputRef.current?.focus();
     }, 0);
-  }, [dismissSummary]);
+  }, [dismissSummary, relock]);
+
+  const handleEndSession = useCallback(() => {
+    if (unlocked) {
+      endSession();
+      return;
+    }
+    setPinOpen(true);
+  }, [unlocked, endSession]);
+
+  const handlePinUnlocked = useCallback(() => {
+    unlock();
+    setPinIsSet(true);
+    setPinOpen(false);
+    endSession();
+  }, [unlock, endSession]);
+
+  const handlePinCancel = useCallback(() => {
+    setPinOpen(false);
+    window.setTimeout(() => {
+      if (captureEnabledRef.current) inputRef.current?.focus();
+    }, 0);
+  }, []);
 
   /**
    * A press that lands on the station itself — the background, the count, the
@@ -336,23 +384,30 @@ export function ScannerScreen() {
                 }}
               />
             </div>
+            {/* Both stay visible — a teacher has to be able to find them, and
+                a hidden link is still a typeable address in the PWA — but they
+                say what they will ask for. */}
             <Link
               to="/roster"
               className={NAV_PILL_CLASS}
+              aria-label={unlocked ? 'Students' : 'Students (teacher PIN required)'}
               data-testid="link-roster"
               data-scanner-nav
             >
               <Users aria-hidden="true" size={14} />
               Students
+              {!unlocked && <Lock aria-hidden="true" size={12} />}
             </Link>
             <Link
               to="/dashboard"
               className={NAV_PILL_CLASS}
+              aria-label={unlocked ? 'Dashboard' : 'Dashboard (teacher PIN required)'}
               data-testid="link-dashboard"
               data-scanner-nav
             >
               <BarChart3 aria-hidden="true" size={14} />
               Dashboard
+              {!unlocked && <Lock aria-hidden="true" size={12} />}
             </Link>
             {/* The truth about whether a tap would be read, not a decoration:
                 the reader only sees a card while the hidden input has focus. */}
@@ -373,6 +428,24 @@ export function ScannerScreen() {
             </div>
           </div>
         </header>
+
+        {/* Whoever sets the PIN first owns this device's records, and nothing
+            can tell a teacher from a student on day one. The app cannot
+            prevent that; it can refuse to be quiet about it. */}
+        {pinIsSet === false && (
+          <p
+            className="station-enter mt-4 flex items-start gap-2.5 rounded-2xl border border-[hsl(var(--destructive)/.5)] bg-[hsl(var(--destructive)/.09)] px-4 py-3 text-sm text-[hsl(var(--destructive))]"
+            role="status"
+            data-testid="text-pin-unset"
+          >
+            <Lock aria-hidden="true" className="mt-0.5 shrink-0" size={16} />
+            <span>
+              <strong className="font-semibold">No teacher PIN set</strong> —
+              the roster, dashboard and exports are open to anyone at this
+              device. A teacher sets one from End Session or the Students page.
+            </span>
+          </p>
+        )}
 
         <div className="my-auto grid gap-5 py-10 lg:grid-cols-[minmax(0,1fr)_minmax(390px,0.86fr)] lg:items-center lg:gap-14 lg:py-14">
           <section className="station-enter max-w-3xl" style={{ animationDelay: '80ms' }}>
@@ -514,7 +587,7 @@ export function ScannerScreen() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={endSession}
+              onClick={handleEndSession}
               className="flex w-fit items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-3 py-2 font-semibold text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
               data-testid="button-end-session"
             >
@@ -535,6 +608,14 @@ export function ScannerScreen() {
           </div>
         </footer>
       </div>
+
+      {pinOpen && (
+        <PinDialog
+          mode="gate"
+          onUnlocked={handlePinUnlocked}
+          onCancel={handlePinCancel}
+        />
+      )}
 
       {sessionSummary && (
         <SessionSummary
