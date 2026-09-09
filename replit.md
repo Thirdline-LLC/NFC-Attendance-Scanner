@@ -19,7 +19,7 @@ On Replit the runner still serves the scanner on port 23205; check with
 `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:23205/` before
 starting anything.
 
-- `pnpm --filter @workspace/nfc-attendance-scanner run test` — vitest (443 tests)
+- `pnpm --filter @workspace/nfc-attendance-scanner run test` — vitest (509 tests in 34 files)
 - `pnpm --filter @workspace/nfc-attendance-scanner run test:browser` — real Chromium
 - `pnpm --filter @workspace/nfc-attendance-scanner run typecheck` — the app *and* `electron/`
 - `pnpm --filter @workspace/nfc-attendance-scanner run build` — the PWA
@@ -27,7 +27,7 @@ starting anything.
 - `pnpm --filter @workspace/nfc-attendance-scanner run build:electron` — the macOS renderer + main + preload
 - `pnpm --filter @workspace/nfc-attendance-scanner run dev` — localhost:5173, or 23205 on Replit
 
-The scanner has no backend, authentication, analytics, API routes, or database server. Scan records are stored in the browser with Dexie/IndexedDB.
+The scanner has no backend, accounts, analytics, API routes, or database server. Scan records are stored in the browser with Dexie/IndexedDB. The only credential is a local teacher PIN (`src/data/operator-pin.ts`), a screen gate for the admin screens.
 
 ## Stack
 
@@ -46,6 +46,17 @@ The scanner has no backend, authentication, analytics, API routes, or database s
   (`runtime.ts`) and the desktop bridge contract (`desktop-bridge.ts`)
 - `artifacts/nfc-attendance-scanner/src/pwa/` — service-worker registration,
   which refuses to run outside a production web build
+- `artifacts/nfc-attendance-scanner/src/lock/` — the teacher PIN gate:
+  `OperatorLockProvider` (one in-memory unlock, relocked on idle and on the
+  way back to `/`), `PinDialog` (set / unlock / change, deaf to a card
+  reader), `LockedRoute`, and `pin-entry.ts` (digits only, Enter honoured only
+  after a human pause)
+- `artifacts/nfc-attendance-scanner/src/data/operator-pin.ts` — the PIN
+  itself: PBKDF2 in the `settings` table, a doubling lockout after five misses
+- `artifacts/nfc-attendance-scanner/src/lib/activity-wording.ts` — the one
+  place an activity-log row becomes words, for the dashboard and the export
+- `artifacts/nfc-attendance-scanner/src/ui/RetentionDialog.tsx` — the
+  confirmation for the two retention actions
 - `artifacts/nfc-attendance-scanner/electron/` — the macOS main process,
   preload, input validation, and the build and dev scripts
 - `artifacts/nfc-attendance-scanner/src/roster/` — the roster page container
@@ -105,6 +116,28 @@ The scanner has no backend, authentication, analytics, API routes, or database s
   input if it carries a digit, if it is longer than any English word inside
   [a-f], or if it extends a run already cut — that last is what holds the
   ceiling at four once a reader has started typing.
+- **The export carries the card's last four, not the UID.** Same helper,
+  same rule, in the file: a UID opens a building, the workbook is the one
+  artefact that routinely leaves the device, and nothing reads an export back
+  in, so the full value served no purpose the tail does not.
+- **Two roles, one PIN.** A student runs the desk (check-in, enroll —
+  including correcting an enrolled card's details when that card is on the
+  reader, because the card is the credential). End Session, `/roster` and
+  `/dashboard` sit behind a teacher PIN: PBKDF2 in `settings`, a doubling
+  lockout, one in-memory unlock that ends on the way back to `/`, when the
+  summary closes, after five idle minutes and on reload. A screen gate, not
+  encryption, and not recoverable — the docs say both. Until a PIN exists the
+  scanner shows a banner: whoever sets it first owns the records.
+- **The activity log holds no student data.** Every export, removal, purge
+  and PIN change is a row of counts, a timestamp and a filename in the `activity`
+  table (v6), so the log can be read and exported without being a disclosure.
+  A failed log write never fails its action; the notice says the row is missing.
+- **Retention is a teacher's action, never a schedule.** Two dashboard
+  buttons — delete taps before the school-year boundary (Eastern calendar
+  date against August 1, the dashboard's own rule), remove graduated students
+  with their taps — each previewed, confirmed with its cost, logged, and
+  followed by a reload. The store takes predicates so it stays free of date
+  and grade logic.
 
 ## Product
 
@@ -112,24 +145,28 @@ A single-device kiosk for taking attendance with a USB HID NFC reader, which
 types a 14-hex-char card UID and presses Enter into a hidden, always-focused
 input. Three routes:
 
-- `/` — the scanner. Check-in mode records a tap against the current session
+- `/` — the scanner, open to whoever is at the desk. Check-in mode records a tap against the current session
   (repeat taps show as duplicates and do not raise the count; an unknown card
   is recorded and flagged for later enrollment). Enroll mode opens a form for
   the scanned card, deriving a `@stjohnschs.org` address from the name and
-  class year and resolving collisions. "End Session" shows the session totals
+  class year and resolving collisions. "End Session" asks for the teacher PIN, then shows the session totals
   and exports that session's `.xlsx`, and can be backed out of ("Back to
   scanning", or Escape) without rotating anything; starting a new session asks
   for confirmation first.
-- `/roster` — every student on the device: search by name, email or the last
+- `/roster` — behind the teacher PIN. Every student on the device: search by name, email or the last
   four of a card, and correct a name, class year or email in place. The card a
   student enrolled with stays theirs. Cards are not recorded while this page is
   open, and it says so.
-- `/dashboard` — same warning that cards are not being recorded here. Year to
+- `/dashboard` — behind the teacher PIN, with the same warning that cards are not being recorded here. Year to
   date (the school year rolls over Aug 1): average
   attendance against the 50-per-session target, sessions held, unique students,
   grade breakdown, and the cards that still resolve to nobody — those last
   figures are all-time, not year-to-date, and say so on the card. Its "Export
-  all history" button writes every tap on the device to one workbook.
+  all history" button writes every tap on the device to one workbook, with the
+  activity log as a second sheet. Three teacher cards below: Activity (the
+  log, newest first), Data retention (delete taps before the school year;
+  remove graduated students — previewed, confirmed, logged), and Teacher PIN
+  (change it).
 
 ## User preferences
 
@@ -178,8 +215,20 @@ _Populate as you build — explicit user instructions worth remembering across s
 - **Scanner tests must render inside a router.** The scanner header links to
   `/roster` and `/dashboard`, so `ScannerScreen` needs a `MemoryRouter`.
 - **Scans are ignored while a modal is up.** The enrollment form, the session
-  summary and the new-session confirmation all set `captureEnabled` false, and
-  the hook drops scans while a summary is open. Save or cancel first.
+  summary, the new-session confirmation and the PIN dialog all set
+  `captureEnabled` false, and the hook drops scans while a summary is open.
+  Save or cancel first. On a locked `/roster` or `/dashboard` the reader types
+  into the PIN field instead, which is why that field keeps digits only, stops
+  at eight, and ignores an Enter that arrives within 100 ms of the last key.
+- **Fake only `Date`, never the timers, in a test that touches the store.**
+  `vi.useFakeTimers()` fakes `setTimeout`/`setImmediate`, and fake-indexeddb
+  schedules its own work on them, so every Dexie call stalls until the test
+  times out. `vi.useFakeTimers({ toFake: ['Date'] })` plus `vi.setSystemTime`
+  is the tool when only the clock matters (see `PinDialog.test.tsx`).
+- **Scanner and router tests pass the PIN gate.** `renderScanner` wraps the
+  screen in `OperatorLockProvider`, every `beforeEach` seeds a PIN with
+  `setOperatorPin('2468')`, and `passGate(user)` types it after End Session
+  or a locked route; a test about the gate itself seeds nothing.
 - **Dashboard tests must seed taps relative to `Date.now()`**, or they fall
   outside the current school year once the Aug 1 rollover passes.
 - **The `scans` table is legacy.** Nothing writes it any more; it exists so
