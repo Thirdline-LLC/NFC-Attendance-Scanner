@@ -2,10 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
 import {
+  ACTIVITY_LOG_CAP,
+  listActivity,
   listPersons,
+  recordActivity,
   setAttendanceTarget,
   getAttendanceTarget,
   listTapRecords,
+  type ActivityEntry,
   type Person,
   type TapRecord,
 } from '@/data/attendance-store';
@@ -36,15 +40,20 @@ export function DashboardPage() {
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
+  // The log is read with the history so the page opens in one pass, and
+  // re-read on its own after an export so the new row shows without the
+  // numbers being recomputed for nothing.
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setLoadFailed(false);
     try {
-      const [taps, persons, target] = await Promise.all([
+      const [taps, persons, target, recent] = await Promise.all([
         listTapRecords(),
         listPersons(),
         getAttendanceTarget(),
+        listActivity(),
       ]);
       // The school-year boundary and every grade label hang off `now`, so it is
       // read once here rather than inside the metrics.
@@ -52,6 +61,7 @@ export function DashboardPage() {
         computeDashboardMetrics(taps, persons, new Date().toISOString(), target),
       );
       setHistory({ taps, persons });
+      setActivity(recent);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -100,10 +110,31 @@ export function DashboardPage() {
   const exportAll = useCallback(async () => {
     if (!history) return;
     try {
-      setExportResult({
-        ok: true,
-        ...(await exportAttendanceWorkbook(history.taps, history.persons)),
-      });
+      // The whole log rides along as the second sheet: this file is the record
+      // a school keeps, and the log is what says where earlier copies went.
+      const delivered = await exportAttendanceWorkbook(
+        history.taps,
+        history.persons,
+        await listActivity(ACTIVITY_LOG_CAP),
+      );
+      let logFailed = false;
+      try {
+        await recordActivity({
+          at: new Date().toISOString(),
+          kind: 'export-all',
+          filename: delivered.filename,
+          delivery: delivered.delivery,
+          taps: history.taps.length,
+          sessions: new Set(history.taps.map((tap) => tap.sessionId)).size,
+        });
+        // Only the log is re-read: the numbers on screen are still true.
+        setActivity(await listActivity());
+      } catch {
+        // The file is already delivered; the notice says the row is missing
+        // rather than calling a finished export a failure.
+        logFailed = true;
+      }
+      setExportResult({ ok: true, ...delivered, logFailed });
     } catch (error) {
       // See ScannerScreen: a cancelled Save dialog must not read as a failure.
       setExportResult({
@@ -219,6 +250,7 @@ export function DashboardPage() {
               onRefresh={() => void load()}
               onExportAll={history ? () => void exportAll() : undefined}
               onSaveTarget={saveTarget}
+              activity={activity}
             />
             <ExportNotice result={exportResult} />
           </div>
