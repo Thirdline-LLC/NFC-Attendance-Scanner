@@ -36,8 +36,8 @@ Two properties matter more than the rest:
 ## The schema, version by version
 
 Dexie replays these in order, so a database created at v1 upgrades cleanly to
-v5 today. **No new version was added by the migration to VS Code, Android and
-macOS** — packaging changed nothing about how data is stored.
+v6 today. **No new version was added by the migration to VS Code, Android and
+macOS** — packaging changed nothing about how data is stored; version 6 came later, for the activity log.
 
 | Version | What it did |
 |---|---|

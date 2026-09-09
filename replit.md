@@ -149,7 +149,7 @@ input. Three routes:
   (repeat taps show as duplicates and do not raise the count; an unknown card
   is recorded and flagged for later enrollment). Enroll mode opens a form for
   the scanned card, deriving a `@stjohnschs.org` address from the name and
-  class year and resolving collisions. "End Session" shows the session totals
+  class year and resolving collisions. "End Session" asks for the teacher PIN, then shows the session totals
   and exports that session's `.xlsx`, and can be backed out of ("Back to
   scanning", or Escape) without rotating anything; starting a new session asks
   for confirmation first.
