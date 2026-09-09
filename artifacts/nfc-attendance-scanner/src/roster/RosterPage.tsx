@@ -13,6 +13,7 @@ import {
   DuplicateEmailError,
   listPersons,
   previewPersonRemoval,
+  recordActivity,
   updatePerson,
   type Person,
   type PersonRemoval,
@@ -84,6 +85,24 @@ export function RosterPage() {
           ? `Removed ${person.firstName} ${person.lastName}.`
           : `Removed ${person.firstName} ${person.lastName} and ${removed.tapCount} tap${removed.tapCount === 1 ? '' : 's'}.`,
       );
+      // Counts only. The student is gone from the store, and the log must not
+      // be the place their name survives.
+      try {
+        await recordActivity({
+          at: new Date().toISOString(),
+          kind: 'remove-student',
+          taps: removed.tapCount,
+          sessions: removed.sessionCount,
+        });
+      } catch {
+        // The removal is done; a log that could not be written is said, not
+        // hidden, and must not read as the removal having failed.
+        setRemovedNotice((current) =>
+          current
+            ? `${current} The activity log entry could not be written.`
+            : current,
+        );
+      }
       setPendingRemoval(null);
       setRemovalCost(null);
     } catch {

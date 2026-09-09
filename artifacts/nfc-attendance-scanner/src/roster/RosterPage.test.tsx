@@ -334,3 +334,68 @@ describe('RosterPage', () => {
   });
 
 });
+
+describe('RosterPage activity log', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** Opens the Remove dialog for a student and confirms it. */
+  async function removeStudent(personId: number) {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-manager');
+    await user.click(screen.getByTestId(`button-remove-person-${personId}`));
+    await screen.findByTestId('dialog-remove-student');
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('button-remove-confirm').hasAttribute('disabled'),
+      ).toBe(false),
+    );
+    await user.click(screen.getByTestId('button-remove-confirm'));
+  }
+
+  it('logs a removal as counts only', async () => {
+    const saved = await addPerson(jane);
+    await attendanceStore.recordSessionTap({
+      sessionId: 's1',
+      uid: jane.cardUid,
+      scannedAt: '2026-09-02T13:00:00.000Z',
+      personId: saved.id as number,
+    });
+    const record = vi.spyOn(attendanceStore, 'recordActivity').mockResolvedValue();
+
+    await removeStudent(saved.id as number);
+
+    await waitFor(() => expect(record).toHaveBeenCalledTimes(1));
+    const [entry] = record.mock.calls[0];
+    expect(entry).toMatchObject({ kind: 'remove-student', taps: 1, sessions: 1 });
+    const serialised = JSON.stringify(entry);
+    expect(serialised).not.toContain('Jane');
+    expect(serialised).not.toContain(jane.email);
+    expect(serialised).not.toContain(jane.cardUid);
+    expect(screen.getByTestId('text-roster-removed').textContent).not.toContain(
+      'activity log',
+    );
+  });
+
+  it('says when the removal could not be logged, and still removes', async () => {
+    const saved = await addPerson(jane);
+    vi.spyOn(attendanceStore, 'recordActivity').mockRejectedValue(new Error('quota'));
+
+    await removeStudent(saved.id as number);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-roster-removed').textContent).toContain(
+        'The activity log entry could not be written.',
+      ),
+    );
+    expect(await listPersons()).toHaveLength(0);
+  });
+});

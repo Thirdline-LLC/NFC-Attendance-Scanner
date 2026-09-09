@@ -5,7 +5,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as attendanceStore from '@/data/attendance-store';
-import { addPerson, recordSessionTap, type Person } from '@/data/attendance-store';
+import {
+  addPerson,
+  recordActivity,
+  recordSessionTap,
+  type Person,
+} from '@/data/attendance-store';
 import * as attendanceExport from '@/lib/attendance-export';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
 import { DashboardPage } from './DashboardPage';
@@ -302,4 +307,94 @@ describe('DashboardPage', () => {
     expect(screen.getByTestId('text-attendance-target').textContent).toBe('50');
   });
 
+});
+
+describe('DashboardPage activity log', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('lists the device activity newest first, in words, and says when there is none', async () => {
+    await seedTwoSessions();
+    renderPage();
+    expect(await screen.findByTestId('text-activity-empty')).toBeTruthy();
+
+    cleanup();
+    await recordActivity({ at: secondsAgo(30), kind: 'pin-set' });
+    await recordActivity({
+      at: secondsAgo(10),
+      kind: 'remove-student',
+      taps: 3,
+      sessions: 2,
+    });
+    renderPage();
+
+    const list = await screen.findByTestId('list-activity');
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain('Removed a student');
+    expect(rows[0].textContent).toContain('3 taps from 2 sessions');
+    expect(rows[1].textContent).toContain('Teacher PIN set');
+  });
+
+  it('exports all history with the activity sheet and records the export', async () => {
+    await seedTwoSessions();
+    await recordActivity({ at: secondsAgo(20), kind: 'pin-set' });
+    const exportSpy = vi
+      .spyOn(attendanceExport, 'exportAttendanceWorkbook')
+      .mockResolvedValue({ filename: 'attendance-all.xlsx', delivery: 'download' });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-export-history'));
+
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledTimes(1));
+    const [, , activity] = exportSpy.mock.calls[0];
+    expect(activity?.map((entry) => entry.kind)).toEqual(['pin-set']);
+
+    await waitFor(async () =>
+      expect((await attendanceStore.listActivity())[0]).toMatchObject({
+        kind: 'export-all',
+        filename: 'attendance-all.xlsx',
+        delivery: 'download',
+        taps: 4,
+        sessions: 2,
+      }),
+    );
+    // The list on screen picks the new row up without a full reload.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('list-activity')).getAllByRole('listitem')[0]
+          .textContent,
+      ).toContain('Exported all history'),
+    );
+    expect(screen.getByTestId('text-export-saved').textContent).toContain(
+      'Send this file only to a school account.',
+    );
+  });
+
+  it('keeps the export a success when the log row cannot be written', async () => {
+    await seedTwoSessions();
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockResolvedValue({
+      filename: 'attendance-all.xlsx',
+      delivery: 'download',
+    });
+    vi.spyOn(attendanceStore, 'recordActivity').mockRejectedValue(new Error('quota'));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-export-history'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-export-saved').textContent).toContain(
+        'The activity log entry could not be written.',
+      ),
+    );
+  });
 });

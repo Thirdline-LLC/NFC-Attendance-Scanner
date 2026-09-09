@@ -84,3 +84,33 @@ describe('ExportNotice', () => {
     expect(screen.queryByTestId('text-export-saved')).toBeNull();
   });
 });
+
+describe('ExportNotice trailer', () => {
+  it('tells every successful export where the file may go', () => {
+    for (const delivery of ['download', 'file', 'saved'] as const) {
+      cleanup();
+      render(<ExportNotice result={{ ok: true, filename: FILENAME, delivery }} />);
+      expect(screen.getByTestId('text-export-saved').textContent).toContain(
+        'Send this file only to a school account.',
+      );
+    }
+  });
+
+  it('says when the activity log entry could not be written, without calling the export a failure', () => {
+    render(
+      <ExportNotice
+        result={{ ok: true, filename: FILENAME, delivery: 'file', logFailed: true }}
+      />,
+    );
+    const notice = screen.getByTestId('text-export-saved');
+    expect(notice.textContent).toContain('The activity log entry could not be written.');
+    expect(screen.queryByTestId('text-export-failed')).toBeNull();
+  });
+
+  it('does not mention the log when it was written', () => {
+    render(<ExportNotice result={{ ok: true, filename: FILENAME, delivery: 'file' }} />);
+    expect(screen.getByTestId('text-export-saved').textContent).not.toContain(
+      'activity log',
+    );
+  });
+});

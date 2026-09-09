@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { maskCardUid } from '@/lib/scan-format';
 import * as XLSX from 'xlsx';
 
 import { Capacitor } from '@capacitor/core';
@@ -210,7 +211,7 @@ describe.each(['iOS', 'Android'] as const)(
       expect(rows).toEqual([
         {
           Timestamp: '2026-09-15 12:00:00',
-          'Card UID': DEVICE_PERSONS[0].cardUid,
+          'Card (last 4)': maskCardUid(DEVICE_PERSONS[0].cardUid),
           'Meeting Date': '2026-09-15',
           Name: 'Jordan Lee',
           Email: 'jlee27@stjohnschs.org',
@@ -218,7 +219,7 @@ describe.each(['iOS', 'Android'] as const)(
         },
         {
           Timestamp: '2026-09-15 12:05:00',
-          'Card UID': DEVICE_PERSONS[1].cardUid,
+          'Card (last 4)': maskCardUid(DEVICE_PERSONS[1].cardUid),
           'Meeting Date': '2026-09-15',
           Name: 'Priya Nair',
           Email: 'pnair28@stjohnschs.org',
@@ -226,7 +227,7 @@ describe.each(['iOS', 'Android'] as const)(
         },
         {
           Timestamp: '2026-09-15 12:10:00',
-          'Card UID': '0011223344AABB',
+          'Card (last 4)': maskCardUid('0011223344AABB'),
           'Meeting Date': '2026-09-15',
           Name: 'Unknown card',
           Email: '',

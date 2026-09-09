@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
 import { findEmailOwner } from '@/lib/student-email';
+import type { ExportDelivery } from '@/lib/workbook-delivery';
 
 export type Person = {
   id?: number;
@@ -18,6 +19,39 @@ export type TapRecord = {
   personId: number | null;
   sessionId: string;
   counted: boolean;
+};
+
+export type ActivityKind =
+  | 'export-session'
+  | 'export-all'
+  | 'remove-student'
+  | 'purge-history'
+  | 'remove-alumni'
+  | 'pin-set'
+  | 'pin-changed';
+
+/**
+ * One line of the device's activity log. Only counts, timestamps, filenames
+ * and delivery: the log records that student data moved or was deleted, never
+ * the data itself, so reading the log is not a disclosure.
+ */
+export type ActivityEntry = {
+  id?: number;
+  /** ISO timestamp of the action. */
+  at: string;
+  kind: ActivityKind;
+  /** Exports: the name the file was written under. */
+  filename?: string;
+  /** Exports: which route delivered it. */
+  delivery?: ExportDelivery;
+  /** Exports, removals and purges: rows involved. */
+  taps?: number;
+  /** Exports (1 for a session export), removals and purges: sessions involved. */
+  sessions?: number;
+  /** Removing graduated students: how many. */
+  students?: number;
+  /** A history purge: the school-year boundary it deleted before, `YYYY-MM-DD`. */
+  before?: string;
 };
 
 const DATABASE_NAME = 'attendance-scanner-local';
@@ -86,6 +120,18 @@ database.version(5).stores({
   taps: '++id, uid, scannedAt, personId, sessionId',
   settings: 'key',
 });
+// What left the device and what was deleted, as counts, timestamps and
+// filenames. A row here never carries a name, an email or a card UID: the log
+// exists so a teacher can answer "where did that file go" and "when was that
+// student removed" without the answer itself being a disclosure. Kept beside
+// the records so it is cleared with them.
+database.version(6).stores({
+  scans: 'uid, scannedAt',
+  persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
+  taps: '++id, uid, scannedAt, personId, sessionId',
+  settings: 'key',
+  activity: '++id, at, kind',
+});
 // Pre-enrollment rows from a v1/v2 database. Nothing writes here any more —
 // the table is kept so `clearAllAttendanceHistory` can still purge what an
 // upgraded database carried up, and so the schema versions stay replayable.
@@ -97,6 +143,7 @@ const tapsTable = database.table<TapRecord, number>('taps');
 const settingsTable = database.table<{ key: string; value: string }, string>(
   'settings',
 );
+const activityTable = database.table<ActivityEntry, number>('activity');
 
 export async function findPersonByUid(cardUid: string): Promise<Person | undefined> {
   return personsTable.where('cardUid').equals(cardUid).first();
@@ -381,6 +428,43 @@ export async function clearAllAttendanceHistory(): Promise<void> {
     await scansTable.clear();
     await tapsTable.clear();
   });
+}
+
+/**
+ * Rows the activity log keeps before the oldest are dropped. Five hundred is
+ * years of a club's exports and removals; the cap exists so the log cannot
+ * grow without bound, not to forget anything a teacher would ask about.
+ */
+export const ACTIVITY_LOG_CAP = 500;
+
+/**
+ * Appends one row and trims the oldest beyond the cap, in one transaction so
+ * a failure part-way cannot leave the log over the cap or missing the row that
+ * was just added. `cap` is injectable for tests; production always uses the
+ * constant.
+ */
+export async function recordActivity(
+  entry: Omit<ActivityEntry, 'id'>,
+  cap = ACTIVITY_LOG_CAP,
+): Promise<void> {
+  await database.transaction('rw', activityTable, async () => {
+    // A copy, for the same reason `addPerson` copies: Dexie stamps the key
+    // onto the object it is handed.
+    await activityTable.add({ ...entry });
+    const count = await activityTable.count();
+    if (count > cap) {
+      const stale = await activityTable
+        .orderBy('at')
+        .limit(count - cap)
+        .primaryKeys();
+      await activityTable.bulkDelete(stale);
+    }
+  });
+}
+
+/** The most recent rows, newest first. */
+export async function listActivity(limit = 50): Promise<ActivityEntry[]> {
+  return activityTable.orderBy('at').reverse().limit(limit).toArray();
 }
 
 function makeSessionId(): string {

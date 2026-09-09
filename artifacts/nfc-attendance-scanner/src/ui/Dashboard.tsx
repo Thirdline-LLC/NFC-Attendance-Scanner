@@ -3,6 +3,7 @@ import {
   BarChart3,
   Database,
   FileSpreadsheet,
+  History,
   RefreshCw,
   ScanLine,
   Target,
@@ -17,10 +18,13 @@ import type {
 } from '@/lib/attendance-metrics';
 import {
   formatSessionDateLabel,
+  formatSessionDateTime,
   formatSessionLastSeen,
 } from '@/lib/session-formatting';
 import { maskCardUid } from '@/lib/scan-format';
+import { describeActivity } from '@/lib/activity-wording';
 import {
+  type ActivityEntry,
   isValidAttendanceTarget,
   MAX_ATTENDANCE_TARGET,
   MIN_ATTENDANCE_TARGET,
@@ -43,6 +47,13 @@ type DashboardProps = {
    * Optional: without it the target is shown but not editable.
    */
   onSaveTarget?: (target: number) => Promise<boolean>;
+  /**
+   * The device's activity log, newest first. Counts, timestamps and filenames
+   * only — the log is how a teacher answers "where did that file go" without
+   * the answer being a disclosure. Optional so the presentational tests that
+   * render this component without a page keep working.
+   */
+  activity?: ActivityEntry[];
 };
 
 /** Enough to act on without scrolling on a phone; the count says the rest. */
@@ -69,6 +80,7 @@ export function Dashboard({
   onRefresh,
   onExportAll,
   onSaveTarget,
+  activity = [],
 }: DashboardProps) {
   const { ytd, gradeBreakdown, enrolledStudents, unidentified } = metrics;
   const percent = Math.round(ytd.percentOfTarget);
@@ -175,6 +187,8 @@ export function Dashboard({
           cardCount={unidentified.cardCount}
           cards={unidentified.cards}
         />
+
+        <ActivitySection entries={activity} />
       </div>
     </section>
   );
@@ -502,6 +516,61 @@ function UnidentifiedCardSection({
             </p>
           ) : null}
         </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * What left the device and what was deleted. Every row is counts, a
+ * timestamp and a filename: the section can be read aloud in a room full of
+ * students without disclosing anything about any of them.
+ */
+function ActivitySection({ entries }: { entries: ActivityEntry[] }) {
+  return (
+    <Card eyebrow="Activity" icon={<History aria-hidden="true" size={16} />}>
+      <p
+        className="mt-1 text-xs text-[hsl(var(--muted-foreground))]"
+        data-testid="section-activity"
+      >
+        Exports and deletions on this device. Counts and filenames only — never
+        a name or a card.
+      </p>
+      {entries.length === 0 ? (
+        <p
+          className="mt-4 text-sm text-[hsl(var(--muted-foreground))]"
+          data-testid="text-activity-empty"
+        >
+          Nothing exported or deleted on this device yet.
+        </p>
+      ) : (
+        <ul className="mt-3 grid gap-2" data-testid="list-activity">
+          {entries.map((entry) => {
+            const { action, detail } = describeActivity(entry);
+            return (
+              <li
+                key={entry.id ?? `${entry.at}-${entry.kind}`}
+                className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] px-3 py-2.5 text-sm"
+                data-testid={`row-activity-${entry.id ?? 'unsaved'}`}
+              >
+                <span className="min-w-0">
+                  <span className="font-semibold text-[hsl(var(--foreground))]">
+                    {action}
+                  </span>
+                  {detail ? (
+                    <span className="text-[hsl(var(--muted-foreground))] [overflow-wrap:anywhere]">
+                      {' '}
+                      — {detail}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                  {formatSessionDateTime(entry.at)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </Card>
   );

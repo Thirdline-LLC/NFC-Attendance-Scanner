@@ -1,6 +1,7 @@
 import Dexie from 'dexie';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
+import { maskCardUid } from '@/lib/scan-format';
 import {
   listPersons,
   listTapRecords,
@@ -203,6 +204,8 @@ describe('hasGraduated', () => {
 
 // What the reader types: exactly 14 hex characters (src/lib/scan-format.ts).
 const UID_PATTERN = /[0-9A-F]{14}/i;
+/** What the card column carries instead: the same masked tail the screen shows. */
+const MASKED_TAIL_PATTERN = /^••••[0-9A-F]{4}$/;
 const STRANGER_UID = '0011223344AABB';
 const SPRING_2026 = at('2026-03-10');
 
@@ -251,7 +254,7 @@ describe('buildAttendanceRows', () => {
     expect(rows).toEqual([
       {
         Timestamp: '2026-09-15 12:00:00',
-        'Card UID': jordan.cardUid,
+        'Card (last 4)': maskCardUid(jordan.cardUid),
         'Meeting Date': '2026-09-15',
         Name: 'Jordan Lee',
         Email: 'jlee27@stjohnschs.org',
@@ -279,7 +282,7 @@ describe('buildAttendanceRows', () => {
 
     expect(row).toEqual({
       Timestamp: '2026-09-15 12:00:00',
-      'Card UID': STRANGER_UID,
+      'Card (last 4)': maskCardUid(STRANGER_UID),
       'Meeting Date': '2026-09-15',
       Name: UNKNOWN_CARD_NAME,
       Email: '',
@@ -304,7 +307,7 @@ describe('buildAttendanceRows', () => {
     for (const row of rows) {
       expect(row.Name).not.toMatch(UID_PATTERN);
       expect(row.Name).not.toMatch(/undefined|null/);
-      expect(row['Card UID']).toMatch(UID_PATTERN);
+      expect(row['Card (last 4)']).toMatch(MASKED_TAIL_PATTERN);
     }
     expect(rows[3].Name).toBe(UNKNOWN_CARD_NAME);
   });
@@ -350,7 +353,7 @@ describe('buildAttendanceRows', () => {
 describe('buildAttendanceWorkbook', () => {
   const EXPORT_HEADERS = [
     'Timestamp',
-    'Card UID',
+    'Card (last 4)',
     'Meeting Date',
     'Name',
     'Email',
@@ -499,7 +502,7 @@ describe('exporting migrated records', () => {
     expect(rows).toEqual([
       {
         Timestamp: '2026-03-10 12:00:00',
-        'Card UID': jordan.cardUid,
+        'Card (last 4)': maskCardUid(jordan.cardUid),
         'Meeting Date': '2026-03-10',
         Name: 'Jordan Lee',
         Email: jordan.email,
@@ -507,7 +510,7 @@ describe('exporting migrated records', () => {
       },
       {
         Timestamp: '2026-03-10 12:05:00',
-        'Card UID': STRANGER_UID,
+        'Card (last 4)': maskCardUid(STRANGER_UID),
         'Meeting Date': '2026-03-10',
         Name: UNKNOWN_CARD_NAME,
         Email: '',
@@ -515,7 +518,7 @@ describe('exporting migrated records', () => {
       },
       {
         Timestamp: '2026-03-10 12:10:00',
-        'Card UID': jordan.cardUid,
+        'Card (last 4)': maskCardUid(jordan.cardUid),
         'Meeting Date': '2026-03-10',
         Name: 'Jordan Lee',
         Email: jordan.email,
@@ -523,7 +526,7 @@ describe('exporting migrated records', () => {
       },
       {
         Timestamp: '2026-09-15 12:00:00',
-        'Card UID': jordan.cardUid,
+        'Card (last 4)': maskCardUid(jordan.cardUid),
         'Meeting Date': '2026-09-15',
         Name: 'Jordan Lee',
         Email: jordan.email,
@@ -549,5 +552,71 @@ describe('exporting migrated records', () => {
     expect(
       XLSX.utils.sheet_to_json(workbook.Sheets.Attendance, { defval: '' }),
     ).toEqual(rows);
+  });
+});
+
+describe('the card column', () => {
+  it('never writes a full card UID — the file gets the same last four the screen shows', () => {
+    const rows = buildAttendanceRows(
+      [
+        {
+          id: 1,
+          uid: '04A1B2C3D4E5F6',
+          scannedAt: FALL_2026,
+          personId: null,
+          sessionId: 'session',
+          counted: false,
+        },
+      ],
+      [],
+    );
+    expect(rows[0]['Card (last 4)']).toBe('••••E5F6');
+    expect(JSON.stringify(rows)).not.toContain('04A1B2C3D4E5F6');
+  });
+});
+
+describe('the Activity sheet', () => {
+  it('is written only when a log is handed over', () => {
+    const now = new Date('2026-09-15T21:00:00.000Z');
+    const without = buildAttendanceWorkbook([], [], now);
+    expect(without.workbook.SheetNames).toEqual(['Attendance']);
+
+    const withLog = buildAttendanceWorkbook([], [], now, [
+      {
+        id: 2,
+        at: '2026-09-15T20:30:00.000Z',
+        kind: 'export-session',
+        filename: 'attendance-2026-09-15-20260915T203000Z.xlsx',
+        delivery: 'file',
+        taps: 12,
+        sessions: 1,
+      },
+      { id: 1, at: '2026-09-10T20:00:00.000Z', kind: 'pin-set' },
+    ]);
+    expect(withLog.workbook.SheetNames).toEqual(['Attendance', 'Activity']);
+
+    const reopened = XLSX.read(
+      XLSX.write(withLog.workbook, { type: 'array', bookType: 'xlsx' }),
+      { type: 'array' },
+    );
+    const rows = XLSX.utils.sheet_to_json<Record<string, string>>(
+      reopened.Sheets.Activity,
+    );
+    expect(Object.keys(rows[0])).toEqual(['When', 'Action', 'Detail']);
+    expect(rows[0].Action).toBe('Exported this session');
+    expect(rows[0].Detail).toContain('saved to Documents');
+    // A PIN row has no detail, so the cell is absent from the reopened JSON.
+    expect(rows[1].Action).toBe('Teacher PIN set');
+  });
+
+  it('reaches the delivered workbook through exportAttendanceWorkbook', async () => {
+    await exportAttendanceWorkbook([], [], [
+      { id: 1, at: '2026-09-10T20:00:00.000Z', kind: 'pin-set' },
+    ]);
+    const [workbook] = vi.mocked(XLSX.writeFile).mock.calls.at(-1) as [
+      XLSX.WorkBook,
+      string,
+    ];
+    expect(workbook.SheetNames).toEqual(['Attendance', 'Activity']);
   });
 });

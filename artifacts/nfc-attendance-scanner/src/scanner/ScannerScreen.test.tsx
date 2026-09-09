@@ -682,3 +682,91 @@ describe('ScannerScreen first run', () => {
     );
   });
 });
+
+describe('ScannerScreen activity log', () => {
+  const FILENAME = 'attendance-2026-09-15-20260915T210000Z.xlsx';
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+    await addPerson(knownPerson);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** One enrolled student checked in, then End Session pressed. */
+  async function renderAndEndSession() {
+    const user = userEvent.setup();
+    renderScanner();
+    await waitFor(() => expect(screen.getByText('Tap to check in')).toBeTruthy());
+    await scanCard(user, knownUid);
+    await waitFor(() =>
+      expect(screen.getByTestId('text-attendance-count').textContent).toBe('1'),
+    );
+    await user.click(screen.getByTestId('button-end-session'));
+    await screen.findByTestId('dialog-session-summary');
+    return user;
+  }
+
+  it('records a session export as counts and a filename only', async () => {
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockResolvedValue({
+      filename: FILENAME,
+      delivery: 'file',
+      uri: `file:///Documents/${FILENAME}`,
+    });
+    const record = vi.spyOn(attendanceStore, 'recordActivity').mockResolvedValue();
+    const user = await renderAndEndSession();
+
+    await user.click(screen.getByTestId('button-summary-export'));
+
+    await waitFor(() => expect(record).toHaveBeenCalledTimes(1));
+    const [entry] = record.mock.calls[0];
+    expect(entry).toMatchObject({
+      kind: 'export-session',
+      filename: FILENAME,
+      delivery: 'file',
+      taps: 1,
+      sessions: 1,
+    });
+    expect(JSON.stringify(entry)).not.toMatch(/@|[0-9A-F]{14}/);
+    expect(JSON.stringify(entry)).not.toContain('Jordan');
+    expect(screen.getByTestId('text-export-saved').textContent).not.toContain(
+      'activity log',
+    );
+  });
+
+  it('writes no row when the export is cancelled', async () => {
+    const { ExportCancelledError } = await import('@/platform/desktop-bridge');
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockRejectedValue(
+      new ExportCancelledError(),
+    );
+    const record = vi.spyOn(attendanceStore, 'recordActivity').mockResolvedValue();
+    const user = await renderAndEndSession();
+
+    await user.click(screen.getByTestId('button-summary-export'));
+
+    await screen.findByTestId('text-export-cancelled');
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('still reports the export as saved when the log row cannot be written, and says so', async () => {
+    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockResolvedValue({
+      filename: FILENAME,
+      delivery: 'file',
+    });
+    vi.spyOn(attendanceStore, 'recordActivity').mockRejectedValue(new Error('quota'));
+    const user = await renderAndEndSession();
+
+    await user.click(screen.getByTestId('button-summary-export'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-export-saved').textContent).toContain(
+        'The activity log entry could not be written.',
+      ),
+    );
+    expect(screen.queryByTestId('text-export-failed')).toBeNull();
+  });
+});

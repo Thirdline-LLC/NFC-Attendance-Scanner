@@ -13,6 +13,7 @@ import {
   UserRoundCheck,
   Users,
 } from 'lucide-react';
+import { recordActivity } from '@/data/attendance-store';
 import { exportAttendanceWorkbook } from '@/lib/attendance-export';
 import { type ExportResult } from '@/ui/ExportNotice';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
@@ -152,7 +153,28 @@ export function ScannerScreen() {
   // v3 upgrade stamped 'legacy' — is exported from the dashboard instead.
   const handleExport = useCallback(async () => {
     try {
-      setExportResult({ ok: true, ...(await exportAttendanceWorkbook(taps, persons)) });
+      const delivered = await exportAttendanceWorkbook(taps, persons);
+      // The notice goes up the moment the file is delivered — that is the
+      // fact the operator is waiting for. The log row is written after it, so
+      // a cancelled Save dialog leaves no row; the row is counts and a
+      // filename, so the log can be read without being a disclosure itself.
+      setExportResult({ ok: true, ...delivered });
+      try {
+        await recordActivity({
+          at: new Date().toISOString(),
+          kind: 'export-session',
+          filename: delivered.filename,
+          delivery: delivered.delivery,
+          taps: taps.length,
+          sessions: 1,
+        });
+      } catch {
+        // The file is already delivered; a log that could not be written must
+        // not turn that into "the export failed". The notice says so instead.
+        setExportResult((current) =>
+          current?.ok ? { ...current, logFailed: true } : current,
+        );
+      }
     } catch (error) {
       // Closing the desktop Save dialog is a decision, not a fault. Reporting
       // it as a failure would send the operator hunting for a problem that is
