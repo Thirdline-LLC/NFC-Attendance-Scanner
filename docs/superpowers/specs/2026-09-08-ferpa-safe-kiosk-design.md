@@ -1,6 +1,6 @@
 # Making the attendance kiosk FERPA-safe
 
-**Date:** 2026-09-08 · **Status:** approved in chat and gap-reviewed the same evening (nine gaps closed, one by Asher's call); implementation not started ·
+**Date:** 2026-09-08 · **Status:** approved, gap-reviewed and **implemented 2026-09-08** — four branches merged into main, 509 tests in 34 files ·
 **Owner:** Asher Mills
 
 ## Why
