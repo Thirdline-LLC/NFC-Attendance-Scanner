@@ -13,7 +13,15 @@ import type { DeliveredExport } from '@/lib/workbook-delivery';
  * browser download, a device write — keep working unchanged.
  */
 export type ExportResult =
-  | ({ ok: true } & DeliveredExport)
+  | ({
+      ok: true;
+      /**
+       * The file was delivered but the activity row was not written. Said in
+       * the success notice rather than reported as a failure: the export is
+       * done, and "failed" would send a teacher hunting for a file that exists.
+       */
+      logFailed?: boolean;
+    } & DeliveredExport)
   | { ok: false; cancelled?: boolean }
   | null;
 
@@ -70,7 +78,7 @@ export function ExportNotice({ result }: { result: ExportResult }) {
 
   return (
     <p
-      className="mt-3 flex items-start gap-2 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.08)] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--accent))]"
+      className="mt-3 flex flex-wrap items-start gap-2 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.08)] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--accent))]"
       role="status"
       data-testid="text-export-saved"
     >
@@ -99,6 +107,20 @@ export function ExportNotice({ result }: { result: ExportResult }) {
           was blocked and the attendance has not left this device.
         </span>
       )}
+      {/* The one rule about destinations, on every route: this file holds
+          minors' names, and the standing rule is that school data never lands
+          on a personal account. */}
+      <span className="basis-full pl-[22px]">
+        Send this file only to a school account.
+        {result.logFailed ? (
+          <>
+            {' '}
+            <span data-testid="text-export-log-failed">
+              The activity log entry could not be written.
+            </span>
+          </>
+        ) : null}
+      </span>
     </p>
   );
 }
