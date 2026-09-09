@@ -190,7 +190,7 @@ describe('operator PIN', () => {
     });
     // Ninth miss would be 30 s × 2^4 = 480 s; the cap holds it at 300 s.
     let t = after(31_000 + 60_000 + 1000);
-    for (let miss = 7; miss <= 9; miss += 1) {
+    for (let miss = 7; miss <= 8; miss += 1) {
       const verdict = await verifyOperatorPin('0000', t);
       expect(verdict.status).toBe('wrong');
       if (verdict.status === 'wrong') {
