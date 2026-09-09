@@ -1,8 +1,16 @@
 import Dexie from 'dexie';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { setOperatorPin } from '@/data/operator-pin';
 import { AppRouter, routerBasename } from './AppRouter';
 
 /**
@@ -14,10 +22,20 @@ function renderAt(path: string) {
   return render(<AppRouter />);
 }
 
+/** Types the teacher PIN into the gate and submits by button. */
+async function passGate(user: ReturnType<typeof userEvent.setup>, pin = '2468') {
+  const dialog = await screen.findByTestId('dialog-pin');
+  await user.type(within(dialog).getByTestId('input-pin'), pin);
+  await user.click(within(dialog).getByTestId('button-pin-submit'));
+  await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+}
+
 describe('AppRouter', () => {
   beforeEach(async () => {
     localStorage.clear();
     await Dexie.delete('attendance-scanner-local');
+    // A device with a PIN: the two admin routes ask for it.
+    await setOperatorPin('2468');
   });
 
   afterEach(() => {
@@ -31,13 +49,16 @@ describe('AppRouter', () => {
     expect(await screen.findByTestId('scanner-station')).toBeTruthy();
   });
 
-  it('serves the roster at /roster and the dashboard at /dashboard', async () => {
+  it('serves the roster at /roster and the dashboard at /dashboard, behind the gate', async () => {
+    const user = userEvent.setup();
     renderAt('/roster');
+    await passGate(user);
     expect(await screen.findByTestId('roster-page')).toBeTruthy();
     expect(await screen.findByTestId('roster-manager')).toBeTruthy();
     cleanup();
 
     renderAt('/dashboard');
+    await passGate(user);
     expect(await screen.findByTestId('dashboard-page')).toBeTruthy();
     expect(await screen.findByTestId('dashboard')).toBeTruthy();
   });
@@ -52,6 +73,7 @@ describe('AppRouter', () => {
   it('leaves the roster search focused: the hidden scanner input is not mounted', async () => {
     const user = userEvent.setup();
     renderAt('/roster');
+    await passGate(user);
 
     const search = await screen.findByTestId('input-roster-search');
     await user.type(search, 'jane');
@@ -77,6 +99,7 @@ describe('AppRouter', () => {
     await waitFor(() => expect(document.activeElement).toBe(scannerInput));
 
     await user.click(screen.getByTestId('link-roster'));
+    await passGate(user);
     expect(await screen.findByTestId('roster-page')).toBeTruthy();
     expect(screen.queryByTestId('scanner-station')).toBeNull();
 
@@ -88,10 +111,14 @@ describe('AppRouter', () => {
   it('crosses between the two admin pages without the kiosk in between', async () => {
     const user = userEvent.setup();
     renderAt('/roster');
+    await passGate(user);
     await screen.findByTestId('roster-page');
 
     await user.click(screen.getByTestId('link-dashboard'));
     expect(await screen.findByTestId('dashboard-page')).toBeTruthy();
+    // One unlock covers both admin pages: the gate is per visit to the
+    // teacher's side, not per page.
+    expect(screen.queryByTestId('dialog-pin')).toBeNull();
 
     // Going the other way used to mean a round trip through the scanner, which
     // takes the reader focus on the way past.
@@ -106,8 +133,54 @@ describe('AppRouter', () => {
     await screen.findByTestId('scanner-station');
 
     await user.click(screen.getByTestId('link-dashboard'));
+    await passGate(user);
 
     expect(await screen.findByTestId('dashboard-page')).toBeTruthy();
+  });
+
+  it('shows the gate and mounts nothing until the teacher unlocks', async () => {
+    const user = userEvent.setup();
+    renderAt('/roster');
+
+    expect(await screen.findByTestId('locked-page')).toBeTruthy();
+    expect(screen.getByTestId('text-scans-paused')).toBeTruthy();
+    expect(screen.queryByTestId('roster-manager')).toBeNull();
+
+    await passGate(user);
+    expect(await screen.findByTestId('roster-manager')).toBeTruthy();
+  });
+
+  it('returns to the scanner when the gate is cancelled', async () => {
+    const user = userEvent.setup();
+    renderAt('/dashboard');
+    await screen.findByTestId('dialog-pin');
+
+    await user.click(screen.getByTestId('button-pin-cancel'));
+
+    expect(await screen.findByTestId('scanner-station')).toBeTruthy();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('locks again once the teacher has gone back to the scanner', async () => {
+    const user = userEvent.setup();
+    renderAt('/roster');
+    await passGate(user);
+    await screen.findByTestId('roster-manager');
+
+    await user.click(screen.getByTestId('link-scanner'));
+    await screen.findByTestId('scanner-station');
+    await user.click(screen.getByTestId('link-roster'));
+
+    expect(await screen.findByTestId('dialog-pin')).toBeTruthy();
+    expect(screen.queryByTestId('roster-manager')).toBeNull();
+  });
+
+  it('offers to set a PIN on a device that has none', async () => {
+    await Dexie.delete('attendance-scanner-local');
+    renderAt('/roster');
+    expect((await screen.findByTestId('text-pin-title')).textContent).toBe(
+      'Set a teacher PIN',
+    );
   });
 });
 
