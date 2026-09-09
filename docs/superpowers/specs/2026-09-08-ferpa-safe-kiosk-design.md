@@ -309,6 +309,7 @@ export type ActivityEntry = {
   taps?: number;              // exports, removals, purges
   sessions?: number;          // exports (1 for a session export), removals, purges
   students?: number;          // remove-alumni
+  before?: string;            // purge-history: the school-year boundary, ISO date
 };
 
 export const ACTIVITY_LOG_CAP = 500;
