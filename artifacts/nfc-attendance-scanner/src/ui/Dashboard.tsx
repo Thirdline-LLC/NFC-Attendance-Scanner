@@ -4,6 +4,7 @@ import {
   Database,
   FileSpreadsheet,
   History,
+  KeyRound,
   RefreshCw,
   ScanLine,
   Target,
@@ -54,6 +55,8 @@ type DashboardProps = {
    * render this component without a page keep working.
    */
   activity?: ActivityEntry[];
+  /** Opens the change-PIN dialog. Optional: without it the card is not shown. */
+  onChangePin?: () => void;
 };
 
 /** Enough to act on without scrolling on a phone; the count says the rest. */
@@ -81,6 +84,7 @@ export function Dashboard({
   onExportAll,
   onSaveTarget,
   activity = [],
+  onChangePin,
 }: DashboardProps) {
   const { ytd, gradeBreakdown, enrolledStudents, unidentified } = metrics;
   const percent = Math.round(ytd.percentOfTarget);
@@ -189,6 +193,8 @@ export function Dashboard({
         />
 
         <ActivitySection entries={activity} />
+
+        {onChangePin ? <TeacherPinCard onChangePin={onChangePin} /> : null}
       </div>
     </section>
   );
@@ -572,6 +578,30 @@ function ActivitySection({ entries }: { entries: ActivityEntry[] }) {
           })}
         </ul>
       )}
+    </Card>
+  );
+}
+
+/** The one place the PIN can be changed. Setting it the first time happens at the gate. */
+function TeacherPinCard({ onChangePin }: { onChangePin: () => void }) {
+  return (
+    <Card eyebrow="Teacher PIN" icon={<KeyRound aria-hidden="true" size={16} />}>
+      <p
+        className="mt-1 text-xs text-[hsl(var(--muted-foreground))]"
+        data-testid="section-teacher-pin"
+      >
+        Opens End Session, this page and the roster. A screen gate, not
+        encryption — and there is no way to recover a forgotten PIN.
+      </p>
+      <button
+        type="button"
+        onClick={onChangePin}
+        className="mt-4 flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+        data-testid="button-change-pin"
+      >
+        <KeyRound aria-hidden="true" size={14} />
+        Change PIN
+      </button>
     </Card>
   );
 }

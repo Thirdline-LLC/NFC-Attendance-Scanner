@@ -22,6 +22,7 @@ import { Dashboard } from '@/ui/Dashboard';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
+import { PinDialog } from '@/lock/PinDialog';
 
 /**
  * The container behind `Dashboard`: it reads the whole tap history and the
@@ -44,6 +45,9 @@ export function DashboardPage() {
   // re-read on its own after an export so the new row shows without the
   // numbers being recomputed for nothing.
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  // The change-PIN dialog and the one-line notice its success leaves behind.
+  const [changingPin, setChangingPin] = useState(false);
+  const [pinNotice, setPinNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -253,11 +257,40 @@ export function DashboardPage() {
               onExportAll={history ? () => void exportAll() : undefined}
               onSaveTarget={saveTarget}
               activity={activity}
+              onChangePin={() => {
+                setPinNotice(null);
+                setChangingPin(true);
+              }}
             />
             <ExportNotice result={exportResult} />
+            {pinNotice ? (
+              <p
+                className="mt-3 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.08)] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--accent))]"
+                role="status"
+                data-testid="text-pin-changed"
+              >
+                {pinNotice}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
+
+      {changingPin ? (
+        <PinDialog
+          mode="change"
+          onChanged={() => {
+            setChangingPin(false);
+            setPinNotice('Teacher PIN changed.');
+            // The log gained a row; re-read only that. A failed re-read leaves
+            // the list one row stale, which the next refresh corrects.
+            void listActivity()
+              .then(setActivity)
+              .catch(() => undefined);
+          }}
+          onCancel={() => setChangingPin(false)}
+        />
+      ) : null}
     </main>
   );
 }
