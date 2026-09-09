@@ -15,11 +15,16 @@ import {
   listSessionTapRecords,
   listActivity,
   listTapRecords,
+  previewAlumniRemoval,
+  previewHistoryPurge,
   previewPersonRemoval,
+  purgeHistoryBefore,
   recordActivity,
   recordSessionTap,
+  removeAlumni,
   setAttendanceTarget,
   updatePerson,
+  type Person,
 } from './attendance-store';
 import { useAttendanceSession } from '@/scanner/use-attendance-session';
 
@@ -608,5 +613,111 @@ describe('activity log', () => {
     await recordActivity({ at: '2026-09-15T20:00:00.000Z', kind: 'pin-set' });
     await clearAllAttendanceHistory();
     expect(await listActivity()).toHaveLength(1);
+  });
+});
+
+describe('retention', () => {
+  const BOUNDARY = '2026-08-01';
+  const isStale = (scannedAt: string) => scannedAt.slice(0, 10) < BOUNDARY;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  async function seed() {
+    const grad = await addPerson({
+      cardUid: '04AAAAAAAAAAAA',
+      firstName: 'Grace',
+      lastName: 'Old',
+      gradYear: 2026,
+      email: 'gold26@stjohnschs.org',
+      enrolledAt: '2025-09-01T12:00:00.000Z',
+    });
+    const junior = await addPerson({
+      cardUid: '04BBBBBBBBBBBB',
+      firstName: 'Jun',
+      lastName: 'New',
+      gradYear: 2028,
+      email: 'jnew28@stjohnschs.org',
+      enrolledAt: '2025-09-01T12:00:00.000Z',
+    });
+    // Last school year: two sessions, one of them 'legacy'.
+    await recordSessionTap({
+      sessionId: 'legacy',
+      uid: grad.cardUid,
+      scannedAt: '2025-10-01T20:00:00.000Z',
+      personId: grad.id as number,
+    });
+    await recordSessionTap({
+      sessionId: 'old',
+      uid: junior.cardUid,
+      scannedAt: '2026-03-01T20:00:00.000Z',
+      personId: junior.id as number,
+    });
+    // The graduate's card, tapped before it was enrolled — matched by UID only.
+    await recordSessionTap({
+      sessionId: 'old',
+      uid: grad.cardUid,
+      scannedAt: '2026-03-01T20:05:00.000Z',
+      personId: null,
+    });
+    // This school year.
+    await recordSessionTap({
+      sessionId: 'new',
+      uid: junior.cardUid,
+      scannedAt: '2026-09-15T20:00:00.000Z',
+      personId: junior.id as number,
+    });
+    await recordSessionTap({
+      sessionId: 'new',
+      uid: grad.cardUid,
+      scannedAt: '2026-09-15T20:01:00.000Z',
+      personId: grad.id as number,
+    });
+    // Pre-enrollment rows a v1/v2 database carried up.
+    await withRawDatabase(async (raw) => {
+      await raw.table('scans').bulkAdd([
+        { uid: '04CCCCCCCCCCCC', scannedAt: '2025-09-10T20:00:00.000Z' },
+        { uid: '04DDDDDDDDDDDD', scannedAt: '2026-09-10T20:00:00.000Z' },
+      ]);
+    });
+    return { grad, junior };
+  }
+
+  it('previews and deletes only the taps before the boundary, and leaves the roster alone', async () => {
+    const { grad, junior } = await seed();
+
+    expect(await previewHistoryPurge(isStale)).toEqual({ tapCount: 3, sessionCount: 2 });
+    expect(await purgeHistoryBefore(isStale)).toEqual({ tapCount: 3, sessionCount: 2 });
+
+    const left = await listTapRecords();
+    expect(left.map((tap) => tap.sessionId)).toEqual(['new', 'new']);
+    expect((await listPersons()).map((person) => person.id).sort()).toEqual(
+      [grad.id, junior.id].sort(),
+    );
+    await withRawDatabase(async (raw) => {
+      expect(await raw.table('scans').toArray()).toEqual([
+        { uid: '04DDDDDDDDDDDD', scannedAt: '2026-09-10T20:00:00.000Z' },
+      ]);
+    });
+    expect(await previewHistoryPurge(isStale)).toEqual({ tapCount: 0, sessionCount: 0 });
+  });
+
+  it('removes graduated students with every tap of theirs, by id and by card, and nobody else', async () => {
+    const { grad, junior } = await seed();
+    const isAlumni = (person: Person) => person.gradYear <= 2026;
+
+    expect(await previewAlumniRemoval(isAlumni)).toEqual({ studentCount: 1, tapCount: 3 });
+    expect(await removeAlumni(isAlumni)).toEqual({ studentCount: 1, tapCount: 3 });
+
+    expect((await listPersons()).map((person) => person.id)).toEqual([junior.id]);
+    const left = await listTapRecords();
+    expect(left).toHaveLength(2);
+    expect(
+      left.every((tap) => tap.uid === junior.cardUid && tap.personId === junior.id),
+    ).toBe(true);
+    expect(left.some((tap) => tap.uid === grad.cardUid)).toBe(false);
+    expect(await previewAlumniRemoval(isAlumni)).toEqual({ studentCount: 0, tapCount: 0 });
   });
 });
