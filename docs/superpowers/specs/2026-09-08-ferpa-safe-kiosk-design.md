@@ -388,7 +388,7 @@ green; `run test:browser` where Chromium is available. Total today: 446 tests in
 | # | Branch | Contents | Why this order |
 |---|---|---|---|
 | 1 | `export/masked-uid-and-activity` | Dexie v6, `recordActivity`/`listActivity`, masked column, `Activity` sheet, dashboard Activity section, logging in the existing export and remove paths, the school-account sentence | Everything later logs to this table |
-| 2 | `lock/operator-pin` | PIN module, provider, dialog, `LockedRoute`, scanner gate, header glyph, the unset banner, the *Teacher PIN* card; and the run-skill driver (`.claude/skills/run-nfc-attendance-scanner/driver.mjs` and its `SKILL.md`) taught to set and enter a PIN, since it clicks End Session and walks to `/roster` | Gates what 1 and 3 expose |
+| 2 | `lock/operator-pin` | PIN module, provider, dialog, `LockedRoute`, scanner gate, header glyph, the unset banner, the *Teacher PIN* card; and the run-skill driver (`.claude/skills/run-nfc-attendance-scanner/driver.mjs` and its `SKILL.md`) given the PIN dialog's selectors and a note — its smoke flow only enrolls and reads IndexedDB, so it never meets the gate (checked 2026-09-08; an earlier draft of this row said otherwise) | Gates what 1 and 3 expose |
 | 3 | `retention/purge` | Store functions, shared confirm dialog, *Data retention* section | Logs to 1, gated by 2 |
 | 4 | `docs/data-protection` | The four documents above, and the memory/skill notes if any wording changed on screen | Written last so it describes what shipped |
 
