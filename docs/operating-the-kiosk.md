@@ -7,6 +7,26 @@ Everything is stored **on this one device**. Nothing goes to a server, and
 nothing is backed up anywhere. The Excel file you export at the end is the
 real record. Export it every time.
 
+## Before the first session — for the teacher
+
+The kiosk has a **teacher PIN**. Anyone at the desk can check students in and
+enroll new cards without it; the PIN opens the things only a teacher should
+see — **End Session** (the totals and the export), the **Students** page and
+the **Dashboard**.
+
+1. **Set it when the app is installed, before the device goes on a desk.**
+   Press **End Session** on a fresh install and the kiosk asks you to choose a
+   PIN of 4 to 8 digits, twice. Until you do, the scanner shows a red banner
+   saying the records are open — that banner is telling the truth.
+2. **Write it down somewhere safe. There is no way to recover it.** A
+   forgotten PIN means the app's data has to be cleared, which loses everything
+   that was not exported.
+3. Only the teacher should know it. Students at the desk never need it.
+
+Five wrong tries lock the PIN for 30 seconds, then longer. Your unlock lasts
+one visit: it ends when you go back to the scanner, when you close End
+Session, or after five minutes with nobody touching the device.
+
 ## Starting the day
 
 1. Open the scanner screen. You should see a big number, the word
@@ -58,9 +78,10 @@ session. Second taps never raise it.
 
 ## Ending a session and exporting
 
-1. Press **End Session**, bottom right. This is safe: it only shows you the
-   totals. Nothing is deleted, and **Back to scanning** returns you to the
-   count exactly as it was.
+1. Press **End Session**, bottom right, and enter the **teacher PIN**. (A
+   student running the desk cannot do this step — wave the teacher over.)
+   This is safe: it only shows you the totals. Nothing is deleted, and
+   **Back to scanning** returns you to the count exactly as it was.
 2. Read the four numbers: unique attendance, total taps, duplicate taps,
    unknown cards.
 3. Press **Export this session**. A message appears naming the file, something
@@ -73,8 +94,9 @@ session. Second taps never raise it.
      it instead says the file was handed to the browser, stop and report it:
      the tablet build has not been tested on a real device yet, and that
      wording means the export did not go where it should.
-4. **Email or upload the file the same day.** It is the only copy that leaves
-   the device.
+4. **Email or upload the file the same day, to a school account only** — the
+   message on screen says the same. It is the only copy that leaves the
+   device, and it holds students' names.
 5. If another meeting follows, press **Start New Session** and confirm. That
    starts a fresh count. Nothing is erased — the old taps stay on the device
    and still appear in the dashboard's export.
@@ -84,11 +106,18 @@ To get everything ever recorded, not just today: **Dashboard** →
 
 ## The other two screens
 
+Both ask for the **teacher PIN** before they show anything.
+
 - **Students** — everyone enrolled on this device. Search by name, email or
   the last four characters of a card. You can fix a name, class year or email.
   The card itself cannot be changed.
 - **Dashboard** — attendance for the school year, and a count of cards that
-  still belong to nobody.
+  still belong to nobody. Also three cards for the teacher: **Activity** (every
+  export and deletion this device has made, as counts and filenames — never a
+  name), **Data retention** (at the start of each school year, after
+  *Export all history*: delete last year's taps, and remove graduated
+  students — each shows what it will delete before asking, and neither can be
+  undone), and **Teacher PIN** (change it).
 
   Each row also has a **Remove** button. It deletes the student *and every tap
   they have ever made on this device*, cannot be undone, and changes the
@@ -128,7 +157,14 @@ all, check the reader's cable, then check that the dot in the top right says
   still one.
 
 **Someone pressed End Session by mistake.** Nothing happened. Press
-**Back to scanning**.
+**Back to scanning** — or **Cancel** if it is asking for the PIN.
+
+**The teacher forgot the PIN.** The attendance is still on the device, but
+End Session, the Students page and the Dashboard cannot be opened, so nothing
+can be exported. There is no reset. The only way back is to clear the app's
+data, which erases everything that was not already exported — so before
+doing that, find every exported file you have. Then reinstall, set a new PIN,
+and enroll the students again by tapping their cards.
 
 **The tablet or laptop restarted.** The count for the session survives — it is
 on the device. Open the kiosk again and carry on.
