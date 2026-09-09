@@ -5,24 +5,40 @@ import {
   ACTIVITY_LOG_CAP,
   listActivity,
   listPersons,
+  previewAlumniRemoval,
+  previewHistoryPurge,
+  purgeHistoryBefore,
   recordActivity,
+  removeAlumni,
   setAttendanceTarget,
   getAttendanceTarget,
   listTapRecords,
   type ActivityEntry,
+  type AlumniRemoval,
+  type HistoryPurge,
   type Person,
   type TapRecord,
 } from '@/data/attendance-store';
-import { exportAttendanceWorkbook } from '@/lib/attendance-export';
+import { deriveGrade, exportAttendanceWorkbook } from '@/lib/attendance-export';
 import {
   computeDashboardMetrics,
+  schoolYearStart,
   type DashboardMetrics,
 } from '@/lib/attendance-metrics';
+import {
+  formatSessionDate,
+  formatSessionDateLabel,
+} from '@/lib/session-formatting';
+import { RetentionDialog } from '@/ui/RetentionDialog';
 import { Dashboard } from '@/ui/Dashboard';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
 import { PinDialog } from '@/lock/PinDialog';
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
 
 /**
  * The container behind `Dashboard`: it reads the whole tap history and the
@@ -48,24 +64,43 @@ export function DashboardPage() {
   // The change-PIN dialog and the one-line notice its success leaves behind.
   const [changingPin, setChangingPin] = useState(false);
   const [pinNotice, setPinNotice] = useState<string | null>(null);
+  // The two retention previews, read with the page so the buttons can say
+  // what they would do before anyone presses them; the action being
+  // confirmed, whether it is running, and what it said when it finished.
+  const [boundary, setBoundary] = useState(() =>
+    schoolYearStart(new Date().toISOString()),
+  );
+  const [historyPreview, setHistoryPreview] = useState<HistoryPurge | null>(null);
+  const [alumniPreview, setAlumniPreview] = useState<AlumniRemoval | null>(null);
+  const [retentionAction, setRetentionAction] = useState<
+    'history' | 'alumni' | null
+  >(null);
+  const [retentionWorking, setRetentionWorking] = useState(false);
+  const [retentionFailed, setRetentionFailed] = useState(false);
+  const [retentionNotice, setRetentionNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setLoadFailed(false);
     try {
-      const [taps, persons, target, recent] = await Promise.all([
+      // The school-year boundary and every grade label hang off `now`, so it is
+      // read once here and shared by the metrics and both retention previews.
+      const now = new Date().toISOString();
+      const start = schoolYearStart(now);
+      const [taps, persons, target, recent, stale, graduates] = await Promise.all([
         listTapRecords(),
         listPersons(),
         getAttendanceTarget(),
         listActivity(),
+        previewHistoryPurge((scannedAt) => formatSessionDate(scannedAt) < start),
+        previewAlumniRemoval((person) => deriveGrade(person.gradYear, now) === 'Alumni'),
       ]);
-      // The school-year boundary and every grade label hang off `now`, so it is
-      // read once here rather than inside the metrics.
-      setMetrics(
-        computeDashboardMetrics(taps, persons, new Date().toISOString(), target),
-      );
+      setMetrics(computeDashboardMetrics(taps, persons, now, target));
       setHistory({ taps, persons });
       setActivity(recent);
+      setBoundary(start);
+      setHistoryPreview(stale);
+      setAlumniPreview(graduates);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -149,6 +184,72 @@ export function DashboardPage() {
       });
     }
   }, [history]);
+
+  /**
+   * Runs the confirmed retention action, logs it as counts only, and reloads
+   * so the numbers, both previews and the activity list all reflect what
+   * just went. The log row is written after the deletion; a row that could
+   * not be written is said in the notice, never allowed to undo the action.
+   */
+  const confirmRetention = useCallback(async () => {
+    if (!retentionAction) return;
+    setRetentionWorking(true);
+    setRetentionFailed(false);
+    try {
+      const now = new Date().toISOString();
+      let notice: string;
+      let logFailed = false;
+      if (retentionAction === 'history') {
+        const start = schoolYearStart(now);
+        const purged = await purgeHistoryBefore(
+          (scannedAt) => formatSessionDate(scannedAt) < start,
+        );
+        notice = `Deleted ${plural(purged.tapCount, 'tap')} from ${plural(purged.sessionCount, 'session')} before ${formatSessionDateLabel(start)}.`;
+        try {
+          await recordActivity({
+            at: now,
+            kind: 'purge-history',
+            taps: purged.tapCount,
+            sessions: purged.sessionCount,
+            before: start,
+          });
+        } catch {
+          logFailed = true;
+        }
+      } else {
+        const removed = await removeAlumni(
+          (person) => deriveGrade(person.gradYear, now) === 'Alumni',
+        );
+        notice = `Removed ${plural(removed.studentCount, 'graduated student')} and ${plural(removed.tapCount, 'tap')}.`;
+        try {
+          await recordActivity({
+            at: now,
+            kind: 'remove-alumni',
+            students: removed.studentCount,
+            taps: removed.tapCount,
+          });
+        } catch {
+          logFailed = true;
+        }
+      }
+      setRetentionAction(null);
+      setRetentionNotice(
+        notice + (logFailed ? ' The activity log entry could not be written.' : ''),
+      );
+      await load();
+    } catch {
+      // The dialog stays open with the failure named: nothing was deleted,
+      // and closing it would read as if something had been.
+      setRetentionFailed(true);
+    } finally {
+      setRetentionWorking(false);
+    }
+  }, [retentionAction, load]);
+
+  const retentionCost =
+    retentionAction === 'history'
+      ? `This deletes ${plural(historyPreview?.tapCount ?? 0, 'tap')} across ${plural(historyPreview?.sessionCount ?? 0, 'session')} recorded before ${formatSessionDateLabel(boundary)}, including sessions already finished. They will disappear from the dashboard and from any export made after this. The roster is untouched.`
+      : `This removes ${plural(alumniPreview?.studentCount ?? 0, 'graduated student')} and ${plural(alumniPreview?.tapCount ?? 0, 'tap')} — every check-in that resolves to them, by name or by card. Their cards can be enrolled again as new students.`;
 
   return (
     <main
@@ -261,6 +362,21 @@ export function DashboardPage() {
                 setPinNotice(null);
                 setChangingPin(true);
               }}
+              retention={{
+                schoolYearStart: boundary,
+                history: historyPreview,
+                alumni: alumniPreview,
+                onPurgeHistory: () => {
+                  setRetentionNotice(null);
+                  setRetentionFailed(false);
+                  setRetentionAction('history');
+                },
+                onRemoveAlumni: () => {
+                  setRetentionNotice(null);
+                  setRetentionFailed(false);
+                  setRetentionAction('alumni');
+                },
+              }}
             />
             <ExportNotice result={exportResult} />
             {pinNotice ? (
@@ -272,9 +388,36 @@ export function DashboardPage() {
                 {pinNotice}
               </p>
             ) : null}
+            {retentionNotice ? (
+              <p
+                className="mt-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--muted-foreground))]"
+                role="status"
+                data-testid="text-retention-done"
+              >
+                {retentionNotice}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
+
+      {retentionAction ? (
+        <RetentionDialog
+          title={
+            retentionAction === 'history'
+              ? `Delete attendance before ${formatSessionDateLabel(boundary)}?`
+              : 'Remove graduated students?'
+          }
+          cost={retentionCost}
+          failed={retentionFailed}
+          isWorking={retentionWorking}
+          confirmLabel={
+            retentionAction === 'history' ? 'Delete permanently' : 'Remove permanently'
+          }
+          onConfirm={() => void confirmRetention()}
+          onCancel={() => setRetentionAction(null)}
+        />
+      ) : null}
 
       {changingPin ? (
         <PinDialog

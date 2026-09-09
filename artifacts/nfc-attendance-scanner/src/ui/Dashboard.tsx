@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import {
+  Archive,
   BarChart3,
   Database,
   FileSpreadsheet,
@@ -8,6 +9,7 @@ import {
   RefreshCw,
   ScanLine,
   Target,
+  Trash2,
   UserRoundPlus,
   Users,
 } from 'lucide-react';
@@ -26,6 +28,8 @@ import { maskCardUid } from '@/lib/scan-format';
 import { describeActivity } from '@/lib/activity-wording';
 import {
   type ActivityEntry,
+  type AlumniRemoval,
+  type HistoryPurge,
   isValidAttendanceTarget,
   MAX_ATTENDANCE_TARGET,
   MIN_ATTENDANCE_TARGET,
@@ -57,6 +61,21 @@ type DashboardProps = {
   activity?: ActivityEntry[];
   /** Opens the change-PIN dialog. Optional: without it the card is not shown. */
   onChangePin?: () => void;
+  /**
+   * The two retention actions with their previews. Optional: the
+   * presentational tests render without a page. A `null` preview means the
+   * read has not answered yet.
+   */
+  retention?: RetentionControls;
+};
+
+export type RetentionControls = {
+  /** `YYYY-MM-DD`, the boundary the purge deletes before. */
+  schoolYearStart: string;
+  history: HistoryPurge | null;
+  alumni: AlumniRemoval | null;
+  onPurgeHistory: () => void;
+  onRemoveAlumni: () => void;
 };
 
 /** Enough to act on without scrolling on a phone; the count says the rest. */
@@ -85,6 +104,7 @@ export function Dashboard({
   onSaveTarget,
   activity = [],
   onChangePin,
+  retention,
 }: DashboardProps) {
   const { ytd, gradeBreakdown, enrolledStudents, unidentified } = metrics;
   const percent = Math.round(ytd.percentOfTarget);
@@ -193,6 +213,8 @@ export function Dashboard({
         />
 
         <ActivitySection entries={activity} />
+
+        {retention ? <RetentionSection {...retention} /> : null}
 
         {onChangePin ? <TeacherPinCard onChangePin={onChangePin} /> : null}
       </div>
@@ -602,6 +624,85 @@ function TeacherPinCard({ onChangePin }: { onChangePin: () => void }) {
         <KeyRound aria-hidden="true" size={14} />
         Change PIN
       </button>
+    </Card>
+  );
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * The two things a teacher does at the start of a school year, once the
+ * export is safe. Both are previewed from the store, both are disabled when
+ * there is nothing to do, and neither ever runs on its own.
+ */
+function RetentionSection({
+  schoolYearStart,
+  history,
+  alumni,
+  onPurgeHistory,
+  onRemoveAlumni,
+}: RetentionControls) {
+  const boundary = formatSessionDateLabel(schoolYearStart);
+  const actionClass =
+    'mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[hsl(var(--destructive)/.6)] px-3 py-2.5 text-xs font-bold uppercase tracking-[0.14em] text-[hsl(var(--destructive))] transition hover:bg-[hsl(var(--destructive)/.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-50';
+
+  return (
+    <Card eyebrow="Data retention" icon={<Archive aria-hidden="true" size={16} />}>
+      <p
+        className="mt-1 text-xs text-[hsl(var(--muted-foreground))]"
+        data-testid="section-retention"
+      >
+        Taps are kept for the current school year only. At the start of each
+        year, export all history, then run both. Neither can be undone.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] p-3">
+          <p
+            className="text-sm text-[hsl(var(--foreground))]"
+            data-testid="text-retention-history"
+          >
+            {history === null
+              ? 'Checking…'
+              : history.tapCount === 0
+                ? 'Nothing older than this school year.'
+                : `${plural(history.tapCount, 'tap')} across ${plural(history.sessionCount, 'session')} before ${boundary}`}
+          </p>
+          <button
+            type="button"
+            onClick={onPurgeHistory}
+            disabled={history === null || history.tapCount === 0}
+            className={actionClass}
+            data-testid="button-purge-history"
+          >
+            <Trash2 aria-hidden="true" size={14} />
+            Delete attendance before {boundary}
+          </button>
+        </div>
+        <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] p-3">
+          <p
+            className="text-sm text-[hsl(var(--foreground))]"
+            data-testid="text-retention-alumni"
+          >
+            {alumni === null
+              ? 'Checking…'
+              : alumni.studentCount === 0
+                ? 'No graduated students on this device.'
+                : `${plural(alumni.studentCount, 'graduated student')}, ${plural(alumni.tapCount, 'tap')}`}
+          </p>
+          <button
+            type="button"
+            onClick={onRemoveAlumni}
+            disabled={alumni === null || alumni.studentCount === 0}
+            className={actionClass}
+            data-testid="button-remove-alumni"
+          >
+            <Trash2 aria-hidden="true" size={14} />
+            Remove graduated students
+          </button>
+        </div>
+      </div>
     </Card>
   );
 }
