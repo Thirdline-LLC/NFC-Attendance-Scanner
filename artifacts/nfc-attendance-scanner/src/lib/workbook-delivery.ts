@@ -3,11 +3,20 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import * as XLSX from 'xlsx';
 
-import type { AttendanceWorkbook } from '@/lib/attendance-export';
 import {
   ExportCancelledError,
   getDesktopBridge,
 } from '@/platform/desktop-bridge';
+
+/**
+ * Anything built and ready to leave the device: the attendance workbook, the
+ * roster workbook. Delivery does not care which sheet it is carrying, and
+ * naming the shape here keeps this module from importing the builders.
+ */
+export type DeliverableWorkbook = {
+  filename: string;
+  workbook: XLSX.WorkBook;
+};
 
 /**
  * How the workbook reached the operator.
@@ -84,7 +93,7 @@ function encodeWorkbook(workbook: XLSX.WorkBook): string {
 export async function deliverWorkbook({
   filename,
   workbook,
-}: AttendanceWorkbook): Promise<DeliveredExport> {
+}: DeliverableWorkbook): Promise<DeliveredExport> {
   // Checked before Capacitor: the desktop bridge is the more specific shell,
   // and `Capacitor.isNativePlatform()` is false inside Electron anyway.
   const desktop = getDesktopBridge();

@@ -9,7 +9,7 @@ import {
   addPerson,
   recordActivity,
   recordSessionTap,
-  type Person,
+  type BoundPerson,
 } from '@/data/attendance-store';
 import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
 import * as attendanceExport from '@/lib/attendance-export';
@@ -41,7 +41,7 @@ function renderPage() {
  * Two sessions, four taps: one student at both meetings, one at the first
  * only, and one card nobody has enrolled.
  */
-async function seedTwoSessions(): Promise<{ jane: Person; ada: Person }> {
+async function seedTwoSessions(): Promise<{ jane: BoundPerson; ada: BoundPerson }> {
   const seniorYear = currentSeniorGradYear(new Date().toISOString());
   const jane = await addPerson({
     cardUid: '04A1B2C3D4E5F6',

@@ -15,7 +15,10 @@ export function indexRoster(persons: readonly Person[]): RosterIndex {
 
   for (const person of persons) {
     if (person.id !== undefined) byId.set(person.id, person);
-    byCardUid.set(person.cardUid, person);
+    // A pre-enrolled student with no card yet is in `byId` only: indexing
+    // them under an absent card would make every unbound student answer to
+    // the same lookup, and the first of them would claim every unknown tap.
+    if (person.cardUid !== undefined) byCardUid.set(person.cardUid, person);
   }
 
   return { byId, byCardUid };
