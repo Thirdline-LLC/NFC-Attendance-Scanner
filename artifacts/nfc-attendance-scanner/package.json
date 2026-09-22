@@ -17,6 +17,8 @@
     "electron:start": "pnpm run build:electron && electron .",
     "package:mac:dir": "pnpm run build:electron && electron-builder --mac dir",
     "package:mac": "pnpm run build:electron && electron-builder --mac dmg",
+    "package:mac:unsigned": "pnpm run build:electron && electron-builder --mac dmg --arm64",
+    "package:mac:arm64": "pnpm run package:mac:unsigned",
     "test": "vitest run --config vitest.config.ts",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p electron/tsconfig.json --noEmit",
