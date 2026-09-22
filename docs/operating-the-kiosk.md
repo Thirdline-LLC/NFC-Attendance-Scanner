@@ -43,6 +43,52 @@ Session, or after five minutes with nobody touching the device.
 4. If the screen says **Nobody is enrolled on this device yet**, do the next
    section before anyone queues up.
 
+## Pre-enrolling a class from a spreadsheet — for the teacher
+
+Faster than enrolling one card at a time, and it can be done the night before
+with no cards in the room at all.
+
+1. Unlock **Students** with the teacher PIN.
+2. Press **Export roster**. This gives you an `.xlsx` with the right headers
+   even if the device is empty.
+3. Fill in one row per student: first name, last name, graduation year, and
+   the school email if you have it — leave the email blank and the app works
+   it out from the name and year. **Leave the card column empty.**
+4. Back on the Students page, press **Choose a roster file** and pick it.
+5. Read the summary: how many were added, updated, already up to date, and
+   refused. A refused row is named by its line number, so fix those lines and
+   import the file again — importing twice changes nothing that is already
+   right.
+
+Two things the import will not do, on purpose:
+
+- **It never touches a card.** The card column only ever holds the last four
+  characters, which cannot identify a card, so a filled-in cell is read and
+  ignored. A student who already taps with a card keeps it even if their row
+  lists no card at all.
+- **It never removes anybody.** A student missing from the file stays on the
+  device. Remove students on the Students page, one at a time.
+
+The students it adds have no card yet. They get one at the desk — see the next
+section.
+
+## Giving a card to a pre-enrolled student
+
+When a card nobody has seen taps in, and there are students on the device
+waiting for a card, the screen asks **Whose card is ••••1234?**
+
+1. Find the student in the list — type part of their name to narrow it.
+2. Press **This is me** on their row.
+
+The card is theirs from then on, and the tap they just made is counted, so
+they do not need to tap again. The list only offers students who have no card:
+if the student is not there, they already have one. A student whose card is
+genuinely lost needs the old card removed on the Students page first — that is
+deliberately not something the desk can do mid-queue.
+
+**Not now** closes the box. The tap stays saved as an unknown card and can be
+sorted out later.
+
 ## Enrolling a student (first time only)
 
 A card only counts once it has been linked to a student. A brand new card
@@ -70,6 +116,8 @@ Press **Check-in**, and let students tap. Each tap gives you one line:
 | **Check-in recorded** + name + time | Counted. The number went up by one. | Next student. |
 | **… already checked in** — *"Already counted at 4:05 PM — no need to tap again"* | They tapped twice. They are counted once. | Nothing. Wave them on. |
 | **Unknown card ••••E5F6 — tap saved** | The card works but nobody has enrolled it. The tap is saved, not lost. | Press **Enroll**, tap the same card, add the student, press **Check-in**, then have them tap once more so today's count is right. |
+| **Whose card is ••••E5F6?** | The card is unknown *and* somebody has been pre-enrolled without one. | Pick the student and press **This is me**. The tap they just made counts; they do not tap again. |
+| **Card linked** + name | The card is now theirs, and counted. | Next student. |
 | **Bad read — tap again** | The reader only caught part of the card. | Have them tap again, held flat on the reader for a second. |
 | **Card not recorded** | The device is not saving anything. | See *If something looks wrong* below. Stop and fix it — taps are being lost. |
 

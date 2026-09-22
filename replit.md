@@ -81,6 +81,18 @@ The scanner has no backend, accounts, analytics, API routes, or database server.
   credits its earlier taps retroactively. The dashboard therefore recomputes
   attendance from the roster as it stands *now* rather than trusting the
   `counted` flag frozen at scan time.
+- **A student may have no card, and a workbook may never give them one.**
+  `Person.cardUid` is optional, which is what pre-enrolling a class needs.
+  It is *absent* rather than empty: IndexedDB skips a record whose key path
+  does not evaluate, so any number of card-less students sit under the unique
+  `&cardUid` index while two students still cannot share a card — an empty
+  string is a key like any other and the second student would have collided
+  with the first. The roster workbook's card column carries the same masked
+  tail the screen shows, so the round trip is lossy in exactly one direction:
+  a file can report that a card is bound and can never set or clear one.
+  Cards are bound only by tapping them (`bindCardToPerson`), which refuses
+  rather than overwrite in both directions — the student already taps with
+  another card, or the card is already somebody else's.
 - **Two different storage failures, two different states.** `storageStatus` is
   `'checking' | 'ready' | 'unavailable' | 'save-failed'`: a store that never
   opened versus one write that did not land. `'unavailable'` blocks enroll-mode
@@ -147,7 +159,9 @@ input. Three routes:
 
 - `/` — the scanner, open to whoever is at the desk. Check-in mode records a tap against the current session
   (repeat taps show as duplicates and do not raise the count; an unknown card
-  is recorded and flagged for later enrollment). Enroll mode opens a form for
+  is recorded and flagged for later enrollment, and when somebody has been
+  pre-enrolled without a card it also offers to make this card theirs).
+  Enroll mode opens a form for
   the scanned card, deriving a `@stjohnschs.org` address from the name and
   class year and resolving collisions. "End Session" asks for the teacher PIN, then shows the session totals
   and exports that session's `.xlsx`, and can be backed out of ("Back to
@@ -156,7 +170,10 @@ input. Three routes:
 - `/roster` — behind the teacher PIN. Every student on the device: search by name, email or the last
   four of a card, and correct a name, class year or email in place. The card a
   student enrolled with stays theirs. Cards are not recorded while this page is
-  open, and it says so.
+  open, and it says so. It also imports and exports the roster workbook: a
+  whole class can be pre-enrolled from an `.xlsx` with the card column left
+  empty, and each of those students picks up their card at the kiosk the first
+  time they tap it.
 - `/dashboard` — behind the teacher PIN, with the same warning that cards are not being recorded here. Year to
   date (the school year rolls over Aug 1): average
   attendance against the 50-per-session target, sessions held, unique students,
