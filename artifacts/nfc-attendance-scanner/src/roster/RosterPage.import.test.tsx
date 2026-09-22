@@ -120,7 +120,11 @@ describe('RosterPage roster import', () => {
       screen.getByTestId('input-roster-file'),
       rosterFile([row(), priyaRow]),
     );
-    await waitForElementToBeRemoved(firstSummary);
+    // Fast path: the second import can clear+replace the summary before we
+    // start waiting. Slow path: the node is still mounted — wait for unmount.
+    if (firstSummary.isConnected) {
+      await waitForElementToBeRemoved(firstSummary);
+    }
     const secondSummary = await screen.findByTestId('text-import-summary');
     expect(secondSummary.textContent).toContain('0 students added');
     expect(secondSummary.textContent).toContain('2 already up to date');
