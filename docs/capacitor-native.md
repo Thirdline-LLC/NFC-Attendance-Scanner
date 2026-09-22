@@ -7,6 +7,15 @@
 > **[android-packaging.md](android-packaging.md)**; for macOS see
 > **[desktop-macos.md](desktop-macos.md)**; for data survival across all three
 > targets see **[data-and-backup.md](data-and-backup.md)**.
+>
+> **Wave 1 Mac distribute (D1-a).** Capacitor remains the **Android / iOS**
+> shell. Wave 1 ships the Mac DMG from the existing **Electron** packaging
+> (`package:mac:signed` → GitHub Releases), locked in
+> [`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md).
+> A Capacitor desktop platform (`@capawesome/capacitor-electron` or similar) is
+> **not** Wave 1 work — evaluate later if a single desktop story is worth the
+> origin / export / security re-derivation. Do not read this guide as the Mac
+> release path.
 
 The scanner is a Vite/React web app with no backend: the roster and every
 attendance tap live in the browser's IndexedDB as a device cache. The school
