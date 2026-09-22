@@ -51,6 +51,9 @@ function cardTail(cardUid: string): string {
   return cardUid.slice(-4);
 }
 
+/** What a student with no card yet reads as, in the table and in a search. */
+const NO_CARD_LABEL = 'No card yet';
+
 /**
  * What a scanned card is allowed to leave in the search box. Tapping a card
  * with this field focused is a real kiosk gesture — the reader types the whole
@@ -172,10 +175,11 @@ function matchesQuery(person: Person, query: string): boolean {
   const couldBeCard =
     /^[0-9A-F]+$/.test(uidQuery) &&
     (/\d/.test(uidQuery) || uidQuery.length >= 4);
+  const cardUid = person.cardUid;
   return (
     couldBeCard &&
-    (cardTail(person.cardUid).includes(uidQuery) ||
-      person.cardUid.endsWith(uidQuery))
+    cardUid !== undefined &&
+    (cardTail(cardUid).includes(uidQuery) || cardUid.endsWith(uidQuery))
   );
 }
 
@@ -365,7 +369,7 @@ export function RosterManager({
             <tbody className="block sm:table-row-group">
               {visible.map((person) => (
                 <RosterRow
-                  key={person.id ?? person.cardUid}
+                  key={person.id ?? person.email}
                   person={person}
                   roster={persons}
                   isEditing={
@@ -463,9 +467,17 @@ function RosterRow({
             className="sm:max-w-[20rem]"
           />
         </td>
-        <td className="ml-auto font-mono text-xs font-bold tracking-[0.16em] text-[hsl(var(--foreground))] sm:ml-0 sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-sm">
+        <td
+          className={`ml-auto text-xs font-bold tracking-[0.16em] sm:ml-0 sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-sm ${
+            person.cardUid
+              ? 'font-mono text-[hsl(var(--foreground))]'
+              : 'text-[hsl(var(--muted-foreground))]'
+          }`}
+        >
+          {/* A pre-enrolled student has no card until one is tapped at the
+              kiosk, and an empty cell would read as a rendering fault. */}
           <span data-testid={`text-card-tail-${personId ?? 'unsaved'}`}>
-            {maskCardUid(person.cardUid)}
+            {person.cardUid ? maskCardUid(person.cardUid) : NO_CARD_LABEL}
           </span>
         </td>
         <td className="order-3 min-w-0 basis-full sm:order-none sm:basis-auto sm:whitespace-nowrap sm:px-4 sm:py-3 sm:text-right">
@@ -555,7 +567,7 @@ function RosterRow({
         >
           <td colSpan={6} className="block px-3 pb-4 sm:table-cell sm:px-4">
             <EnrollmentForm
-              candidate={{ uid: person.cardUid, person }}
+              candidate={{ uid: person.cardUid ?? '', person }}
               roster={roster}
               isSaving={isSaving}
               storageError={saveError}

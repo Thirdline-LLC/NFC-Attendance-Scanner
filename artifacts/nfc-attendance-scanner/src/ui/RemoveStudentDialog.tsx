@@ -110,8 +110,11 @@ export function RemoveStudentDialog({
             'Checking what this would remove…'
           ) : removal.tapCount === 0 ? (
             <>
-              {name} has no attendance on this device, so only their details
-              and card {maskCardUid(person.cardUid)} will go.
+              {name} has no attendance on this device, so only their details{' '}
+              {person.cardUid
+                ? `and card ${maskCardUid(person.cardUid)} will go`
+                : 'will go — they have no card on this device yet'}
+              .
             </>
           ) : (
             <>
