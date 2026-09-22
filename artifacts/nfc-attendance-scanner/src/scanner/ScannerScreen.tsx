@@ -25,6 +25,7 @@ import {
   useAttendanceSession,
   type ScannerMode,
 } from '@/scanner/use-attendance-session';
+import { CardBindDialog } from '@/ui/CardBindDialog';
 import { EnrollmentForm } from '@/ui/EnrollmentForm';
 import { FeedbackPanel } from '@/ui/FeedbackPanel';
 import { NewSessionDialog } from '@/ui/NewSessionDialog';
@@ -62,6 +63,9 @@ export function ScannerScreen() {
     lastScannedAt,
     lastCountedAt,
     enrollmentCandidate,
+    bindCandidate,
+    bindErrorMessage,
+    unboundPersons,
     sessionSummary,
     metrics,
     persons,
@@ -75,6 +79,8 @@ export function ScannerScreen() {
     handleScan,
     enrollPerson,
     cancelEnrollment,
+    bindCard,
+    cancelBind,
     endSession,
     dismissSummary,
     startNewSession,
@@ -103,11 +109,18 @@ export function ScannerScreen() {
     // reader types into whatever has focus, and here that is the PIN field.
     setCaptureEnabled(
       !enrollmentCandidate &&
+        !bindCandidate &&
         !sessionSummary &&
         !isConfirmingNewSession &&
         !pinOpen,
     );
-  }, [enrollmentCandidate, sessionSummary, isConfirmingNewSession, pinOpen]);
+  }, [
+    enrollmentCandidate,
+    bindCandidate,
+    sessionSummary,
+    isConfirmingNewSession,
+    pinOpen,
+  ]);
 
   useEffect(() => {
     void hasOperatorPin()
@@ -140,7 +153,9 @@ export function ScannerScreen() {
     ? {
         label: enrollmentCandidate
           ? 'Scanner off — finish enrolling'
-          : 'Scanner off — close this dialog',
+          : bindCandidate
+            ? 'Scanner off — finish linking this card'
+            : 'Scanner off — close this dialog',
         tone: 'border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] text-[hsl(var(--muted-foreground))]',
         dot: 'bg-[hsl(var(--muted-foreground))]',
       }
@@ -230,6 +245,23 @@ export function ScannerScreen() {
       if (captureEnabledRef.current) inputRef.current?.focus();
     }, 0);
   }, [cancelEnrollment]);
+
+  const handleBindCard = useCallback(
+    async (personId: number) => {
+      await bindCard(personId);
+      window.setTimeout(() => {
+        if (captureEnabledRef.current) inputRef.current?.focus();
+      }, 0);
+    },
+    [bindCard],
+  );
+
+  const handleCancelBind = useCallback(() => {
+    cancelBind();
+    window.setTimeout(() => {
+      if (captureEnabledRef.current) inputRef.current?.focus();
+    }, 0);
+  }, [cancelBind]);
 
   const handleConfirmNewSession = useCallback(async () => {
     setIsConfirmingNewSession(false);
@@ -614,6 +646,17 @@ export function ScannerScreen() {
           mode="gate"
           onUnlocked={handlePinUnlocked}
           onCancel={handlePinCancel}
+        />
+      )}
+
+      {bindCandidate && (
+        <CardBindDialog
+          uid={bindCandidate.uid}
+          candidates={unboundPersons}
+          isSaving={isSaving}
+          errorMessage={bindErrorMessage}
+          onBind={(personId) => void handleBindCard(personId)}
+          onCancel={handleCancelBind}
         />
       )}
 

@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addPerson,
+  bindCardToPerson,
+  CardAlreadyBoundError,
+  CardTakenError,
   countSessionAttendance,
   createNewSessionId,
   DuplicateEmailError,
   findPersonByUid,
   getOrCreateSessionStartedAt,
   getOrCreateSessionId,
+  isUnbound,
   listPersons,
   listSessionTapRecords,
   recordSessionTap,
@@ -28,6 +32,7 @@ export type ScanFeedback =
   | 'editing'
   | 'updated'
   | 'existing'
+  | 'bound'
   | 'storage-error'
   | 'storage-unavailable';
 
@@ -49,6 +54,12 @@ export type EnrollmentCandidate = {
   uid: string;
   person?: Person;
 };
+
+/**
+ * A card that tapped in and is on nobody's record, waiting to be attached to
+ * one of the students the roster import pre-enrolled without a card.
+ */
+export type BindCandidate = { uid: string };
 
 export type SessionMetrics = {
   uniqueAttendance: number;
@@ -96,6 +107,12 @@ export function useAttendanceSession(mode: ScannerMode) {
   const [lastCountedAt, setLastCountedAt] = useState('');
   const [enrollmentCandidate, setEnrollmentCandidate] =
     useState<EnrollmentCandidate | null>(null);
+  const [bindCandidate, setBindCandidate] = useState<BindCandidate | null>(
+    null,
+  );
+  // A refused or failed bind, phrased for the dialog rather than the feedback
+  // panel it is covering.
+  const [bindErrorMessage, setBindErrorMessage] = useState('');
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(
     null,
   );
@@ -119,6 +136,7 @@ export function useAttendanceSession(mode: ScannerMode) {
   const tapsRef = useRef<TapRecord[]>([]);
   const sessionSummaryRef = useRef<SessionSummary | null>(null);
   const candidateRef = useRef<EnrollmentCandidate | null>(null);
+  const bindCandidateRef = useRef<BindCandidate | null>(null);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -139,6 +157,10 @@ export function useAttendanceSession(mode: ScannerMode) {
   useEffect(() => {
     candidateRef.current = enrollmentCandidate;
   }, [enrollmentCandidate]);
+
+  useEffect(() => {
+    bindCandidateRef.current = bindCandidate;
+  }, [bindCandidate]);
 
   useEffect(() => {
     sessionSummaryRef.current = sessionSummary;
@@ -376,6 +398,20 @@ export function useAttendanceSession(mode: ScannerMode) {
             : 'valid'
           : 'unknown';
         announce(nextFeedback);
+        // A card nobody holds is the pre-enrolled case: the roster import
+        // creates students without cards, and this is where they get one. The
+        // offer is only made when there is somebody to bind to — with a fully
+        // bound roster an unknown card is a visitor's, and a dialog listing
+        // nobody would just be a door to close before the next tap.
+        if (
+          !person &&
+          !bindCandidateRef.current &&
+          personsRef.current.some(isUnbound)
+        ) {
+          setBindErrorMessage('');
+          bindCandidateRef.current = { uid };
+          setBindCandidate({ uid });
+        }
         if (import.meta.env.DEV) {
           console.debug('[attendance scan]', {
             card: maskCardUid(uid),
@@ -489,6 +525,97 @@ export function useAttendanceSession(mode: ScannerMode) {
     [announce, applyStorageStatus],
   );
 
+  /**
+   * Attaches the card waiting in the bind dialog to a pre-enrolled student.
+   *
+   * Queued behind the scans for the same reason the recovery read is: the
+   * binding rewrites this session's taps and recounts attendance, and a card
+   * landing mid-write would otherwise be counted against a stale total.
+   *
+   * Every failure leaves the dialog open with the card still in it. A refusal
+   * (the student already taps with another card, this card is someone else's)
+   * is a fact about the roster that retrying cannot change, so it is said in
+   * words; a failed write is the storage case and says to try again. Neither
+   * may read as "bound", and neither discards the candidate: the student is
+   * standing at the desk and the card has already tapped.
+   */
+  const bindScannedCard = useCallback(
+    async (personId: number) => {
+      const candidate = bindCandidateRef.current;
+      if (!candidate) return;
+
+      setBindErrorMessage('');
+      setIsSaving(true);
+      try {
+        const binding = await bindCardToPerson({
+          personId,
+          cardUid: candidate.uid,
+          sessionId: sessionIdRef.current,
+        });
+        personsRef.current = personsRef.current.map((item) =>
+          item.id === personId ? binding.person : item,
+        );
+        setPersons(personsRef.current);
+        // Re-read rather than patched: the binding claimed this session's
+        // taps of the card, and the summary and the session export both work
+        // from this list.
+        try {
+          const savedTaps = await listSessionTapRecords(sessionIdRef.current);
+          tapsRef.current = savedTaps;
+          setTaps(savedTaps);
+        } catch {
+          // The binding itself is committed. A tap list that could not be
+          // re-read goes stale on screen until the next tap, which is not
+          // worth reporting as a failed bind.
+        }
+        setAttendanceCount(binding.attendanceCount);
+        setLastUid(candidate.uid);
+        setLastPerson(binding.person);
+        bindCandidateRef.current = null;
+        setBindCandidate(null);
+        applyStorageStatus('ready');
+        announce('bound', 2600);
+      } catch (error) {
+        if (
+          error instanceof CardAlreadyBoundError ||
+          error instanceof CardTakenError
+        ) {
+          setBindErrorMessage(error.message);
+          return;
+        }
+        if (storageStatusRef.current !== 'unavailable') {
+          applyStorageStatus('save-failed');
+        }
+        setBindErrorMessage(
+          'This device would not save the link, so the card is still unassigned. Try again.',
+        );
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [announce, applyStorageStatus],
+  );
+
+  const bindCard = useCallback(
+    (personId: number) => {
+      const next = queue.current.then(() => bindScannedCard(personId));
+      queue.current = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    },
+    [bindScannedCard],
+  );
+
+  /** Closes the bind dialog. The tap stays recorded as an unknown card. */
+  const cancelBind = useCallback(() => {
+    bindCandidateRef.current = null;
+    setBindCandidate(null);
+    setBindErrorMessage('');
+    announce('ready');
+  }, [announce]);
+
   const endSession = useCallback(() => {
     const summary = {
       ...calculateMetrics(tapsRef.current),
@@ -539,6 +666,9 @@ export function useAttendanceSession(mode: ScannerMode) {
     setSessionSummary(null);
     sessionSummaryRef.current = null;
     candidateRef.current = null;
+    bindCandidateRef.current = null;
+    setBindCandidate(null);
+    setBindErrorMessage('');
     setLastUid('');
     setLastPerson(undefined);
     setLastScannedAt('');
@@ -563,6 +693,9 @@ export function useAttendanceSession(mode: ScannerMode) {
 
   const metrics = useMemo(() => calculateMetrics(taps), [taps]);
 
+  /** Who an unrecognized card may be bound to: pre-enrolled, no card yet. */
+  const unboundPersons = useMemo(() => persons.filter(isUnbound), [persons]);
+
   /**
    * The old single boolean, kept so components that only need "is something
    * wrong" — the enrollment form's save banner — stay unchanged. Anything that
@@ -585,6 +718,9 @@ export function useAttendanceSession(mode: ScannerMode) {
     lastScannedAt,
     lastCountedAt,
     enrollmentCandidate,
+    bindCandidate,
+    bindErrorMessage,
+    unboundPersons,
     sessionSummary,
     metrics,
     count: attendanceCount,
@@ -597,6 +733,8 @@ export function useAttendanceSession(mode: ScannerMode) {
     handleScan,
     enrollPerson,
     cancelEnrollment,
+    bindCard,
+    cancelBind,
     endSession,
     dismissSummary,
     startNewSession,
