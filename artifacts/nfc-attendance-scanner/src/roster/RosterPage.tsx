@@ -9,6 +9,7 @@ import {
   Users,
 } from 'lucide-react';
 import {
+  applyRosterImport,
   deletePerson,
   DuplicateEmailError,
   listPersons,
@@ -18,7 +19,18 @@ import {
   type Person,
   type PersonRemoval,
 } from '@/data/attendance-store';
+import {
+  exportRosterWorkbook,
+  parseRosterFile,
+  RosterFormatError,
+} from '@/lib/roster-workbook';
+import { ExportCancelledError } from '@/platform/desktop-bridge';
+import type { ExportResult } from '@/ui/ExportNotice';
 import { RemoveStudentDialog } from '@/ui/RemoveStudentDialog';
+import {
+  RosterImportPanel,
+  type RosterImportResult,
+} from '@/ui/RosterImportPanel';
 import { RosterManager, type PersonChanges } from '@/ui/RosterManager';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 
@@ -49,6 +61,10 @@ export function RosterPage() {
   // irreversible action.
   const [costUnknown, setCostUnknown] = useState(false);
   const [removedNotice, setRemovedNotice] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<RosterImportResult>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<ExportResult>(null);
 
   const askToRemove = useCallback((person: Person) => {
     setRemovedNotice(null);
@@ -129,6 +145,96 @@ export function RosterPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Reads a roster workbook and applies it, then re-reads the roster so the
+   * table shows the students it created.
+   *
+   * Nothing partial is ever reported as success: a file that cannot be read,
+   * or a write that does not land, leaves the roster untouched
+   * (`applyRosterImport` is one transaction) and says so. The counts come back
+   * from the write itself rather than being predicted from the file, so the
+   * summary describes what is actually on the device.
+   */
+  const handleImport = useCallback(
+    async (file: File) => {
+      setIsImporting(true);
+      setImportResult(null);
+      setExportResult(null);
+      try {
+        const parsed = await parseRosterFile(file);
+        const counts = await applyRosterImport(parsed.entries);
+        setImportResult({
+          ok: true,
+          counts,
+          rejected: parsed.rejected,
+          cardsIgnored: parsed.cardsIgnored,
+        });
+        try {
+          setPersons(await listPersons());
+        } catch {
+          setLoadFailed(true);
+        }
+        // Counts only: this row says a roster file was applied, never who was
+        // in it.
+        try {
+          await recordActivity({
+            at: new Date().toISOString(),
+            kind: 'import-roster',
+            added: counts.added,
+            updated: counts.updated,
+            skipped: counts.skipped,
+            rejected: parsed.rejected.length,
+          });
+        } catch {
+          setImportResult((current) =>
+            current?.ok ? { ...current, logFailed: true } : current,
+          );
+        }
+      } catch (error) {
+        setImportResult({
+          ok: false,
+          message:
+            error instanceof RosterFormatError
+              ? error.message
+              : 'The file was read but this device would not save the students. The roster is unchanged; try again.',
+        });
+      } finally {
+        setIsImporting(false);
+      }
+    },
+    [],
+  );
+
+  const handleExport = useCallback(async () => {
+    setIsExporting(true);
+    setExportResult(null);
+    setImportResult(null);
+    try {
+      const delivered = await exportRosterWorkbook(persons);
+      setExportResult({ ok: true, ...delivered });
+      try {
+        await recordActivity({
+          at: new Date().toISOString(),
+          kind: 'export-roster',
+          filename: delivered.filename,
+          delivery: delivered.delivery,
+          students: persons.length,
+        });
+      } catch {
+        setExportResult((current) =>
+          current?.ok ? { ...current, logFailed: true } : current,
+        );
+      }
+    } catch (error) {
+      setExportResult({
+        ok: false,
+        cancelled: error instanceof ExportCancelledError,
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [persons]);
 
   const handleSave = useCallback(
     async (personId: number, changes: PersonChanges): Promise<boolean> => {
@@ -289,7 +395,19 @@ export function RosterPage() {
             Reading the roster from this device…
           </p>
         ) : (
-          <div className="station-enter" style={{ animationDelay: '80ms' }}>
+          <div
+            className="station-enter flex flex-col gap-5"
+            style={{ animationDelay: '80ms' }}
+          >
+            <RosterImportPanel
+              onImport={handleImport}
+              isImporting={isImporting}
+              result={importResult}
+              onExport={() => void handleExport()}
+              isExporting={isExporting}
+              exportResult={exportResult}
+              studentCount={persons.length}
+            />
             <RosterManager
               persons={persons}
               onSave={handleSave}
