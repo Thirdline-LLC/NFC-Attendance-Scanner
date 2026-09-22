@@ -1,6 +1,6 @@
 import Dexie from 'dexie';
 import * as XLSX from 'xlsx';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -109,28 +109,21 @@ describe('RosterPage roster import', () => {
     renderPage();
     await screen.findByTestId('roster-import');
     await importFile(user, rosterFile([row(), priyaRow]));
-    await screen.findByTestId('text-import-summary');
+    const firstSummary = await screen.findByTestId('text-import-summary');
     const afterFirst = await listPersons();
 
-    // The summary element stays mounted across imports if we only wait for its
-    // final text — the first run's "2 students added" is still on screen when
-    // the second upload starts. handleImport clears result to null first; wait
-    // for that transition so the assertion below is on the second import.
+    // handleImport sets result to null before applying the second file, which
+    // unmounts this node. Waiting on that specific element (not a re-query)
+    // synchronises on the second import starting even when the next summary
+    // mounts in the same turn — no timeout bump, no retry flag.
     await user.upload(
       screen.getByTestId('input-roster-file'),
       rosterFile([row(), priyaRow]),
     );
-    await waitFor(() => {
-      expect(screen.queryByTestId('text-import-summary')).toBeNull();
-    });
-    await waitFor(() =>
-      expect(
-        screen.getByTestId('text-import-summary').textContent,
-      ).toContain('0 students added'),
-    );
-    expect(screen.getByTestId('text-import-summary').textContent).toContain(
-      '2 already up to date',
-    );
+    await waitForElementToBeRemoved(firstSummary);
+    const secondSummary = await screen.findByTestId('text-import-summary');
+    expect(secondSummary.textContent).toContain('0 students added');
+    expect(secondSummary.textContent).toContain('2 already up to date');
     expect(await listPersons()).toEqual(afterFirst);
   });
 
