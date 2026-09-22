@@ -58,14 +58,13 @@ replaces. **This plan is not a packaging bible and must not become one.**
 | `docs/desktop-macos.md` | The Mac shell as it actually ships: the `app://attendance` origin, the security posture, the export bridge, and §§6–8 — Developer ID signing, notarization, stapling and verification, written end to end. |
 | `docs/deferred-apple-developer.md` | Why notarization was skipped, what it buys, and the exact list of what is already in place for it. Wave 1 is the wave that un-defers it. |
 
-`docs/desktop-macos.md` is **Electron-oriented, and Must #9 says Capacitor Mac
-shell.** That collision is real and is [§3](#3-must-9--capacitor-mac-sideload-and-a-notarized-dmg-from-github-releases)'s
-main subject. The resolution is that later slices **align the existing packaging
-documents** with whatever shell is chosen — editing §§1, 3, 9 and 12 of
-`docs/desktop-macos.md` in place — rather than adding a parallel Mac guide beside
-it. Two Mac packaging documents that disagree is the failure mode to avoid; there
-is precedent for the fix in the scope note `docs/capacitor-native.md:3` carries
-after that document was superseded in part.
+`docs/desktop-macos.md` documents Cap-compatible desktop packaging (Electron
+runtime under Cap ownership). **D1 Cap is locked** — see
+[`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md)
+and [§3](#3-must-9--capacitor-mac-sideload-and-a-notarized-dmg-from-github-releases).
+Align packaging docs in place (edit §§1, 3, 9 and 12); do not add a parallel Mac
+guide. Cap Mac = Cap-managed web + Cap-compatible desktop packaging → Releases
+DMG; Electron keep is hard-wall fallback only.
 
 ---
 
@@ -291,9 +290,10 @@ no-longer-maintained `@capacitor-community/electron`. Neither is installed here:
 `package.json` carries `@capacitor/android` and `@capacitor/ios` only.
 
 So Must #9's "Capacitor Mac shell" does not mean adding a platform Capacitor
-ships. It means **replacing the repo's hand-written Electron shell with a
-platform-owned one**, and that has four consequences worth a decision rather than
-a merge:
+ships. Under the **D1 Cap lock** it means Cap-managed web + Cap-compatible
+desktop packaging (often a Cap-owned Electron runtime) yielding a Releases DMG —
+**not** keeping the hand-written Electron shell as the Wave 1 decision. That path
+has four consequences that W1-J must answer (origin hard gate first):
 
 | # | Consequence | Why it is not a detail |
 |---|---|---|
@@ -316,22 +316,19 @@ proceeds in parallel.
 
 | Option | What it costs | What it risks |
 |---|---|---|
-| **D1-a — Keep the Electron shell; deliver Must #9's outcome** (notarized DMG, sideloaded from a Release) and align the packaging docs | Smallest. Nothing in `src/` changes; `electron-builder.yml` gains a Developer ID identity and `notarize: true`, which `docs/desktop-macos.md:266`–`332` already documents step by step | Diverges from the letter of "Capacitor Mac shell". Leaves two desktop stories long-term — Capacitor for Android/iOS, bespoke Electron for Mac — which is a wave-2+ maintenance argument, not a Wave 1 risk |
-| **D1-b — Adopt `@capawesome/capacitor-electron`, preserving the origin** | Establish the platform's scheme, then pin the app's origin to `app://attendance` through the platform's typed options **if it can be pinned**. Re-implement the save bridge as a main-process plugin. Re-verify C3's posture. Resolve C4 both ways | If the origin cannot be pinned, every Mac already running the app loses its roster unless a migration is built and tested — and there is no import path for attendance history, only for the roster (`src/lib/roster-workbook.ts`). This is the hard wall |
-| **D1-c — Adopt the platform on a clean install only**, with a documented export-then-reinstall migration | Middle. Honest, and the export-first procedure already exists (`docs/data-and-backup.md:145`) | Costs every current Mac install its on-device history, which the dashboard's year-to-date figures are computed from. Acceptable only if no Mac is yet carrying records that matter |
+| **D1-a — Keep the Electron shell; deliver Must #9's outcome** (notarized DMG, sideloaded from a Release) and align the packaging docs | Smallest. Nothing in `src/` changes; `electron-builder.yml` gains a Developer ID identity and `notarize: true`, which `docs/desktop-macos.md:266`–`332` already documents step by step | Diverges from the letter of "Capacitor Mac shell". Leaves two desktop stories long-term — Capacitor for Android/iOS, bespoke Electron for Mac — which is a wave-2+ maintenance argument, not a Wave 1 risk. **Superseded** by Asher/CoS Cap lock |
+| **D1 Cap (locked) — Cap-managed web + Cap-compatible desktop packaging → DMG from Releases** | Cap owns Must #9. Cap has no first-party macOS; Cap Mac is Cap web build + Cap-compatible desktop packaging. Electron hand-written keep is **hard-wall fallback only** | Must answer the origin hard gate (preserve `app://attendance` **or** export-then-reinstall) before cutover |
+| **D1-b — Adopt `@capawesome/capacitor-electron` (or equiv.), preserving the origin** | Preferred Cap implementation mode: establish the platform's scheme, pin origin to `app://attendance` **if it can be pinned**. Re-implement the save bridge as a main-process plugin. Re-verify C3. Resolve C4 both ways (no Live Update) | If the origin cannot be pinned, every Mac already running the app loses its roster unless a migration is built and tested — and there is no import path for attendance history, only for the roster (`src/lib/roster-workbook.ts`). That is a Cap hard wall → Electron fallback only with a fresh Asher/CoS note |
+| **D1-c — Cap platform on a clean install only**, with a documented export-then-reinstall migration | Allowed Cap mode when preserve fails. Honest; export-first procedure already exists (`docs/data-and-backup.md:145`) | Costs every current Mac install its on-device history, which the dashboard's year-to-date figures are computed from. Acceptable only if operators can run export-then-reinstall (or no Mac yet carries records that matter) |
 
-**Recommendation: D1-a for Wave 1**, with the Capacitor desktop platform evaluated
-as a wave-2 spike whose entry criterion is a verified answer to C1. The reasoning
-is that Must #9's own done-when is *a notarized Mac DMG installable from GitHub
-Releases* — an outcome about distribution, which D1-a reaches without touching a
-line of `src/`, without re-deriving a security posture mid-harden, and without
-putting an installed roster at risk. Wave 1 is the wrong wave to re-platform the
-shell that holds the records, and under Must #1 the workbook is the SoR anyway,
-which is what makes D1-a's smaller blast radius affordable.
-
-This is a recommendation, not a decision. If Must #9 is read strictly and D1-b is
-chosen, C1 becomes the first ticket and its acceptance is a verified scheme string
-plus a device-tested upgrade that keeps an existing roster.
+**Decision (locked 2026-09-22, revised):** **D1 Cap** — Asher → CoS Cap-vs-Electron
+grill lock → Capacitor. Record:
+[`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md).
+Prior D1-a Electron keep on this branch is **superseded**. Cap Mac = Cap-managed
+web build + Cap-compatible desktop packaging yielding a DMG from GitHub Releases.
+Electron is hard-wall fallback only. **Hard gate:** verify origin preserve
+(`app://attendance`) **or** export-then-reinstall before any cutover. Notarization
+remains blocked on W1-I procurement. No Live Update / `electron-updater`.
 
 ### Notarization: the blocker is procurement, not engineering
 
@@ -544,10 +541,10 @@ second. Every slice is a draft PR against `main`, which is protected and require
 
 | Slice | Scope | Acceptance hints |
 |---|---|---|
-| **W1-H** | Resolve **D1**. A short decision record; on D1-b/c, establish the platform's scheme string first | The record names the option, the reason, and what it costs an installed Mac. If D1-b: the scheme is verified by running it, and C1 is answered before any dependency is added. Docs-only |
+| **W1-H** | Resolve **D1** → **D1 Cap locked** (supersedes D1-a). Decision record Cap-first; origin hard gate named | Record locks Capacitor; Cap Mac defined as Cap web + Cap-compatible desktop packaging → Releases DMG; Electron = hard-wall fallback only; preserve `app://attendance` **or** export-then-reinstall before cutover. Docs-only (this prep PR) |
 | **W1-I** | **O8 / Must #12**: Apple Developer membership, Developer ID certificate, app-specific password, custody note, and the local-vs-CI credential decision | `security find-identity -v -p codesigning` on the build Mac shows a *Developer ID Application* identity. The custody note names the machine and the owner. No credential in a commit, a log or this repo. Ops slice; may carry no diff beyond the custody note |
 | **W1-J** | Notarized DMG, built on the M2, following the existing procedure — plus the **Must #8** device check | `verify:mac` passes. `spctl --assess --type execute` reports `accepted / source=Notarized Developer ID`. `xcrun stapler validate` passes on the `.dmg`. Installs by double-click on a Mac that has **never** seen the app, with no `xattr` step. `identity: "-"` removed from `electron-builder.yml` per `docs/desktop-macos.md:316`. Single-architecture unless an Intel Mac exists. The ACR1552U-MF is tested against the build, and the Bluetooth ACR1555U's macOS behaviour is recorded either way (O7) |
-| **W1-K** | Align the packaging docs with what shipped — edit in place, add no parallel guide | `docs/desktop-macos.md` §§1/3/9/12 and `docs/deferred-apple-developer.md` describe the shipped route; the release checklist's Developer ID lines move from conditional to required; `README.md:40` no longer tells a recipient to clear quarantine; the MDM matrix is marked out-of-scope-for-v1 rather than blocked. `docs/capacitor-native.md` gains a scope note if D1 changed the Mac shell |
+| **W1-K** | Align the packaging docs with what shipped — edit in place, add no parallel guide | `docs/desktop-macos.md` §§1/3/9/12 and `docs/deferred-apple-developer.md` describe the shipped Cap Mac route; the release checklist's Developer ID lines move from conditional to required; `README.md:40` no longer tells a recipient to clear quarantine; the MDM matrix is marked out-of-scope-for-v1 rather than blocked. `docs/capacitor-native.md` Cap Mac scope note already Cap-first after W1-H |
 | **W1-L** | Publish the DMG to a GitHub Release, and document the download for a non-technical operator | A tagged release carries the notarized `.dmg` and its SHA-256. `electron-builder.yml:37` still reads `publish: null`. `rg -i "electron-updater\|autoUpdater\|live.?update"` returns nothing — the **Must #11** guard. No Apple credential appears in any workflow log. The private-repo download decision from §3 is written down, not assumed. **The only slice that may touch workflow YAML** |
 
 ## Post-build audit gate
@@ -574,7 +571,7 @@ Executable form of the [Post-build audit gate](#post-build-audit-gate). Mandator
 
 | Slice | Audit | Owner | Acceptance hints |
 |---|---|---|---|
-| **W1-M** | **Security** | **CPM** | The shipped Mac shell's posture is re-verified against `docs/desktop-macos.md:61`–`86` on the build that actually ships, not on a previous one. If D1-b/c was chosen, C3 is evidenced rather than asserted |
+| **W1-M** | **Security** | **CPM** | The shipped Cap Mac shell's posture is re-verified against `docs/desktop-macos.md:61`–`86` on the build that actually ships, not on a previous one. Under D1 Cap (D1-b/c modes), C3 is evidenced rather than asserted; confirm no Live Update / `electron-updater` |
 | **W1-N** | **FERPA + COPPA** | **CPM** (Scout optional if Asher asks; CoS routes) | Every Must #1–12 row in §1 re-checked against `main` at the release tag, with the `.agents/memory/` grep (Must #6) and the example-UID inventory (Must #4) re-run. Legal sufficiency still `[UNVERIFIED]`; the audit records controls, not clearance |
 | **W1-O** | **SEO — or N/A with a reason** | **CPM** | Most likely N/A: the shipped artefact is a sideloaded DMG with no public surface, and PWA hosting is still TBD in `state/tap-in.md`. If N/A, say so in one line and say why, so the audit is answered rather than skipped. `seo_strategy.md` at the repo root is where that lands |
 | **W1-P** | **UI** | **Reviewer** | The harden slices' wording and gates walked end to end on the shipped build, against `docs/operating-the-kiosk.md`. This is also where §2's third bar — "feels wrong after harden" — is actually exercised, with Asher |

@@ -7,6 +7,17 @@
 > **[android-packaging.md](android-packaging.md)**; for macOS see
 > **[desktop-macos.md](desktop-macos.md)**; for data survival across all three
 > targets see **[data-and-backup.md](data-and-backup.md)**.
+>
+> **Wave 1 Mac distribute (D1 Cap, locked).** Capacitor owns Android / iOS **and**
+> the Wave 1 Mac DMG story. Cap has no first-party macOS — **Cap Mac** =
+> Cap-managed web build + Cap-compatible desktop packaging → notarized /
+> sideloadable DMG from GitHub Releases. Locked in
+> [`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md)
+> (supersedes prior D1-a Electron keep). Hand-written Electron keep is a
+> **hard-wall fallback only**. Hard gate: preserve `app://attendance` IndexedDB
+> origin **or** export-then-reinstall before cutover. Mac operator path:
+> [`docs/desktop-macos.md`](desktop-macos.md) and
+> [`docs/wave1-mac-dmg-runbook.md`](wave1-mac-dmg-runbook.md).
 
 The scanner is a Vite/React web app with no backend: the roster and every
 attendance tap live in the browser's IndexedDB as a device cache. The school

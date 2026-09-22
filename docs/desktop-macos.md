@@ -1,13 +1,31 @@
 # The macOS desktop app
 
-The same React app, packaged with Electron and distributed directly as a `.dmg`
-containing a normal `.app`. It needs no Replit, no website, no server, no Mac
-App Store, and no internet connection after installation.
+The same React app, Cap-managed for Wave 1 Mac distribute (Cap-compatible
+desktop packaging → `.dmg` with a normal `.app`). Cap has no first-party
+macOS; this guide documents the Cap-compatible packaging path in use today
+(Electron runtime under Cap ownership — not a “keep Electron shell” lock).
+It needs no Replit, no website, no server, no Mac App Store, and no internet
+connection after installation.
 
 > **A macOS build must be produced on macOS.** electron-builder can only make
 > an `.icns`, sign with a Developer ID certificate, or notarize on a Mac. The
 > source and configuration were written and verified on Linux; §3 says exactly
 > what is verified and what is not.
+
+> **Wave 1 release path (D1 Cap, Must #9).** Capacitor is locked for the Mac
+> DMG. Cap has no first-party macOS — Cap Mac = Cap-managed web build +
+> Cap-compatible desktop packaging yielding a DMG from GitHub Releases.
+> Hand-written Electron keep is a **hard-wall fallback only**. Build the
+> notarized DMG **on the school M2 Air** with Cap-compatible packaging
+> (`package:mac:signed` today — **arm64 only**; 8 GB RAM; do not run
+> `package:mac:universal` or `package:mac:both` on that machine). Upload the
+> `.dmg` and its SHA-256 to a **GitHub Release** by hand. `publish: null` in
+> `electron-builder.yml` **stays**; never add `electron-updater`, Live Update,
+> or any in-app update feed (Must #11). Origin hard gate: preserve
+> `app://attendance` **or** export-then-reinstall before cutover. Shell lock:
+> [`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md).
+> Operator checklist: [`docs/wave1-mac-dmg-runbook.md`](wave1-mac-dmg-runbook.md).
+> Procurement / blocker: [`docs/deferred-apple-developer.md`](deferred-apple-developer.md).
 
 ## 1. How it is put together
 
@@ -170,6 +188,12 @@ If any colleague still has an Intel Mac, use `package:mac:both` and send each
 person the matching file, or `package:mac:universal` and send everyone the same
 one.
 
+**Wave 1 on the M2 Air (8 GB):** ship **arm64 only** (`package:mac` /
+`package:mac:signed`). Do **not** run `:universal` or `:both` on that laptop —
+both pull a second Electron runtime and risk memory pressure. Add an Intel
+artefact only if a real Intel Mac shows up and it can be built on a machine
+with headroom.
+
 ### Always run `verify:mac` before you send it anywhere
 
 `pnpm --filter @workspace/nfc-attendance-scanner run verify:mac` checks the
@@ -258,10 +282,13 @@ every update, and it teaches staff to click past a security warning. A
 would then open by double-click on any Mac, with no warning and no Terminal.
 That needs a $99/year Apple Developer membership.
 
-**That route is deliberately deferred** — see
-[deferred-apple-developer.md](deferred-apple-developer.md) for what it buys,
-what it costs, and what is already in place for it. Everything below documents
-it for when you want it.
+**Wave 1 un-defers that route** (Must #9), but it is still **blocked on
+Asher's Apple Developer Program membership, Developer ID certificate, and
+app-specific password** — see
+[deferred-apple-developer.md](deferred-apple-developer.md) for the exact asks
+and what is already in place. Everything below is the procedure W1-J runs on
+the M2 once those exist. Until then, the ad-hoc path in §3–§4 remains what
+anyone can build without an Apple account.
 
 ## 6. Developer ID signing
 
@@ -359,9 +386,26 @@ No Mac App Store, and no App Store packaging has been set up. If you ever want
 that, say so — it is a different signing identity, a different entitlement set,
 and a sandbox this app currently does not opt into.
 
-**Direct download.** Put the signed, notarized `.dmg` on the school's website,
-Drive, or SharePoint. Notarized means it opens on any Mac with a double-click,
-no warnings, no instructions.
+**Wave 1 — GitHub Releases (required path).** After `package:mac:signed` and
+verification on the M2:
+
+1. Compute SHA-256 of the `.dmg` (`shasum -a 256 "…arm64.dmg"`).
+2. Create a GitHub Release (tag + notes) on
+   `Thirdline-LLC/NFC-Attendance-Scanner` and attach the `.dmg` **and** a
+   small text file or release note line with the SHA-256.
+3. Leave `publish: null` in `electron-builder.yml`. Uploading assets to a
+   Release is a publishing *step*; wiring electron-builder `publish` or adding
+   `electron-updater` would make the app check a feed at runtime and break
+   Must #11 (no automatic updates / no network path for updates).
+4. **Private repo:** recipients need GitHub access (org member or a release
+   asset URL shared to someone who can download). Do not assume an anonymous
+   public download link. Document who may download in the release notes.
+
+Short operator runbook: [wave1-mac-dmg-runbook.md](wave1-mac-dmg-runbook.md).
+
+**Other direct download hosts (optional later).** School website, Drive, or
+SharePoint still work for a notarized `.dmg` — double-click, no warnings — but
+they are not the Wave 1 done-when; Releases is.
 
 **MDM** — the right answer for more than a handful of Macs, and **currently
 blocked**: all four of these want a *signed* `.pkg`, so this depends on the
@@ -421,13 +465,13 @@ enroll a card and check it in.
 
 ## 12. Release checklist
 
-The route in use today — ad-hoc signed, handed out by file.
+### Ad-hoc (no Apple account — still valid for local testing)
 
 - [ ] `pnpm ... run test` and `run typecheck` pass
 - [ ] `version` bumped in `artifacts/nfc-attendance-scanner/package.json`
 - [ ] `run electron:start` — the packaged renderer works before packaging it
 - [ ] Building **on macOS**
-- [ ] `run package:mac` (or `:both` / `:universal` if anyone is on Intel)
+- [ ] `run package:mac` (**arm64 only** on the M2 Air; avoid `:both` / `:universal` there)
 - [ ] **`run verify:mac` passes** — signature verifies, entitlements applied,
       bundle identity unchanged, nothing Replit and no service worker inside
 - [ ] Installed from the `.dmg` on this Mac and opened
@@ -439,10 +483,22 @@ The route in use today — ad-hoc signed, handed out by file.
 - [ ] Wi-Fi off, app quit and reopened: the roster is still there
 - [ ] Bundle id, origin and data directory unchanged from the last release
 - [ ] No certificate, password or key in any commit
+- [ ] `electron-builder.yml` still has `publish: null`; no `electron-updater`
 
-If and when the Developer ID route is taken, add: the certificate is in the
-build Mac's keychain, `security find-identity -v -p codesigning` shows it, the
-Apple credentials are exported in the shell, `run package:mac:signed` was used,
-`spctl --assess --type execute` reports `accepted / source=Notarized Developer
-ID`, and `xcrun stapler validate` passes on the `.dmg`. See
-[deferred-apple-developer.md](deferred-apple-developer.md).
+### Wave 1 notarized Release (W1-J → W1-L) — required for Must #9
+
+Blocked until [deferred-apple-developer.md](deferred-apple-developer.md) W1-I
+asks are done. Then:
+
+- [ ] Certificate in the build Mac's keychain; `security find-identity -v -p codesigning` shows *Developer ID Application*
+- [ ] `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` / `SJC_SIGNING_IDENTITY` exported in the shell only
+- [ ] `run package:mac:signed` (arm64) on the M2
+- [ ] `run verify:mac` passes
+- [ ] `spctl --assess --type execute` → `accepted` / `source=Notarized Developer ID`
+- [ ] `xcrun stapler validate` passes on the `.dmg`
+- [ ] Fresh Mac: double-click install, **no** `xattr` step
+- [ ] SHA-256 recorded; `.dmg` + checksum attached to a GitHub Release
+- [ ] Still `publish: null`; `rg` finds no `electron-updater` / `autoUpdater` / Live Update
+- [ ] No Apple credential in any workflow, commit, or chat
+
+See [wave1-mac-dmg-runbook.md](wave1-mac-dmg-runbook.md).
