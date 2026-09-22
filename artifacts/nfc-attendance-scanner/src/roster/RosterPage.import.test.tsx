@@ -1,6 +1,6 @@
 import Dexie from 'dexie';
 import * as XLSX from 'xlsx';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,8 +16,9 @@ import { RosterPage } from './RosterPage';
 
 const DATABASE_NAME = 'attendance-scanner-local';
 
-// Synthetic: invented students, and a card UID unlike any real one.
-const JORDAN_CARD = '04A1B2C3D4E5F6';
+// Synthetic fixtures: invented students; card UID is fake (not a real card).
+const JORDAN_CARD = '04A1B2C3D4E5F6'; // fake
+
 
 function row(overrides: Partial<RosterSheetRow> = {}): Partial<RosterSheetRow> {
   return {
@@ -108,19 +109,25 @@ describe('RosterPage roster import', () => {
     renderPage();
     await screen.findByTestId('roster-import');
     await importFile(user, rosterFile([row(), priyaRow]));
-    await screen.findByTestId('text-import-summary');
+    const firstSummary = await screen.findByTestId('text-import-summary');
     const afterFirst = await listPersons();
 
-    await importFile(user, rosterFile([row(), priyaRow]));
-
-    await waitFor(() =>
-      expect(
-        screen.getByTestId('text-import-summary').textContent,
-      ).toContain('0 students added'),
+    // handleImport sets result to null before applying the second file, which
+    // unmounts this node. Waiting on that specific element (not a re-query)
+    // synchronises on the second import starting even when the next summary
+    // mounts in the same turn — no timeout bump, no retry flag.
+    await user.upload(
+      screen.getByTestId('input-roster-file'),
+      rosterFile([row(), priyaRow]),
     );
-    expect(screen.getByTestId('text-import-summary').textContent).toContain(
-      '2 already up to date',
-    );
+    // Fast path: the second import can clear+replace the summary before we
+    // start waiting. Slow path: the node is still mounted — wait for unmount.
+    if (firstSummary.isConnected) {
+      await waitForElementToBeRemoved(firstSummary);
+    }
+    const secondSummary = await screen.findByTestId('text-import-summary');
+    expect(secondSummary.textContent).toContain('0 students added');
+    expect(secondSummary.textContent).toContain('2 already up to date');
     expect(await listPersons()).toEqual(afterFirst);
   });
 

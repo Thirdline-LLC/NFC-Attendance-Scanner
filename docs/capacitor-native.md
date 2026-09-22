@@ -9,9 +9,11 @@
 > targets see **[data-and-backup.md](data-and-backup.md)**.
 
 The scanner is a Vite/React web app with no backend: the roster and every
-attendance tap live in the browser's IndexedDB, and the exported `.xlsx` is the
-system of record. Capacitor wraps that same bundle in a native shell so it can
-be installed from TestFlight or an `.apk` and run with no network at all.
+attendance tap live in the browser's IndexedDB as a device cache. The school
+workbook is the system of record — see
+[data-and-backup.md](data-and-backup.md). Capacitor wraps that same bundle in a
+native shell so it can be installed from TestFlight or an `.apk` and run with
+no network at all.
 
 This guide covers the install commands, the build that feeds Capacitor, and —
 the part that actually matters for a device holding the only copy of a roster —
@@ -352,11 +354,13 @@ private to the app and disappears with it.
 
 ## The safety net, and the hole in it
 
-**The Excel export is the system of record.** That is a design decision, not a
-workaround, and it is what makes every uncertainty above tolerable — *provided
-the file actually leaves the device*. In a browser it does. Inside a Capacitor
-WebView nobody has checked yet, and the way the export is written means a
-failure there would be silent.
+**The school workbook is the system of record; the Excel export is how this
+device feeds it.** That is a design decision (see
+[data-and-backup.md](data-and-backup.md)), not a workaround, and it is what
+makes every uncertainty above tolerable — *provided the file actually leaves
+the device*. In a browser it does. Inside a Capacitor WebView nobody has
+checked yet, and the way the export is written means a failure there would be
+silent.
 
 ### What the export actually does
 
@@ -443,10 +447,11 @@ done on both platforms.
 
 The native delivery test also reopens the exact base64 string passed to
 `Filesystem.writeFile` as an `.xlsx`. It runs the same fixture under both native
-labels and checks three rows: a current known card (Jordan Lee, grade 12), a
-formerly-unresolved/migrated card that now resolves to Priya Nair (grade 11),
-and an unknown card (`0011223344AABB`) with the `Unknown card` name and blank
-student fields. A second case rejects the share call and reopens the saved
+labels and checks three rows of **invented** students (fake — not real people):
+a current known card (Jordan Lee, grade 12), a formerly-unresolved/migrated
+card that now resolves to Priya Nair (grade 11), and an unknown card
+(`0011223344AABB` (fake)) with the `Unknown card` name and blank student
+fields. A second case rejects the share call and reopens the saved
 bytes, proving that dismissing the sheet does not erase the file. Run it with:
 
 ```bash
@@ -533,11 +538,12 @@ device by design.
 it first, with a throwaway session on a real build. A native build no longer
 depends on the browser download at all — it writes the file itself and opens
 the share sheet — so what this checks is that the written path works end to
-end. Use the same three rows as the automated fixture: Jordan Lee on
-`04A1B2C3D4E5F6`, Priya Nair on `04F6E5D4C3B2A1` from a pre-enrollment/migrated
-tap, and unknown card `0011223344AABB`. The opened workbook must contain all
-three rows with meeting date `2026-09-15`, grades `12`, `11`, and blank for
-the unknown card, respectively.
+end. Use the same three **fake** fixture rows as the automated tests (invented
+names and synthetic UIDs — never real students or real cards): Jordan Lee on
+`04A1B2C3D4E5F6` (fake), Priya Nair on `04F6E5D4C3B2A1` (fake) from a
+pre-enrollment/migrated tap, and unknown card `0011223344AABB` (fake). The
+opened workbook must contain all three rows with meeting date `2026-09-15`,
+grades `12`, `11`, and blank for the unknown card, respectively.
 
 1. Check a card in, press **End Session**, press **Export**.
 2. A share sheet should appear. The on-screen notice should read *"Saved
@@ -563,7 +569,9 @@ Files/Documents. Do not call this native export verified until the workbook
 opens successfully on both platforms and the unknown-card row is present.
 
 Until this has been run on a build someone will actually use, treat the
-"the .xlsx is the system of record" line as proven for the web app only.
+native export path as unverified — the SoR model in
+[data-and-backup.md](data-and-backup.md) still holds, but only the web path has
+been proven end to end.
 
 **The reader is a keyboard.** The NFC reader is a USB HID keyboard wedge: it
 types fourteen hex characters and presses Enter into whatever has focus. In the

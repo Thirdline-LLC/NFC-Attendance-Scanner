@@ -29,9 +29,9 @@ kiosk, in a database named `attendance-scanner-local`:
 
 | Record | Fields |
 |---|---|
-| Student | first name, last name, graduation year, school email address, card UID, enrolment timestamp |
+| Student | first name, last name, graduation year, school email address, enrolment timestamp, and **optionally** a card UID (a student may have **no card yet** — common after a roster import) |
 | Tap | card UID, timestamp, which student (if known), which session, whether it counted |
-| Activity | timestamp; what happened (an export, a removal, a purge, a PIN change); counts, a filename and how it was delivered — **never a name, an email or a UID** |
+| Activity | timestamp; what happened (an export, an import, a removal, a purge, a PIN change); counts, a filename and how it was delivered — **never a name, an email or a UID** |
 
 Plus two device settings: the per-session attendance target, and the teacher
 PIN as a salted PBKDF2 hash with its lockout counter. The PIN itself is never
@@ -43,7 +43,12 @@ identifier issued by anyone but the school.
 
 ## Two roles at the device
 
-A student can run the desk. What the desk can do **without** the PIN:
+Day-to-day operators are **club operators or a teacher** (school staff / club
+leads) — not bots, and not a coding agent. The software gate matches that with
+two roles:
+
+**The desk** (open without the PIN) is whoever is running the kiosk for a
+meeting — often a student club lead acting as a club operator. The desk can:
 
 - **Check in.** A card is tapped; the screen shows the count and the student's
   first name and last initial with the time.
@@ -54,13 +59,14 @@ A student can run the desk. What the desk can do **without** the PIN:
   credential** — its holder is present, which is FERPA's own "eligible
   student" case.
 
-Everything else asks for the **teacher PIN**:
+Everything else asks for the **teacher / club-operator PIN** (the same gate;
+the UI still says "teacher PIN"):
 
 - **End Session** — the totals, *Export this session*, *Start New Session*.
 - **The Students page** — every name, email and class year on the device;
-  editing; removing.
-- **The Dashboard** — the year's figures, *Export all history*, the activity
-  log, the two retention actions, and changing the PIN.
+  editing; removing; **roster import** and **roster export**.
+- **The Dashboard** — the year's figures *for this device*, *Export all
+  history*, the activity log, the two retention actions, and changing the PIN.
 
 The PIN is 4 to 8 digits, stored only as a salted hash, and locked for
 30 seconds after five wrong attempts, doubling to five minutes. Two things
@@ -78,9 +84,9 @@ Until one exists the scanner shows a banner saying the records are open,
 because whoever sets the PIN first owns the device's records and nothing in
 software can tell a teacher from a student on day one.
 
-A teacher's unlock lasts one visit: it ends on the way back to the scanner,
-when the End Session overlay closes, after five minutes without a key or a
-tap, and on reload.
+A teacher's (or club operator's) unlock lasts one visit: it ends on the way
+back to the scanner, when the End Session overlay closes, after five minutes
+without a key or a tap, and on reload.
 
 ## What leaves the device
 
@@ -123,20 +129,27 @@ attendance are not eligible for Android Auto Backup to a Google account. That
 default was on in the generated project and would have sent exactly the data
 this document says stays local.
 
-## The exported workbook is the real exposure
+## The exported workbooks are the real exposure
 
-The `.xlsx` export contains, for every tap: the student's name, school email
-address and grade level, the **last four characters of the card** — `••••1F90`,
-exactly as on screen, never the full UID, which opens a building — and the
-timestamp, all in plain text. *Export all history* adds a second sheet,
-*Activity*, listing every export and deletion the device has recorded, as
-counts and filenames. That makes the file more identifying than any single
-screen in the app. It is the app's system of record by design — the point is
-that attendance survives a lost device — but it is also the only way this data
-travels.
+The device writes **two** kinds of `.xlsx`, both behind the teacher /
+club-operator PIN. Every export notice ends with: **Send this file only to a
+school account.**
 
-Both exports sit behind the teacher PIN, and every export notice ends with the
-one rule about destinations: **Send this file only to a school account.**
+| Export | What's in it | Blast radius |
+|---|---|---|
+| **Attendance** (*Export this session* / *Export all history*) | For every tap: name, school email, grade level, **last four characters of the card** (never the full UID), timestamp. *Export all history* adds an *Activity* sheet of counts and filenames | Identifies who attended which meeting on **this device** |
+| **Roster** (*Export roster* on Students) | Every student on the device — **including students who have never tapped** — with name, school email, graduation year, derived grade, and masked card tail (or blank if no card yet) | Wider than attendance: it is the full on-device roll, not only people who showed up |
+
+**Import roster** is the reverse of the roster export: a club operator picks a
+roster `.xlsx` and the device adds / updates students. The import **ignores
+the card column** (cards bind only by tapping on that device) and can enrol a
+whole class in one action. It never removes anyone. It is logged as
+`import-roster` with counts only.
+
+These files are how the device feeds the school workbook and how a
+replacement device is re-provisioned. The SoR sentence, one-device-per-meeting
+rule, and cache model live in `docs/data-and-backup.md` — this page does not
+restate them.
 
 Once exported, the app's guarantees stop applying. The file is an ordinary
 student-records disclosure and should be handled under whatever rules the
@@ -144,22 +157,23 @@ school already applies to a spreadsheet of student names. Three things the
 school still decides:
 
 - Which school account the file goes to, and who may send it there. The
-  design assumes the teacher's school OneDrive.
+  design assumes the teacher's school OneDrive (the SoR's home).
 - Whether the native build's share sheet is acceptable. It can send the file
-  to any app on the device, but only a teacher who has entered the PIN reaches
-  it.
-- How long exports are kept, and who deletes them.
+  to any app on the device, but only an operator who has entered the PIN
+  reaches it.
+- How long copies outside the SoR are kept, and who deletes them.
 
 ## The activity log
 
-Every export, every removal, every retention purge and every PIN change leaves
-one row on the device: when, what, how many, and for an export the filename
-and how it was delivered. A row never carries a name, an email or a UID, so
-the log can be read — and exported — without itself being a disclosure. It is
-how a teacher answers "where did that file go?" and "when was that student
-removed?", and it is the record of disclosures a FERPA-style policy expects.
-The last fifty rows are on the dashboard; the whole log (capped at five
-hundred rows) is the second sheet of *Export all history*.
+Every export, every **roster import**, every removal, every retention purge and
+every PIN change leaves one row on the device: when, what, how many, and for
+an export the filename and how it was delivered. A row never carries a name,
+an email or a UID, so the log can be read — and exported — without itself
+being a disclosure. It is how an operator answers "where did that file go?",
+"when was that class imported?", and "when was that student removed?", and it
+is the record of disclosures a FERPA-style policy expects. The last fifty rows
+are on the dashboard; the whole log (capped at five hundred rows) is the
+second sheet of *Export all history*.
 
 If a log row cannot be written, the action it describes still completes and
 the notice on screen says the row is missing. A log that could fail an export
@@ -167,10 +181,13 @@ would push a teacher to export twice.
 
 ## Retention — the written schedule
 
-Taps are kept for the **current school year only**. At the start of each
-school year, the teacher:
+The **school workbook (SoR)** is the retained attendance and roster record and
+falls under the school's own records policy. The **device cache** keeps taps
+for the **current school year only**. At the start of each school year, the
+teacher or club operator:
 
-1. runs *Export all history* and confirms the file opens;
+1. runs *Export all history* (and *Export roster* if the SoR needs a fresh
+   roll), confirms the files open, and files them into the school workbook;
 2. presses **Delete attendance before {August 1}** on the dashboard, which
    deletes every tap recorded before the school-year boundary and nothing from
    the roster;
@@ -179,17 +196,23 @@ school year, the teacher:
 
 Both actions show what they will delete before asking, both are confirmed
 with their cost named, both are logged as counts, and neither ever runs on its
-own. The exported workbooks are the retained record and fall under the
-school's own records policy; the device keeps nothing longer than a year plus
-the summer.
+own. The device keeps nothing longer than a year plus the summer; longevity
+lives in the SoR, not in IndexedDB.
+
+**Imported students who never tap** are not purged by the attendance delete.
+They leave when someone removes them on the Students page, or when *Remove
+graduated students* reaches their class. Wave 1 deliberately keeps that on
+Students rather than adding a bulk "undo import" — see
+`docs/data-and-backup.md`.
 
 ## Answering a request to see a student's record
 
 A parent, or the student, may ask to see what the device holds about them.
 No feature is needed: the Students page shows the roster row (name, class
-year, email, the card's last four), and *Export all history* filtered on the
-student's name is their attendance. Corrections are made in place on the
-Students page; erasure is the *Remove* button below.
+year, email, and either the card's last four or **No card yet**), and
+*Export all history* filtered on the student's name is their attendance.
+Corrections are made in place on the Students page; erasure is the *Remove*
+button below.
 
 ## The device is the other one
 
