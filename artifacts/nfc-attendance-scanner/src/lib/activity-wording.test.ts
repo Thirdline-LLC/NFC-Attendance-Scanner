@@ -60,6 +60,35 @@ describe('describeActivity', () => {
     });
   });
 
+  it('describes a roster import and export by count only', () => {
+    expect(
+      describeActivity({
+        at: AT,
+        kind: 'import-roster',
+        added: 1,
+        updated: 3,
+        skipped: 120,
+        rejected: 2,
+      }),
+    ).toEqual({
+      action: 'Imported a roster',
+      detail: '1 student added, 3 updated, 120 unchanged, 2 refused',
+    });
+    expect(
+      describeActivity({
+        at: AT,
+        kind: 'export-roster',
+        filename: 'roster-2026-09-15-20260915T210000Z.xlsx',
+        delivery: 'download',
+        students: 126,
+      }),
+    ).toEqual({
+      action: 'Exported the roster',
+      detail:
+        '126 students — roster-2026-09-15-20260915T210000Z.xlsx, handed to the browser',
+    });
+  });
+
   it('describes removals and purges by count only, singular and plural', () => {
     expect(
       describeActivity({ at: AT, kind: 'remove-student', taps: 1, sessions: 1 }),
