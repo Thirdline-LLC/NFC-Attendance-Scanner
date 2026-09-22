@@ -9,13 +9,13 @@ import {
   addPerson,
   DuplicateEmailError,
   listPersons,
-  type Person,
+  type BoundPerson,
 } from '@/data/attendance-store';
 import { RosterPage } from './RosterPage';
 
 const DATABASE_NAME = 'attendance-scanner-local';
 
-const jane: Omit<Person, 'id'> = {
+const jane: Omit<BoundPerson, 'id'> = {
   cardUid: '04A1B2C3D4E5F6',
   firstName: 'Jane',
   lastName: 'Smith',
@@ -24,7 +24,7 @@ const jane: Omit<Person, 'id'> = {
   enrolledAt: '2026-09-01T12:00:00.000Z',
 };
 
-const ada: Omit<Person, 'id'> = {
+const ada: Omit<BoundPerson, 'id'> = {
   cardUid: '04FFEEDDCCBB99',
   firstName: 'Ada',
   lastName: 'Lovelace',

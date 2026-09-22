@@ -115,11 +115,12 @@ export function selectYearToDateTaps(
 }
 
 /**
- * Distinct-student key. Roster rows carry an id once stored; the card UID
- * stands in for an unsaved row so it is never silently dropped from a count.
+ * Distinct-student key. Roster rows carry an id once stored; the card UID, or
+ * failing that the address the roster keeps unique, stands in for an unsaved
+ * row so it is never silently dropped from a count.
  */
 function studentKey(person: Person): number | string {
-  return person.id ?? person.cardUid;
+  return person.id ?? person.cardUid ?? person.email;
 }
 
 /**

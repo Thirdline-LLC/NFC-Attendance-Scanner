@@ -8,7 +8,7 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { Person } from '@/data/attendance-store';
+import type { BoundPerson } from '@/data/attendance-store';
 import { RosterManager } from './RosterManager';
 
 afterEach(cleanup);
@@ -17,7 +17,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const janeSmith: Person = {
+const janeSmith: BoundPerson = {
   id: 1,
   cardUid: '04A1B2C3D4E5F6',
   firstName: 'Jane',
@@ -28,7 +28,7 @@ const janeSmith: Person = {
   enrolledAt: '2026-09-01T12:00:00.000Z',
 };
 
-const elodieVanDerBerg: Person = {
+const elodieVanDerBerg: BoundPerson = {
   id: 2,
   cardUid: '04AABBCCDD1122',
   firstName: 'Élodie',
@@ -38,7 +38,7 @@ const elodieVanDerBerg: Person = {
   enrolledAt: '2026-09-01T12:01:00.000Z',
 };
 
-const adaLovelace: Person = {
+const adaLovelace: BoundPerson = {
   id: 3,
   cardUid: '04FFEEDDCCBB99',
   firstName: 'Ada',
@@ -48,7 +48,7 @@ const adaLovelace: Person = {
   enrolledAt: '2026-09-01T12:02:00.000Z',
 };
 
-const luisDeLaCruz: Person = {
+const luisDeLaCruz: BoundPerson = {
   id: 4,
   cardUid: '049988776655AA',
   firstName: 'Luis',
@@ -59,7 +59,7 @@ const luisDeLaCruz: Person = {
   enrolledAt: '2026-09-01T12:03:00.000Z',
 };
 
-const bobSmith: Person = {
+const bobSmith: BoundPerson = {
   id: 5,
   cardUid: '04B0B0B0B0B0B0',
   firstName: 'Bob',
@@ -72,7 +72,7 @@ const bobSmith: Person = {
 // "Rebecca" hides the six-character hex run "ebecca", and "Facade" is six of
 // them on its own. Both must stay searchable: the rule that keeps card digits
 // out of the field cannot be allowed to eat ordinary names.
-const rebeccaFacade: Person = {
+const rebeccaFacade: BoundPerson = {
   id: 6,
   cardUid: '04C0FFEE001122',
   firstName: 'Rebecca',
@@ -82,7 +82,7 @@ const rebeccaFacade: Person = {
   enrolledAt: '2026-09-01T12:05:00.000Z',
 };
 
-const longNamedPerson: Person = {
+const longNamedPerson: BoundPerson = {
   id: 7,
   cardUid: '04ABCDEF123456',
   firstName: 'Alexandria',
@@ -93,7 +93,7 @@ const longNamedPerson: Person = {
 };
 
 // Deliberately not in display order.
-const roster: Person[] = [
+const roster: BoundPerson[] = [
   janeSmith,
   elodieVanDerBerg,
   adaLovelace,

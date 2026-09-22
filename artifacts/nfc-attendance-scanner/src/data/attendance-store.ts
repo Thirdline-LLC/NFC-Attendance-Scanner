@@ -1,16 +1,40 @@
 import Dexie from 'dexie';
+import { maskCardUid } from '@/lib/scan-format';
 import { findEmailOwner } from '@/lib/student-email';
 import type { ExportDelivery } from '@/lib/workbook-delivery';
 
 export type Person = {
   id?: number;
-  cardUid: string;
+  /**
+   * The card this student taps with, or absent when they have none yet.
+   *
+   * Absent rather than an empty string: `persons` indexes `cardUid` as
+   * unique, and IndexedDB skips a record whose key path does not evaluate, so
+   * any number of card-less students coexist while two students still cannot
+   * share a card. An empty string is a key like any other, and the second
+   * card-less student would have collided with the first.
+   *
+   * A whole class can be pre-enrolled this way from a roster workbook and
+   * bound to their cards one tap at a time at the kiosk.
+   */
+  cardUid?: string;
   firstName: string;
   lastName: string;
   gradYear: number;
   email: string;
   enrolledAt: string;
 };
+
+/**
+ * A student who taps with a card — what enrolling at the scanner produces,
+ * and what everything downstream of a tap is working with.
+ */
+export type BoundPerson = Person & { cardUid: string };
+
+/** A student who has been enrolled but has no card on this device yet. */
+export function isUnbound(person: Person): boolean {
+  return !person.cardUid;
+}
 
 export type TapRecord = {
   id?: number;
@@ -24,6 +48,8 @@ export type TapRecord = {
 export type ActivityKind =
   | 'export-session'
   | 'export-all'
+  | 'export-roster'
+  | 'import-roster'
   | 'remove-student'
   | 'purge-history'
   | 'remove-alumni'
@@ -48,8 +74,13 @@ export type ActivityEntry = {
   taps?: number;
   /** Exports (1 for a session export), removals and purges: sessions involved. */
   sessions?: number;
-  /** Removing graduated students: how many. */
+  /** Removing graduated students, or exporting the roster: how many. */
   students?: number;
+  /** A roster import: students the file created, changed, left alone, refused. */
+  added?: number;
+  updated?: number;
+  skipped?: number;
+  rejected?: number;
   /** A history purge: the school-year boundary it deleted before, `YYYY-MM-DD`. */
   before?: string;
 };
@@ -154,6 +185,15 @@ export async function listPersons(): Promise<Person[]> {
 }
 
 /**
+ * The pre-enrolled students who have no card yet, by last name. These are the
+ * only people an unrecognized card at the kiosk may be bound to: everyone else
+ * already taps with a card of their own.
+ */
+export async function listUnboundPersons(): Promise<Person[]> {
+  return (await personsTable.orderBy('lastName').toArray()).filter(isUnbound);
+}
+
+/**
  * Thrown when a write would give two roster entries the same address. The
  * enrollment form resolves collisions before saving, so reaching this means the
  * store was written to some other way — a second kiosk tab, or a direct call.
@@ -185,7 +225,14 @@ async function assertEmailAvailable(
   }
 }
 
-export async function addPerson(person: Omit<Person, 'id'>): Promise<Person> {
+/**
+ * Generic in what it is handed so the result keeps it: enrolling a card comes
+ * back as a student who certainly has one, while a roster row with no card
+ * comes back without. Callers that only need a `Person` are unaffected.
+ */
+export async function addPerson<T extends Omit<Person, 'id'>>(
+  person: T,
+): Promise<T & { id: number }> {
   return database.transaction('rw', personsTable, async () => {
     await assertEmailAvailable(person.email);
     // A copy, because Dexie stamps the generated key onto the object it is
@@ -210,6 +257,110 @@ export async function updatePerson(
       throw new Error('The enrolled person could not be found after updating.');
     }
     return updatedPerson;
+  });
+}
+
+/**
+ * Thrown when the student picked for an unrecognized card already taps with a
+ * different one. Binding anyway would silently retire a card that is still in
+ * somebody's wallet and still resolves their past taps, so the write refuses
+ * and the operator is told whose card is already on file.
+ */
+export class CardAlreadyBoundError extends Error {
+  constructor(readonly person: Person) {
+    super(
+      `${person.firstName} ${person.lastName} already taps with card ${maskCardUid(person.cardUid ?? '')}. Remove that card first if it has been replaced.`,
+    );
+    this.name = 'CardAlreadyBoundError';
+  }
+}
+
+/** Thrown when the card being bound already belongs to another student. */
+export class CardTakenError extends Error {
+  constructor(readonly owner: Person) {
+    super(
+      `That card already belongs to ${owner.firstName} ${owner.lastName}, class of ${owner.gradYear}.`,
+    );
+    this.name = 'CardTakenError';
+  }
+}
+
+/** What binding a card did, for the kiosk to report and re-render from. */
+export type CardBinding = {
+  person: Person;
+  /** True when the binding also counted this card's tap for the session. */
+  countedThisSession: boolean;
+  attendanceCount: number;
+};
+
+/**
+ * Links an unrecognized card to a pre-enrolled student who has none.
+ *
+ * The card has usually just been tapped, and that tap is already stored as an
+ * unknown card: uncounted, with a null `personId`. So the binding also claims
+ * this session's taps of that card, counting the first of them the way
+ * `recordSessionTap` would have if the student had been recognised — otherwise
+ * the student stands at the desk having tapped, bound and still not been
+ * counted. Earlier sessions are deliberately left alone: their taps resolve to
+ * the student through `resolveTapPerson` either way, and re-counting them
+ * would move attendance figures for meetings that are already reported.
+ *
+ * One transaction over both tables, and both refusals happen inside it, so a
+ * second tab cannot bind the same card between the check and the write.
+ */
+export async function bindCardToPerson(input: {
+  personId: number;
+  cardUid: string;
+  sessionId: string;
+}): Promise<CardBinding> {
+  return database.transaction('rw', personsTable, tapsTable, async () => {
+    const person = await personsTable.get(input.personId);
+    if (!person) {
+      throw new Error(`No enrolled student has id ${input.personId}.`);
+    }
+    if (person.cardUid && person.cardUid !== input.cardUid) {
+      throw new CardAlreadyBoundError(person);
+    }
+
+    const owner = await personsTable
+      .where('cardUid')
+      .equals(input.cardUid)
+      .first();
+    if (owner && owner.id !== input.personId) {
+      throw new CardTakenError(owner);
+    }
+
+    await personsTable.update(input.personId, { cardUid: input.cardUid });
+
+    const sessionTaps = (
+      await tapsTable.where('sessionId').equals(input.sessionId).toArray()
+    )
+      .filter((tap) => tap.uid === input.cardUid && tap.id !== undefined)
+      .sort((a, b) => Date.parse(a.scannedAt) - Date.parse(b.scannedAt));
+    // One count per card per session is the rule `recordSessionTap` keeps, so
+    // a card already counted here — bound, unbound and bound again — gains
+    // nothing from being claimed a second time.
+    let counted = sessionTaps.some((tap) => tap.counted);
+    const countedThisSession = !counted && sessionTaps.length > 0;
+
+    for (const tap of sessionTaps) {
+      await tapsTable.update(tap.id as number, {
+        personId: input.personId,
+        counted: !counted,
+      });
+      counted = true;
+    }
+
+    const bound = await personsTable.get(input.personId);
+    if (!bound) {
+      throw new Error('The student could not be found after binding the card.');
+    }
+
+    return {
+      person: bound,
+      countedThisSession,
+      attendanceCount: await countSessionAttendance(input.sessionId),
+    };
   });
 }
 
@@ -417,7 +568,11 @@ async function alumniWithTaps(
 ): Promise<{ alumni: Person[]; taps: TapRecord[] }> {
   const alumni = (await personsTable.toArray()).filter(isAlumni);
   const ids = new Set(alumni.map((person) => person.id));
-  const cards = new Set(alumni.map((person) => person.cardUid));
+  const cards = new Set(
+    alumni
+      .map((person) => person.cardUid)
+      .filter((cardUid): cardUid is string => cardUid !== undefined),
+  );
   const taps = (await tapsTable.toArray()).filter(
     (tap) =>
       (tap.personId !== null && ids.has(tap.personId)) || cards.has(tap.uid),
@@ -455,6 +610,92 @@ export async function removeAlumni(
         .filter((id): id is number => id !== undefined),
     );
     return { studentCount: alumni.length, tapCount: taps.length };
+  });
+}
+
+/**
+ * One student as a roster workbook describes them. The card column is
+ * deliberately not here: the workbook only ever carries a masked tail (see
+ * `roster-workbook.ts`), which cannot identify a card, so an import can never
+ * bind one. Cards are bound at the kiosk by tapping them.
+ */
+export type RosterEntry = Pick<
+  Person,
+  'firstName' | 'lastName' | 'gradYear' | 'email'
+>;
+
+/** What an import did, in counts a teacher can read without any PII in them. */
+export type RosterImportCounts = {
+  /** Students the file created, with no card yet. */
+  added: number;
+  /** Students already on this device whose details the file changed. */
+  updated: number;
+  /** Students already on this device that the file matched exactly. */
+  skipped: number;
+};
+
+/**
+ * Applies parsed roster rows to this device's student list.
+ *
+ * The school email is the identity: a row whose address is already on the
+ * device updates that student, and re-importing the same file a second time
+ * therefore changes nothing. Names and graduation year are the only fields a
+ * row may move.
+ *
+ * What it never does is touch `cardUid`. A pre-enrollment file lists students,
+ * not hardware, and its card column holds masked tails at best, so a row can
+ * neither bind a card nor clear one that a student is already tapping with.
+ * That is the whole reason this is a separate write rather than a `put`.
+ *
+ * One transaction: a file that fails half way through leaves the roster as it
+ * was, so the operator can fix the sheet and import it again without first
+ * working out how far the last attempt got.
+ */
+export async function applyRosterImport(
+  entries: readonly RosterEntry[],
+): Promise<RosterImportCounts> {
+  return database.transaction('rw', personsTable, async () => {
+    const counts: RosterImportCounts = { added: 0, updated: 0, skipped: 0 };
+    // Read once and kept in step by hand: `findEmailOwner` is how the rest of
+    // the app decides two addresses are the same one, and re-reading the whole
+    // table per row would make a class-sized import quadratic.
+    const roster = await personsTable.toArray();
+
+    for (const entry of entries) {
+      const existing = findEmailOwner(entry.email, roster);
+
+      if (!existing) {
+        const person: Omit<Person, 'id'> = {
+          ...entry,
+          enrolledAt: new Date().toISOString(),
+        };
+        const id = await personsTable.add({ ...person });
+        roster.push({ ...person, id });
+        counts.added += 1;
+        continue;
+      }
+
+      const changes = {
+        firstName: entry.firstName,
+        lastName: entry.lastName,
+        gradYear: entry.gradYear,
+      };
+      const unchanged =
+        existing.firstName === changes.firstName &&
+        existing.lastName === changes.lastName &&
+        existing.gradYear === changes.gradYear;
+
+      if (unchanged) {
+        counts.skipped += 1;
+        continue;
+      }
+
+      await personsTable.update(existing.id as number, changes);
+      Object.assign(existing, changes);
+      counts.updated += 1;
+    }
+
+    return counts;
   });
 }
 

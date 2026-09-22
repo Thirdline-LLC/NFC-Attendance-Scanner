@@ -41,6 +41,16 @@ export function describeActivity(entry: ActivityEntry): ActivityWording {
         action: 'Exported all history',
         detail: `${count(entry.taps, 'tap')} from ${count(entry.sessions, 'session')} — ${entry.filename ?? ''}, ${delivered(entry)}`,
       };
+    case 'export-roster':
+      return {
+        action: 'Exported the roster',
+        detail: `${count(entry.students, 'student')} — ${entry.filename ?? ''}, ${delivered(entry)}`,
+      };
+    case 'import-roster':
+      return {
+        action: 'Imported a roster',
+        detail: `${count(entry.added, 'student')} added, ${entry.updated ?? 0} updated, ${entry.skipped ?? 0} unchanged, ${entry.rejected ?? 0} refused`,
+      };
     case 'remove-student':
       return {
         action: 'Removed a student',

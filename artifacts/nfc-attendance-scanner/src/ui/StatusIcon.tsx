@@ -6,7 +6,12 @@ type StatusIconProps = {
 };
 
 export function StatusIcon({ feedback }: StatusIconProps) {
-  if (feedback === 'valid' || feedback === 'enrolled' || feedback === 'updated') {
+  if (
+    feedback === 'valid' ||
+    feedback === 'enrolled' ||
+    feedback === 'updated' ||
+    feedback === 'bound'
+  ) {
     return <Check aria-hidden="true" size={28} strokeWidth={2.5} />;
   }
   if (

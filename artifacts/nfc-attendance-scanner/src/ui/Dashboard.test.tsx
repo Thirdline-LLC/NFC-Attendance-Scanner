@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Person, TapRecord } from '@/data/attendance-store';
+import type { BoundPerson, TapRecord } from '@/data/attendance-store';
 import {
   computeDashboardMetrics,
   type DashboardMetrics,
@@ -14,7 +14,7 @@ afterEach(cleanup);
 const at = (isoDate: string, time = '16:00:00') => `${isoDate}T${time}.000Z`;
 const NOW = at('2026-09-15');
 
-const jordan: Person = {
+const jordan: BoundPerson = {
   id: 1,
   cardUid: '04A1B2C3D4E5F6',
   firstName: 'Jordan',
@@ -24,7 +24,7 @@ const jordan: Person = {
   enrolledAt: at('2026-09-01'),
 };
 
-const priya: Person = {
+const priya: BoundPerson = {
   id: 2,
   cardUid: '04F6E5D4C3B2A1',
   firstName: 'Priya',

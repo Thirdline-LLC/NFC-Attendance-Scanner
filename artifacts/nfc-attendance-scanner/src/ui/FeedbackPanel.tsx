@@ -40,6 +40,98 @@ function formatTime(timestamp: string): string {
   }).format(new Date(timestamp));
 }
 
+/** The scan, as the two lines of copy need to see it. */
+type PanelWording = {
+  personName: string;
+  lastUid: string;
+  lastScannedAt: string;
+  lastCountedAt: string;
+};
+
+/** The outcomes worth a tick and the accent colour. */
+function isSuccess(feedback: ScanFeedback): boolean {
+  return (
+    feedback === 'valid' ||
+    feedback === 'enrolled' ||
+    feedback === 'updated' ||
+    feedback === 'bound'
+  );
+}
+
+function panelTitle(
+  feedback: ScanFeedback,
+  mode: ScannerMode,
+  firstRun: boolean,
+  { personName, lastUid }: PanelWording,
+): string {
+  switch (feedback) {
+    case 'duplicate':
+      return `${personName || 'Card'} already checked in`;
+    case 'unknown':
+      return `Unknown card ${maskCardUid(lastUid)} — tap saved`;
+    case 'valid':
+      return 'Check-in recorded';
+    case 'enrollment':
+      return 'Card ready to enroll';
+    case 'enrolled':
+      return 'Enrollment saved';
+    case 'editing':
+      return 'Card ready to edit';
+    case 'updated':
+      return 'Enrollment updated';
+    case 'existing':
+      return 'Already enrolled';
+    case 'bound':
+      return 'Card linked';
+    case 'invalid':
+      return 'Bad read — tap again';
+    case 'storage-error':
+      return 'Could not save locally';
+    case 'storage-unavailable':
+      return 'Card not recorded';
+    case 'ready':
+      if (mode === 'enroll') return 'Ready to enroll';
+      return firstRun ? 'No students enrolled yet' : 'Ready for next tap';
+  }
+}
+
+function panelDetail(
+  feedback: ScanFeedback,
+  firstRun: boolean,
+  { personName, lastScannedAt, lastCountedAt }: PanelWording,
+): string {
+  switch (feedback) {
+    case 'duplicate':
+      return `Already counted at ${formatTime(lastCountedAt || lastScannedAt)} — no need to tap again`;
+    case 'valid':
+      return `${personName} · ${formatTime(lastScannedAt)}`;
+    case 'unknown':
+      return 'Switch to Enroll and tap this card to add the student';
+    case 'enrollment':
+      return 'Complete the student details below';
+    case 'enrolled':
+      return `${personName} is enrolled — switch to Check-in to record attendance`;
+    case 'editing':
+      return 'Update the enrolled details below';
+    case 'updated':
+      return `${personName} is saved — switch to Check-in to record attendance`;
+    case 'existing':
+      return `${personName} is already in the local roster`;
+    case 'bound':
+      return `${personName} now taps with this card`;
+    case 'invalid':
+      return 'The scan did not match a 14-character card ID';
+    case 'storage-error':
+      return 'Check browser storage and try again';
+    case 'storage-unavailable':
+      return 'This device is not letting the app save — nothing was stored for this tap';
+    case 'ready':
+      return firstRun
+        ? 'Switch to Enroll above, then tap a card to add the first student'
+        : 'Hold a card or badge near the reader';
+  }
+}
+
 export function FeedbackPanel({
   feedback,
   mode,
@@ -54,73 +146,21 @@ export function FeedbackPanel({
   // Nobody enrolled: every card tapped here would come back "unknown", so the
   // resting state names the missing step instead of inviting a tap.
   const firstRun = rosterEmpty && mode === 'checkin';
-  const title =
-    feedback === 'duplicate'
-      ? `${personName || 'Card'} already checked in`
-      : feedback === 'unknown'
-        ? `Unknown card ${maskCardUid(lastUid)} — tap saved`
-        : feedback === 'valid'
-          ? 'Check-in recorded'
-          : feedback === 'enrollment'
-            ? 'Card ready to enroll'
-            : feedback === 'enrolled'
-              ? 'Enrollment saved'
-              : feedback === 'editing'
-                ? 'Card ready to edit'
-                : feedback === 'updated'
-                  ? 'Enrollment updated'
-                  : feedback === 'existing'
-                    ? 'Already enrolled'
-                    : feedback === 'invalid'
-                      ? 'Bad read — tap again'
-                      : feedback === 'storage-error'
-                        ? 'Could not save locally'
-                        : feedback === 'storage-unavailable'
-                          ? 'Card not recorded'
-                          : mode === 'enroll'
-                            ? 'Ready to enroll'
-                            : firstRun
-                              ? 'No students enrolled yet'
-                              : 'Ready for next tap';
-  const detail =
-    feedback === 'duplicate'
-      ? `Already counted at ${formatTime(lastCountedAt || lastScannedAt)} — no need to tap again`
-      : feedback === 'valid'
-        ? `${personName} · ${formatTime(lastScannedAt)}`
-        : feedback === 'unknown'
-          ? 'Switch to Enroll and tap this card to add the student'
-          : feedback === 'enrollment'
-            ? 'Complete the student details below'
-            : feedback === 'enrolled'
-              ? `${personName} is enrolled — switch to Check-in to record attendance`
-              : feedback === 'editing'
-                ? 'Update the enrolled details below'
-                : feedback === 'updated'
-                  ? `${personName} is saved — switch to Check-in to record attendance`
-                  : feedback === 'existing'
-                    ? `${personName} is already in the local roster`
-                    : feedback === 'invalid'
-                      ? 'The scan did not match a 14-character card ID'
-                      : feedback === 'storage-error'
-                        ? 'Check browser storage and try again'
-                        : feedback === 'storage-unavailable'
-                          ? 'This device is not letting the app save — nothing was stored for this tap'
-                          : firstRun
-                            ? 'Switch to Enroll above, then tap a card to add the first student'
-                            : 'Hold a card or badge near the reader';
-  const stateClass =
-    feedback === 'valid' || feedback === 'enrolled' || feedback === 'updated'
-      ? 'border-[hsl(var(--accent)/.7)] bg-[hsl(var(--accent)/.12)] text-[hsl(var(--accent))]'
-      : feedback === 'duplicate' ||
-          feedback === 'invalid' ||
-          feedback === 'storage-error' ||
-          feedback === 'storage-unavailable'
-        ? 'border-[hsl(var(--destructive)/.7)] bg-[hsl(var(--destructive)/.1)] text-[hsl(var(--destructive))]'
-        : 'border-[hsl(var(--primary)/.35)] bg-[hsl(var(--primary)/.06)] text-[hsl(var(--primary))]';
+  const wording = { personName, lastUid, lastScannedAt, lastCountedAt };
+  const title = panelTitle(feedback, mode, firstRun, wording);
+  const detail = panelDetail(feedback, firstRun, wording);
+  const stateClass = isSuccess(feedback)
+    ? 'border-[hsl(var(--accent)/.7)] bg-[hsl(var(--accent)/.12)] text-[hsl(var(--accent))]'
+    : feedback === 'duplicate' ||
+        feedback === 'invalid' ||
+        feedback === 'storage-error' ||
+        feedback === 'storage-unavailable'
+      ? 'border-[hsl(var(--destructive)/.7)] bg-[hsl(var(--destructive)/.1)] text-[hsl(var(--destructive))]'
+      : 'border-[hsl(var(--primary)/.35)] bg-[hsl(var(--primary)/.06)] text-[hsl(var(--primary))]';
 
   return (
     <section
-      className={`feedback-panel ${feedback === 'valid' || feedback === 'enrolled' || feedback === 'updated' ? 'feedback-success' : feedback === 'duplicate' || feedback === 'invalid' ? 'feedback-alert' : ''} rounded-[1.35rem] border p-5 transition-colors duration-300 sm:p-6 ${stateClass}`}
+      className={`feedback-panel ${isSuccess(feedback) ? 'feedback-success' : feedback === 'duplicate' || feedback === 'invalid' ? 'feedback-alert' : ''} rounded-[1.35rem] border p-5 transition-colors duration-300 sm:p-6 ${stateClass}`}
       data-testid="status-scan-feedback"
       aria-live="polite"
     >
@@ -138,7 +178,8 @@ export function FeedbackPanel({
               feedback === 'enrolled' ||
               feedback === 'updated' ||
               feedback === 'editing' ||
-              feedback === 'existing') && (
+              feedback === 'existing' ||
+              feedback === 'bound') && (
               <p className="mt-2 font-display text-2xl font-semibold tracking-[-0.03em] text-[hsl(var(--foreground))]">
                 {personName}
               </p>

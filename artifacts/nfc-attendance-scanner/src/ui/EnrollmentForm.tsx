@@ -209,8 +209,15 @@ export function EnrollmentForm({
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[hsl(var(--primary))]">
             {isEditing ? 'Edit local enrollment' : 'New local enrollment'}
           </p>
-          <p className="mt-2 font-mono text-sm font-bold tracking-[0.16em] text-[hsl(var(--foreground))]">
-            Card {maskCardUid(candidate.uid)}
+          {/* A student pre-enrolled from a roster workbook has no card until
+              one is tapped at the kiosk, and `••••` alone would look like a
+              card whose tail failed to render. */}
+          <p
+            className={`mt-2 text-sm font-bold tracking-[0.16em] ${candidate.uid ? 'font-mono text-[hsl(var(--foreground))]' : 'text-[hsl(var(--muted-foreground))]'}`}
+          >
+            {candidate.uid
+              ? `Card ${maskCardUid(candidate.uid)}`
+              : 'No card yet — tap one at the scanner to link it'}
           </p>
         </div>
         <button
