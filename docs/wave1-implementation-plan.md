@@ -550,18 +550,35 @@ second. Every slice is a draft PR against `main`, which is protected and require
 | **W1-K** | Align the packaging docs with what shipped — edit in place, add no parallel guide | `docs/desktop-macos.md` §§1/3/9/12 and `docs/deferred-apple-developer.md` describe the shipped route; the release checklist's Developer ID lines move from conditional to required; `README.md:40` no longer tells a recipient to clear quarantine; the MDM matrix is marked out-of-scope-for-v1 rather than blocked. `docs/capacitor-native.md` gains a scope note if D1 changed the Mac shell |
 | **W1-L** | Publish the DMG to a GitHub Release, and document the download for a non-technical operator | A tagged release carries the notarized `.dmg` and its SHA-256. `electron-builder.yml:37` still reads `publish: null`. `rg -i "electron-updater\|autoUpdater\|live.?update"` returns nothing — the **Must #11** guard. No Apple credential appears in any workflow log. The private-repo download decision from §3 is written down, not assumed. **The only slice that may touch workflow YAML** |
 
+## Post-build audit gate
+
+**Mandatory after** harden + Mac DMG installable from GitHub Releases, and **before** calling Wave 1 done. Do **not** run these audits in this PR — they are planned here and executed later as slices **W1-M**–**W1-Q**.
+
+File each result in repo `docs/` (preferred under `docs/audits/wave1/`) and/or a command `handoffs/` path. **No student PII** — no names, school emails, roster rows, or card UIDs (synthetic / masked examples only if an example is unavoidable).
+
+| # | Audit | What it covers | Owner |
+|---|---|---|---|
+| 1 | **Security** | Shipped Mac shell posture, secrets hygiene, no runtime updater / Live Update, no UID leakage in logs | **CPM** |
+| 2 | **FERPA + COPPA** | Re-check Must #1–12 against the release tag; controls evidence only — legal sufficiency stays `[UNVERIFIED]` unless Asher asks for more | **CPM** (execution); **Scout** optional for statute cites **only if Asher asks**; **CoS** routes |
+| 3 | **SEO** | Public web/PWA surfaces only. If Wave 1 ships sideload-only Mac DMG with no public host, record **N/A** with that rationale — answered, not skipped | **CPM** |
+| 4 | **UI** | Visual/copy gate on the shipped build (harden wording, PIN gates, roster import/bind flows) | **Reviewer** |
+| 5 | **Overall app health** | Build/`verify`, offline, NFC keyboard-wedge, roster import/bind, cache-vs-SoR behaviour | **CPM** |
+
+**CoS** routes the gate and collects the filed records. A miss may be **waived only with an Asher note** naming which audit and why; otherwise Wave 1 stays open.
+
+Phase 3 below is the executable slice list for this gate.
+
 **Phase 3 — the post-build audits Asher added 2026-09-22**
 
-Mandatory before Wave 1 is done, per `state/tap-in.md`. Five audits, each a
-separate pass with its own record:
+Executable form of the [Post-build audit gate](#post-build-audit-gate). Mandatory before Wave 1 is done. Five audits, each a separate pass with its own record (no student PII):
 
-| Slice | Audit | Acceptance hints |
-|---|---|---|
-| **W1-M** | **Security** | The shipped Mac shell's posture is re-verified against `docs/desktop-macos.md:61`–`86` on the build that actually ships, not on a previous one. If D1-b/c was chosen, C3 is evidenced rather than asserted |
-| **W1-N** | **FERPA + COPPA** | Every Must #1–12 row in §1 re-checked against `main` at the release tag, with the `.agents/memory/` grep (Must #6) and the example-UID inventory (Must #4) re-run. Legal sufficiency still `[UNVERIFIED]`; the audit records controls, not clearance |
-| **W1-O** | **SEO — or N/A with a reason** | Most likely N/A: the shipped artefact is a sideloaded DMG with no public surface, and PWA hosting is still TBD in `state/tap-in.md`. If N/A, say so in one line and say why, so the audit is answered rather than skipped. `seo_strategy.md` at the repo root is where that lands |
-| **W1-P** | **UI** | The harden slices' wording and gates walked end to end on the shipped build, against `docs/operating-the-kiosk.md`. This is also where §2's third bar — "feels wrong after harden" — is actually exercised, with Asher |
-| **W1-Q** | **App health** | `verify` green on the release tag, and the flake from §0 gone: 10 consecutive full runs. Storage persistence, the export's three routes, and a cold start on a Mac that has never run the app |
+| Slice | Audit | Owner | Acceptance hints |
+|---|---|---|---|
+| **W1-M** | **Security** | **CPM** | The shipped Mac shell's posture is re-verified against `docs/desktop-macos.md:61`–`86` on the build that actually ships, not on a previous one. If D1-b/c was chosen, C3 is evidenced rather than asserted |
+| **W1-N** | **FERPA + COPPA** | **CPM** (Scout optional if Asher asks; CoS routes) | Every Must #1–12 row in §1 re-checked against `main` at the release tag, with the `.agents/memory/` grep (Must #6) and the example-UID inventory (Must #4) re-run. Legal sufficiency still `[UNVERIFIED]`; the audit records controls, not clearance |
+| **W1-O** | **SEO — or N/A with a reason** | **CPM** | Most likely N/A: the shipped artefact is a sideloaded DMG with no public surface, and PWA hosting is still TBD in `state/tap-in.md`. If N/A, say so in one line and say why, so the audit is answered rather than skipped. `seo_strategy.md` at the repo root is where that lands |
+| **W1-P** | **UI** | **Reviewer** | The harden slices' wording and gates walked end to end on the shipped build, against `docs/operating-the-kiosk.md`. This is also where §2's third bar — "feels wrong after harden" — is actually exercised, with Asher |
+| **W1-Q** | **App health** | **CPM** | `verify` green on the release tag, and the flake from §0 gone: 10 consecutive full runs. Storage persistence, the export's three routes, NFC keyboard-wedge, roster import/bind, cache-vs-SoR, and a cold start on a Mac that has never run the app |
 
 Ordering notes for CPM:
 
@@ -599,7 +616,9 @@ mandatory before that is called. So, three conditions:
    `source=Notarized Developer ID`, the ticket is stapled so it verifies with no
    network, and the app still makes no runtime network call and carries no updater.
 3. **All five post-build audits have run** — security, FERPA+COPPA, SEO (or a
-   recorded N/A), UI, app health — on the build that shipped, each with a record.
+   recorded N/A), UI, app health — on the build that shipped, each with a filed
+   record under the [Post-build audit gate](#post-build-audit-gate), **or** waived
+   with an Asher note naming the audit and why.
 
 What is **not** part of done-when, so nobody holds Wave 1 open for it: the school's
 answers to O1–O3 and O4; a counsel packet (O10) or a COPPA determination (O9),
