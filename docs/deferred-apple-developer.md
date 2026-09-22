@@ -4,8 +4,10 @@
 sideloadable DMG from GitHub Releases is Must #9 / Phase 2. The work is
 **blocked on procurement**, not on missing packaging code.
 
-Locked shell decision: **D1-a** — keep the Electron Mac shell and deliver the
-Must #9 *outcome*. See
+Locked shell decision: **D1 Cap** — Capacitor for Wave 1 Mac DMG (Cap-managed
+web + Cap-compatible desktop packaging → Releases). Supersedes prior D1-a
+Electron keep; Electron is hard-wall fallback only. Origin hard gate:
+preserve `app://attendance` **or** export-then-reinstall. See
 [`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md).
 
 Nothing in the repo still *depends* on an Apple account for day-to-day CI: the

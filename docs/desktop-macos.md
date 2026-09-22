@@ -1,20 +1,28 @@
 # The macOS desktop app
 
-The same React app, packaged with Electron and distributed directly as a `.dmg`
-containing a normal `.app`. It needs no Replit, no website, no server, no Mac
-App Store, and no internet connection after installation.
+The same React app, Cap-managed for Wave 1 Mac distribute (Cap-compatible
+desktop packaging → `.dmg` with a normal `.app`). Cap has no first-party
+macOS; this guide documents the Cap-compatible packaging path in use today
+(Electron runtime under Cap ownership — not a “keep Electron shell” lock).
+It needs no Replit, no website, no server, no Mac App Store, and no internet
+connection after installation.
 
 > **A macOS build must be produced on macOS.** electron-builder can only make
 > an `.icns`, sign with a Developer ID certificate, or notarize on a Mac. The
 > source and configuration were written and verified on Linux; §3 says exactly
 > what is verified and what is not.
 
-> **Wave 1 release path (D1-a, Must #9).** Keep this Electron shell. Build the
-> notarized DMG **on the school M2 Air** with `package:mac:signed` (**arm64
-> only** — 8 GB RAM; do not run `package:mac:universal` or `package:mac:both`
-> on that machine). Upload the `.dmg` and its SHA-256 to a **GitHub Release**
-> by hand. `publish: null` in `electron-builder.yml` **stays**; never add
-> `electron-updater` or any in-app update feed (Must #11). Shell lock:
+> **Wave 1 release path (D1 Cap, Must #9).** Capacitor is locked for the Mac
+> DMG. Cap has no first-party macOS — Cap Mac = Cap-managed web build +
+> Cap-compatible desktop packaging yielding a DMG from GitHub Releases.
+> Hand-written Electron keep is a **hard-wall fallback only**. Build the
+> notarized DMG **on the school M2 Air** with Cap-compatible packaging
+> (`package:mac:signed` today — **arm64 only**; 8 GB RAM; do not run
+> `package:mac:universal` or `package:mac:both` on that machine). Upload the
+> `.dmg` and its SHA-256 to a **GitHub Release** by hand. `publish: null` in
+> `electron-builder.yml` **stays**; never add `electron-updater`, Live Update,
+> or any in-app update feed (Must #11). Origin hard gate: preserve
+> `app://attendance` **or** export-then-reinstall before cutover. Shell lock:
 > [`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md).
 > Operator checklist: [`docs/wave1-mac-dmg-runbook.md`](wave1-mac-dmg-runbook.md).
 > Procurement / blocker: [`docs/deferred-apple-developer.md`](deferred-apple-developer.md).

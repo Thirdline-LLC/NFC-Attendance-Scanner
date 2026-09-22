@@ -1,7 +1,10 @@
-# Wave 1 — notarized Mac DMG operator runbook
+# Wave 1 — Cap Mac notarized DMG operator runbook
 
 **Audience:** Asher (or the person at the M2 Air) after W1-I procurement.  
-**Shell:** Electron, locked **D1-a** —
+**Shell:** Capacitor (D1 Cap) — Cap-managed web + Cap-compatible desktop
+packaging → DMG from Releases. Supersedes prior D1-a Electron keep; Electron
+is hard-wall fallback only. Origin hard gate: preserve `app://attendance` **or**
+export-then-reinstall before cutover —
 [`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md).  
 **Machine:** school M2 Air, **arm64 only** (8 GB — no universal / parallel heavy builds).  
 **This Linux agent cannot notarize.** Do not treat any CI green check as a
@@ -98,7 +101,8 @@ assumes a cold link works from a phone browser without auth.
 |---|---|
 | Do not flip checked-in `identity: "-"` / `notarize: false` until W1-J intentionally does | Breaks unsigned CI |
 | Do not add Apple secrets to Actions workflows in Wave 1 | Must #12; local keychain only |
-| Do not add `electron-updater` or change `publish: null` | Must #11 — no automatic update network path |
+| Do not add `electron-updater`, Live Update, or change `publish: null` | Must #11 — no automatic update network path |
+| Do not cut over Cap Mac packaging without origin preserve **or** export-then-reinstall | IndexedDB hard gate (`app://attendance`) |
 | Do not put student PII, real card UIDs, or secrets in Release notes | Must #3 / #4 / #12 |
 | arm64 only on the M2 Air | Memory / time; no universal merge on 8 GB |
 
