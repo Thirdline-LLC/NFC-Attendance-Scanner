@@ -6,7 +6,8 @@ always-focused input, and the tap is recorded on the device.
 
 **There is no backend.** No server, no API, no account, no cloud, no analytics,
 and no network requests at runtime at all. The roster and every attendance tap
-live in the browser's IndexedDB; the exported `.xlsx` is the system of record.
+live in the browser's IndexedDB as a **device cache**. The school workbook
+(OneDrive) is the system of record — see `docs/data-and-backup.md`.
 
 One React application ships to three places:
 

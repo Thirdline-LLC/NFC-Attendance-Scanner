@@ -1,9 +1,19 @@
 # Where the data lives, what erases it, and how to move a device
 
 Everything this app knows is on the device it was scanned on. There is no
-server, no cloud backup and no sync. **The exported `.xlsx` is the system of
-record** — that sentence is the whole safety model, and this document exists to
-say exactly what it protects you from.
+server, no cloud backup and no peer-device sync. **The school workbook in
+OneDrive (or the school's equivalent shared drive) is the system of record** —
+it holds the live roster and the attendance truth. Each device's IndexedDB is
+a **cache**: useful for the meeting, allowed to be lost, and rebuilt by
+exporting into the workbook and importing the roster back. The app's `.xlsx`
+exports are the *feed into* that workbook, not a second SoR. This document
+says exactly what that model protects you from.
+
+**Workbook constraint (school side):** the SoR workbook stays pure Excel — no
+macros, no VBA, no Office Scripts, no Power Automate — so it can be handed to
+others at school without IT vetting beyond the app itself. Moving data between
+the workbook and a device is a human action or app code, never Office
+automation.
 
 ## What is stored
 
@@ -11,10 +21,10 @@ One IndexedDB database, `attendance-scanner-local`, with five tables:
 
 | Table | Holds |
 |---|---|
-| `persons` | The roster: card UID, name, graduation year, email, enrolled-at |
+| `persons` | The roster: name, graduation year, email, enrolled-at, and **optionally** a card UID. A student imported from a roster file (or enrolled before a card is issued) may have **no card yet** — the row is still valid |
 | `taps` | Every tap ever recorded: UID, timestamp, person id, session id, counted flag |
 | `settings` | This device's settings: the per-session attendance target, and the teacher PIN as a salted PBKDF2 hash with its lockout counter (`operator-pin`, `operator-pin-attempts`). The PIN itself is never stored |
-| `activity` | The device's activity log: every export, removal, retention purge and PIN change, as a timestamp, a kind, counts, a filename and a delivery route. Never a name, an email or a UID. Capped at 500 rows |
+| `activity` | The device's activity log. Nine kinds: `export-session`, `export-all`, `export-roster`, `import-roster`, `remove-student`, `purge-history`, `remove-alumni`, `pin-set`, `pin-changed`. Each row is a timestamp, a kind, counts, and for exports a filename and delivery route. Never a name, an email or a UID. Capped at 500 rows |
 | `scans` | Legacy. Nothing writes it; it exists so a database upgraded from v1/v2 still has its rows purged |
 
 Plus two `localStorage` keys for the current session id and its start time.
@@ -153,24 +163,41 @@ records.
 
 ### Replacing a device
 
-1. On the **old** device: Dashboard → **Export all history**. Confirm the file
-   opens and the rows look right.
-2. Get that file somewhere that is not either device.
+1. On the **old** device: Dashboard → **Export all history**, and on Students
+   → **Export roster**. Confirm both files open and the rows look right.
+2. Copy those files into the school workbook / OneDrive folder (the SoR) —
+   somewhere that is not either device.
 3. Set the **new** device up and install the app.
-4. Enrol the students again by tapping their cards. **There is no roster
-   import** — the app only ever creates new Excel files, and never reads one
-   back.
+4. On the new device: Students → **Import roster** from the SoR roster file
+   (or from the roster export you just made). Import is idempotent: it adds,
+   updates, or leaves unchanged; it never removes anyone; it **ignores the
+   card column** — cards bind only when tapped on that device.
 5. Keep the old device untouched until the new one has been used for a real
-   meeting.
+   meeting. Students then tap once on the new device to bind cards.
 
-The historical `.xlsx` is your record of what happened. The new device starts
-with an empty history, and the dashboard's year-to-date figures start from
-there.
+The SoR workbook keeps attendance history. The new device starts with an empty
+tap log; its dashboard year-to-date figures are **per device** and start from
+the meetings held on that device.
 
-> **No import exists, and none is planned.** The app creates new exports and
-> never opens, reads or rewrites an existing workbook. If re-importing a roster
-> onto a replacement device is something you need, it is a feature request —
-> ask, and it can be designed properly.
+### One device per meeting
+
+Use **one kiosk per meeting**. Two devices at the same door produce two
+exports that a person must combine in the school workbook — the app does not
+merge attendance and will not in Wave 1. A second device is for a different
+meeting, or for replacing a broken kiosk, not for a second lane at one door.
+
+Dashboard figures (session count, year-to-date, unclaimed cards) are always
+**this device's cache**, never the whole club's numbers. Read the SoR workbook
+for the club-wide picture.
+
+### Imported students who never tap (retention)
+
+An imported student who never taps stays on the device roster until a teacher
+removes them on the **Students** page, or until *Remove graduated students*
+catches their class. Wave 1 does **not** add a bulk "undo this import" action:
+mistaken imports are corrected one student at a time from Students (previewed
+remove, same as anyone else). That is deliberate — a store-level undo would
+duplicate Students and risk a silent mass delete.
 
 ## What the app will never do
 

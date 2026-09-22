@@ -12,6 +12,21 @@ full guide. Everything in the "Several Claude sessions share ONE checkout" and
 Replit container**; on a local checkout or a Codespace there is no runner, no
 port 23205, and `pnpm ... run dev` on 5173 is simply correct.
 
+## Agents work on code and docs only
+
+Coding agents (Claude, Cursor, Copilot, and any other bot session in this
+repo) may edit source, tests, docs, and tooling. They must **never**:
+
+- open, download, or read a live attendance workbook, a roster export, or a
+  live tap log from OneDrive, desktop Downloads, or a device;
+- ask an operator to paste student names, school emails, or card UIDs into
+  chat, issues, or commit messages;
+- invent a parallel "scratch" copy of production student data for debugging.
+
+Synthetic fixtures and invented examples in the repo are fine. Real student
+records stay with the school. See `docs/vscode-setup.md` §7 and
+`docs/data-and-backup.md`.
+
 ## Several Claude sessions share ONE checkout
 
 Every session runs in `/home/runner/workspace` — the same files on disk, the same

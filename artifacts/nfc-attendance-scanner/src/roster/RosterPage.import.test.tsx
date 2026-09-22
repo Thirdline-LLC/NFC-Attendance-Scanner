@@ -16,8 +16,9 @@ import { RosterPage } from './RosterPage';
 
 const DATABASE_NAME = 'attendance-scanner-local';
 
-// Synthetic: invented students, and a card UID unlike any real one.
-const JORDAN_CARD = '04A1B2C3D4E5F6';
+// Synthetic fixtures: invented students; card UID is fake (not a real card).
+const JORDAN_CARD = '04A1B2C3D4E5F6'; // fake
+
 
 function row(overrides: Partial<RosterSheetRow> = {}): Partial<RosterSheetRow> {
   return {
@@ -111,8 +112,17 @@ describe('RosterPage roster import', () => {
     await screen.findByTestId('text-import-summary');
     const afterFirst = await listPersons();
 
-    await importFile(user, rosterFile([row(), priyaRow]));
-
+    // The summary element stays mounted across imports if we only wait for its
+    // final text — the first run's "2 students added" is still on screen when
+    // the second upload starts. handleImport clears result to null first; wait
+    // for that transition so the assertion below is on the second import.
+    await user.upload(
+      screen.getByTestId('input-roster-file'),
+      rosterFile([row(), priyaRow]),
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId('text-import-summary')).toBeNull();
+    });
     await waitFor(() =>
       expect(
         screen.getByTestId('text-import-summary').textContent,

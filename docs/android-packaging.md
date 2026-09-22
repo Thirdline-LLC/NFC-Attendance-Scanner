@@ -124,7 +124,8 @@ Android Studio → **Device Manager** → **Create Device** → a tablet profile
 image → **Finish**. Then pick it in the device dropdown and press **Run ▶**.
 
 An emulator has no USB HID reader. Type a UID into the app instead — the hidden
-input takes keyboard input from anywhere. Use `04AA0000000001`.
+input takes keyboard input from anywhere. Use `04AA0000000001` (fake) — a
+synthetic UID reserved for testing, never a real card.
 
 ### On a real tablet
 

@@ -77,8 +77,10 @@ HOST=0.0.0.0 pnpm --filter @workspace/nfc-attendance-scanner run dev # reachable
 network, or from an Android emulator.
 
 **The scanner input is hidden and auto-focused, so typing a 14-hex-character
-UID and pressing Enter *is* a scan.** Use `04AA0000000001` … `04AA0000000009`
-— synthetic UIDs reserved for testing. Never use a real student's card.
+UID and pressing Enter *is* a scan.** Use a **fake** synthetic UID — never a
+real student's card. Convenient keyboard-wedge fakes:
+`04AA0000000001` … `04AA0000000009` (fake). Other invented 14-hex values in
+fixtures (for example `04A1B2C3D4E5F6` (fake)) are the same rule.
 
 ## 4. The commands
 
@@ -180,9 +182,16 @@ These are architectural rules, not preferences:
 - No remote fonts or images — the six woff2 faces are bundled in `src/fonts/`.
 - The Android and macOS apps must never load a remote URL, and
   `capacitor.config.ts` must never gain a `server.url`.
+- **Agents (bots) work on code and docs only.** Never open a live attendance
+  workbook, a roster export, or a live tap log; never ask anyone to paste
+  student PII or card UIDs into chat or issues. See `CLAUDE.md`.
 - Real student names, emails and card UIDs never appear in source, fixtures,
-  tests, logs, screenshots or commits. Synthetic UIDs only:
-  `04AA0000000001`–`04AA0000000009`.
+  tests, logs, screenshots, handoffs or commits. **Synthetic UIDs only, and
+  every example is fake:** any invented 14-character uppercase hex string
+  (never copied from a real card). Label examples `(fake)` where a reader
+  could mistake them for live UIDs. Values already used in this repo —
+  including `04AA0000000001`–`04AA0000000009`, `04A1B2C3D4E5F6`,
+  `04F6E5D4C3B2A1` and `0011223344AABB` — are all fake under this rule.
 - Keystores, certificates, provisioning profiles and signing passwords never
   enter the repository. `.gitignore` blocks the usual file extensions, but the
   rule is on you, not on the ignore file.
