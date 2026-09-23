@@ -1,0 +1,80 @@
+{
+  "v": 1,
+  "meta": {
+    "id": "tapin-sjc",
+    "orgName": "St. John's College High School",
+    "packName": "Tapin · SJC",
+    "version": "1.0.0",
+    "minAppVersion": "1.0.0",
+    "createdAt": "2026-09-23T04:35:00.000Z",
+    "notes": "Tapin product theme pack for SJC. Product name is Tapin; SJC branding is the school skin. Original mark/colors — not Finalsite assets.",
+    "productName": "Tapin"
+  },
+  "fonts": {
+    "heading": "Source Serif 4",
+    "body": "Plus Jakarta Sans",
+    "googleFontsUrl": "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap"
+  },
+  "colors": {
+    "bg": "#F7F8FA",
+    "fg": "#0F1419",
+    "muted": "#64748B",
+    "border": "#94A3B8",
+    "accent": "#E11D48",
+    "accentFg": "#FFF1F2",
+    "success": "#15803D",
+    "danger": "#BE123C",
+    "warning": "#A16207",
+    "surface": "#FFFFFF",
+    "shadow": "0 1px 2px rgba(15,20,25,0.06)",
+    "markBg": "#0F1419",
+    "slate": "#334155"
+  },
+  "assets": {
+    "logoMark": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2IiBmaWxsPSJub25lIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IlNKQyBtb25vZ3JhbSI+CiAgPHJlY3Qgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMTAiIGZpbGw9IiMwRjE0MTkiLz4KICA8dGV4dCB4PSI0OCIgeT0iNTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCAnVGltZXMgTmV3IFJvbWFuJywgc2VyaWYiIGZvbnQtc2l6ZT0iMjgiIGZvbnQtd2VpZ2h0PSI3MDAiIGZpbGw9IiNGOEZBRkMiIGxldHRlci1zcGFjaW5nPSIwLjA0ZW0iPlNKQzwvdGV4dD4KICA8cmVjdCB4PSIyMiIgeT0iNzIiIHdpZHRoPSI1MiIgaGVpZ2h0PSI0IiBmaWxsPSIjRTExRDQ4Ii8+Cjwvc3ZnPgo=",
+    "logoWordmark": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MjAiIGhlaWdodD0iNzIiIHZpZXdCb3g9IjAgMCA1MjAgNzIiIGZpbGw9Im5vbmUiIHJvbGU9ImltZyIgYXJpYS1sYWJlbD0iVGFwaW4gZm9yIFNKQyB3b3JkbWFyayI+CiAgPHJlY3QgeD0iMCIgeT0iOCIgd2lkdGg9IjU2IiBoZWlnaHQ9IjU2IiByeD0iNiIgZmlsbD0iIzBGMTQxOSIvPgogIDx0ZXh0IHg9IjI4IiB5PSI0MiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ikdlb3JnaWEsICdUaW1lcyBOZXcgUm9tYW4nLCBzZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI0Y4RkFGQyIgbGV0dGVyLXNwYWNpbmc9IjAuMDRlbSI+U0pDPC90ZXh0PgogIDxyZWN0IHg9IjEwIiB5PSI1MCIgd2lkdGg9IjM2IiBoZWlnaHQ9IjMiIGZpbGw9IiNFMTFENDgiLz4KICA8dGV4dCB4PSI3MiIgeT0iMzQiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCAnVGltZXMgTmV3IFJvbWFuJywgc2VyaWYiIGZvbnQtc2l6ZT0iMjQiIGZvbnQtd2VpZ2h0PSI3MDAiIGZpbGw9IiMwRjE0MTkiIGxldHRlci1zcGFjaW5nPSIwLjAyZW0iPlRhcGluPC90ZXh0PgogIDx0ZXh0IHg9IjcyIiB5PSI1NiIgZm9udC1mYW1pbHk9InN5c3RlbS11aSwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMiIgZm9udC13ZWlnaHQ9IjUwMCIgZmlsbD0iIzY0NzQ4QiIgbGV0dGVyLXNwYWNpbmc9IjAuMTJlbSI+U0pDIMK3IENBREVUIENIRUNLLUlOPC90ZXh0Pgo8L3N2Zz4K",
+    "favicon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2IiBmaWxsPSJub25lIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IlNKQyBtb25vZ3JhbSI+CiAgPHJlY3Qgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMTAiIGZpbGw9IiMwRjE0MTkiLz4KICA8dGV4dCB4PSI0OCIgeT0iNTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCAnVGltZXMgTmV3IFJvbWFuJywgc2VyaWYiIGZvbnQtc2l6ZT0iMjgiIGZvbnQtd2VpZ2h0PSI3MDAiIGZpbGw9IiNGOEZBRkMiIGxldHRlci1zcGFjaW5nPSIwLjA0ZW0iPlNKQzwvdGV4dD4KICA8cmVjdCB4PSIyMiIgeT0iNzIiIHdpZHRoPSI1MiIgaGVpZ2h0PSI0IiBmaWxsPSIjRTExRDQ4Ii8+Cjwvc3ZnPgo="
+  },
+  "copy": {
+    "appName": "Tapin",
+    "shortName": "Tapin",
+    "deskRoleLabel": "Desk",
+    "teacherRoleLabel": "Teacher PIN",
+    "checkInCta": "Check-in",
+    "enrollCta": "Enroll",
+    "endSessionCta": "End Session",
+    "pinGateTitle": "Enter the teacher PIN",
+    "exportSchoolAccountNotice": "Send this file only to a school account.",
+    "emptyRosterHint": "Nobody is enrolled on this Tapin device yet — import a roster or enroll the first card.",
+    "bodySubtitleHint": "One body on this device",
+    "orgLabel": "SJC",
+    "tagline": "SJC · Cadet Check-in"
+  },
+  "bodyTypePresets": [
+    {
+      "id": "club",
+      "label": "Club"
+    },
+    {
+      "id": "class",
+      "label": "Class"
+    },
+    {
+      "id": "faculty",
+      "label": "Faculty"
+    },
+    {
+      "id": "custom",
+      "label": "Custom"
+    }
+  ],
+  "layout": {
+    "density": "comfortable",
+    "radius": "sm",
+    "asymmetryHint": "editorial-left-mark"
+  },
+  "checksums": {
+    "assets/logo-mark.svg": "sha256:596655d865495c59e5357d69f27aef1f49fddc7c941a72521f3297fd02f2a37e",
+    "assets/logo-wordmark.svg": "sha256:5c72998ace3c07ed60ee9cdf4c737d79587bdc82761be6f584bde92556975dc1"
+  }
+}

@@ -6,11 +6,11 @@ import { loadThemePack } from '../src/loader';
 import { scanForForbiddenFields } from '../src/verify';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIST = join(__dirname, '../dist');
-const FIXTURE = join(DIST, 'tapin-sjc-v1.0.0.nfc-theme');
+const FIXTURES = join(__dirname, '../fixtures');
+const FIXTURE = join(FIXTURES, 'tapin-sjc-v1.0.0.nfc-theme');
 
 describe('tapin-sjc packed fixture', () => {
-  it('fixture file exists (run `pnpm --filter @workspace/themes run pack tapin-sjc` first)', () => {
+  it('fixture file exists', () => {
     expect(existsSync(FIXTURE)).toBe(true);
   });
 
