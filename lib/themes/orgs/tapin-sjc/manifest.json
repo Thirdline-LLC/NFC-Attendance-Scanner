@@ -1,0 +1,64 @@
+{
+  "v": 1,
+  "meta": {
+    "id": "tapin-sjc",
+    "orgName": "St. John's College High School",
+    "packName": "Tapin · SJC",
+    "version": "1.0.0",
+    "minAppVersion": "1.0.0",
+    "createdAt": "2026-09-23T04:35:00.000Z",
+    "notes": "Tapin product theme pack for SJC. Product name is Tapin; SJC branding is the school skin. Original mark/colors — not Finalsite assets.",
+    "productName": "Tapin"
+  },
+  "fonts": {
+    "heading": "Source Serif 4",
+    "body": "Plus Jakarta Sans",
+    "googleFontsUrl": "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap"
+  },
+  "colors": {
+    "bg": "#F7F8FA",
+    "fg": "#0F1419",
+    "muted": "#64748B",
+    "border": "#94A3B8",
+    "accent": "#E11D48",
+    "accentFg": "#FFF1F2",
+    "success": "#15803D",
+    "danger": "#BE123C",
+    "warning": "#A16207",
+    "surface": "#FFFFFF",
+    "shadow": "0 1px 2px rgba(15,20,25,0.06)",
+    "markBg": "#0F1419",
+    "slate": "#334155"
+  },
+  "assets": {
+    "logoMark": "assets/logo-mark.svg",
+    "logoWordmark": "assets/logo-wordmark.svg",
+    "favicon": "assets/logo-mark.svg"
+  },
+  "copy": {
+    "appName": "Tapin",
+    "shortName": "Tapin",
+    "deskRoleLabel": "Desk",
+    "teacherRoleLabel": "Teacher PIN",
+    "checkInCta": "Check-in",
+    "enrollCta": "Enroll",
+    "endSessionCta": "End Session",
+    "pinGateTitle": "Enter the teacher PIN",
+    "exportSchoolAccountNotice": "Send this file only to a school account.",
+    "emptyRosterHint": "Nobody is enrolled on this Tapin device yet — import a roster or enroll the first card.",
+    "bodySubtitleHint": "One body on this device",
+    "orgLabel": "SJC",
+    "tagline": "SJC · Cadet Check-in"
+  },
+  "bodyTypePresets": [
+    { "id": "club", "label": "Club" },
+    { "id": "class", "label": "Class" },
+    { "id": "faculty", "label": "Faculty" },
+    { "id": "custom", "label": "Custom" }
+  ],
+  "layout": {
+    "density": "comfortable",
+    "radius": "sm",
+    "asymmetryHint": "editorial-left-mark"
+  }
+}

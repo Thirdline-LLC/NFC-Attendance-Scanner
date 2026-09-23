@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="72" viewBox="0 0 520 72" fill="none" role="img" aria-label="Tapin for SJC wordmark">
+  <rect x="0" y="8" width="56" height="56" rx="6" fill="#0F1419"/>
+  <text x="28" y="42" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-weight="700" fill="#F8FAFC" letter-spacing="0.04em">SJC</text>
+  <rect x="10" y="50" width="36" height="3" fill="#E11D48"/>
+  <text x="72" y="34" font-family="Georgia, 'Times New Roman', serif" font-size="24" font-weight="700" fill="#0F1419" letter-spacing="0.02em">Tapin</text>
+  <text x="72" y="56" font-family="system-ui, sans-serif" font-size="12" font-weight="500" fill="#64748B" letter-spacing="0.12em">SJC · CADET CHECK-IN</text>
+</svg>

@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
+import { ThemeAdminPanel } from '@/theme/ThemeAdminPanel';
 import {
   Archive,
   BarChart3,
@@ -232,6 +233,8 @@ export function Dashboard({
         ) : null}
 
         {onChangePin ? <TeacherPinCard onChangePin={onChangePin} /> : null}
+
+        {onChangePin ? <ThemeAdminPanel /> : null}
       </div>
     </section>
   );
