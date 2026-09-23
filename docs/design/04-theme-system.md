@@ -4,7 +4,9 @@
 
 ## Overview
 
-Neutral core binary loads a signed `.nfc-theme` at runtime. Themes are branding/copy/tokens only. Fallback: bundled `packages/themes/default`.
+Neutral core binary loads a `.nfc-theme` at runtime. Themes are branding/copy/tokens only. Fallback: bundled `packages/themes/default`.
+
+**D-T1 (2026-09-23):** Pilot packs ship **UNSIGNED** (local admin install). Keep `signature` / `checksums` fields as a seam for later multi-school signing — do **not** implement ed25519 verification in the pilot.
 
 ## Schema (v1)
 
@@ -31,13 +33,14 @@ signature: { alg: "ed25519", keyId, sig }
 - Presets: Club, Class, Faculty, Custom  
 - Assets: licensed mark/wordmark only — no student photos  
 
-## Load / verify flow
+## Load / verify flow (pilot)
 
 1. Boot → read `active.nfc-theme` from app data.  
-2. Verify asset SHA-256 map, then ed25519 with embedded public keyring.  
-3. Fail → default theme + teacher-visible banner.  
-4. Apply CSS variables + copy dictionary; feed bodyTypePresets.  
-5. PIN Theme screen: Install / Activate / Revert; show id+version. IndexedDB untouched.
+2. If `checksums` present, optionally verify asset SHA-256. **Skip ed25519** while signature is absent/placeholder (D-T1).  
+3. Fail closed only on unreadable/corrupt pack → default theme + teacher banner.  
+4. Apply CSS variables + copy dictionary; feed bodyTypePresets. Product `appName` remains **Tapin**; org label from theme.  
+5. PIN Theme screen: Install / Activate / Revert; show id+version. IndexedDB untouched.  
+6. Later multi-school: enable signature verify without changing pack shape.
 
 ## Releases
 

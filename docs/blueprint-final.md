@@ -97,7 +97,7 @@ Tap { id, bodyId, sessionId, cardUid, memberId?, scannedAt, counted }
 ```
 
 - Desk UX never switches bodies mid-queue.  
-- Changing body is **teacher PIN-gated reconfiguration**: export first, then replace active body / import new roster (see design 02 + 03).  
+- Changing body is **teacher PIN-gated reconfiguration**: KEEP existing taps and reassign; export remains available but is **not** required before swap (D-T2, 2026-09-23).  
 - Theme `bodyTypePresets` supply **labels only**, not rosters.
 
 ## 6. Local FERPA data map
@@ -137,7 +137,7 @@ Templates: `templates/roster-template.csv` (+ xlsx twin).
 
 - One **neutral** core binary.  
 - Active theme = signed `.nfc-theme` on device (or bundled `default`).  
-- Verify: SHA-256 of assets + ed25519 over canonical payload; refuse unsigned/tampered.  
+- Pilot: packs may ship **unsigned** (D-T1). Keep signature/checksum fields as a seam; implement signing later for multi-school. Optional local SHA-256 of assets if present.  
 - Admin PIN-gated install/activate/revert — **no rebuild**.  
 - Packs ship as **GitHub Release assets** beside installers.  
 - **Forbidden in packs:** members, emails, UIDs, taps, sessions, PIN material.
@@ -170,12 +170,16 @@ Optional in-app “Check for update” may read **public release metadata** and 
 | Theme baked at build | **Dropped** — runtime `.nfc-theme` |
 | Peer sync of records | **Forbidden** (existing docs) |
 
-## 12. Open flags for Asher / school
+## 12. Decided (2026-09-23) — see `docs/decisions/2026-09-23-tapin-pilot-decisions.md`
+
+1. **Theme signing:** UNSIGNED for pilot (local admin install). Keep `signature` / `checksums` seam; do not implement signing yet. Add keys when multi-school.  
+2. **Body-replace:** KEEP old taps; reassign on club/class switch. Export optional — do **not** block swap for export.  
+3. **GitHub Releases on school Wi‑Fi:** allowed for app + theme updates.  
+
+### Still open (school / brand, not blocking docs)
 
 1. Confirm school FERPA policy ownership of exports.  
-2. Whether in-app “Check for app/theme update” is allowed on school Wi‑Fi (binaries/themes only).  
-3. Theme signing key custody (who holds ed25519 private key).  
-4. Exact SJC brand hex/logo licensing for the first `.nfc-theme`.  
+2. Official SJC brand licensing if/when school-owned marks are used (current Tapin · SJC pack uses original mark).  
 
 ## 13. Index of specs and plans
 

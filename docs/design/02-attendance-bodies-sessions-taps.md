@@ -9,7 +9,8 @@ Domain model for **one AttendanceBody per device**, sessions, and append-only ta
 ## One-device–one-body
 
 - Exactly one `activeBodyId` in settings.
-- Creating/replacing a body is teacher PIN-gated; require export roster + export all history before destructive replace (confirm copy).
+- Creating/replacing a body is teacher PIN-gated.
+- **D-T2 (2026-09-23):** On switch, **KEEP** existing taps on the device and reassign; export is available but **not required**; do **not** block the swap for export.
 - No desk UI to flip bodies mid-meeting.
 
 ## Model
@@ -29,7 +30,7 @@ Boot → load active body → sessions rotate via Start New Session → taps app
 ## Edge cases
 
 - Import members while body unset → force body create first.
-- Reconfigure body with existing taps → taps remain historical for old bodyId **or** block replace until purge/export (prefer **block** with export-first; document in plan).
+- Reconfigure body with existing taps → **KEEP** taps and reassign to the new active body (D-T2). Export optional.
 - Alumni / retention predicates unchanged; scoped to active body’s members.
 
 ## FERPA

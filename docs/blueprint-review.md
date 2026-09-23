@@ -17,15 +17,19 @@
 | Free-tier CI listed | PASS |
 | Aligns with data-protection.md / data-and-backup.md | PASS with notes below |
 
-## Gaps / flags (non-blocking for docs; block code until decided)
+## Decided 2026-09-23 (no longer open)
 
-1. **Body replace semantics:** Spec 02 prefers blocking replace until export; exact migration of historical taps with old `bodyId` needs a product call before coding the migration (backfill vs freeze).
-2. **Private GitHub Releases + school Wi-Fi:** Update checker may need a read token on device — ops design must keep that token out of exports and backups (`android:allowBackup` already false).
-3. **Faculty `grad_year`:** Soft-required rule must be implemented carefully so student imports still require year.
-4. **Unsigned CSV vs signed `.nfc-pack`:** Day-to-day school files stay unsigned behind PIN; do not accidentally require signatures for teacher Excel.
-5. **Theme private key custody:** Not in repo; Asher must designate holder before first SJC pack ships.
-6. **PACT in CI:** User-facing PWA preview may not exist in Cap-only kiosk mode — apply PACT when a hosted preview exists; otherwise manual checklist.
-7. **COPPA:** Docs correctly say COPPA likely N/A (9–12, local-only); still keep retention + security program postures.
+1. **Body replace:** KEEP taps; reassign; export not required (D-T2).
+2. **Theme signing:** UNSIGNED pilot; signature seam only (D-T1).
+3. **School Wi‑Fi → GitHub Releases:** allowed (D-T3).
+
+## Remaining gaps (non-blocking for docs)
+
+1. **Private GitHub Releases token on device** (if repo stays private): ops must keep any read token out of exports/backups (`android:allowBackup` already false).
+2. **Faculty `grad_year`:** Soft-required for faculty packs; student imports still require year.
+3. **Unsigned CSV vs `.nfc-pack`:** Day-to-day Excel stays unsigned behind PIN.
+4. **PACT in CI:** Apply when hosted preview exists; else manual checklist.
+5. **COPPA:** Likely N/A (9–12, local-only); keep retention + security postures.
 
 ## Conflicts fixed in this docs set
 

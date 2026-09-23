@@ -23,13 +23,14 @@ Optional teacher PIN-gated “Check for updates” reads **GitHub Releases** for
 
 ## Edge cases
 
-- Offline / school firewall — show manual Releases URL.  
+- Offline / firewall — show manual Releases URL.  
 - minAppVersion on theme newer than app — refuse theme, prompt app update first.  
-- Tamper → refuse + activity `update-refused` counts only.
+- **D-T3 (2026-09-23):** School Wi‑Fi → GitHub Releases is **allowed**; no product restriction.  
+- Tamper/corrupt asset → refuse + activity `update-refused` counts only.
 
 ## FERPA
 
-Network path is binaries/themes only. Document that enabling check requires school IT acceptance of GitHub egress.
+Network path is binaries/themes only — never student DBs.
 
 ## Out of scope
 
