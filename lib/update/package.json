@@ -1,0 +1,17 @@
+{
+  "name": "@workspace/update",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@workspace/themes": "workspace:*",
+    "vitest": "^5.0.0"
+  }
+}

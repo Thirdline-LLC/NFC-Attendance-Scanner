@@ -1,8 +1,16 @@
 import path from 'path';
+import { readFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { defineConfig } from 'vite';
+
+/** Stamped in as `VITE_APP_VERSION` — Plan 07's update check compares against it. */
+const appVersion = (
+  JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as {
+    version: string;
+  }
+).version;
 
 /**
  * One config, three targets. `BUILD_TARGET` picks between them:
@@ -66,7 +74,10 @@ function contentSecurityPolicy(target: BuildTarget) {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "font-src 'self'",
-    "connect-src 'self'",
+    // 'self' for bundled assets, plus the GitHub REST API for Plan 07's
+    // update-metadata check (D-T3). Release asset *bytes* are never fetched
+    // from this origin — see docs/update-token-ops.md.
+    "connect-src 'self' https://api.github.com",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
@@ -94,6 +105,7 @@ export default defineConfig({
   // worker registration and the export adapter can tell the shells apart.
   define: {
     'import.meta.env.VITE_BUILD_TARGET': JSON.stringify(target),
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
   },
   plugins: [
     react(),

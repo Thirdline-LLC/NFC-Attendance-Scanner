@@ -12,10 +12,17 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron';
 
-import type { WorkbookSaveResult } from '../src/platform/desktop-bridge';
+import { verifySha256 } from '@workspace/update';
+
+import type { DownloadVerifiedAssetResult, WorkbookSaveResult } from '../src/platform/desktop-bridge';
+import { RELEASES_PAGE_URL } from '../src/update/repo-config';
 // Every rule applied to renderer input lives in validation.ts, which imports
 // no Electron and is therefore unit-tested directly.
-import { parseSaveRequest, resolveBundledAsset } from './validation';
+import {
+  parseDownloadVerifiedAssetRequest,
+  parseSaveRequest,
+  resolveBundledAsset,
+} from './validation';
 
 // esbuild emits CommonJS for both Electron entry points (a sandboxed preload
 // has to be CJS), so `__dirname` is the portable way to find the bundle.
@@ -71,9 +78,11 @@ const CONTENT_SECURITY_POLICY = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  // The app makes no network requests at all. 'self' is the narrowest value
-  // that still lets the renderer fetch its own bundled assets.
-  "connect-src 'self'",
+  // 'self' for the renderer's own bundled assets, plus the GitHub REST API
+  // for Plan 07's update-metadata check (D-T3: reading Release metadata is
+  // allowed; downloading and verifying asset bytes happens in this main
+  // process instead, which is not subject to this policy at all).
+  "connect-src 'self' https://api.github.com",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
@@ -221,6 +230,92 @@ function revealWorkbook(_event: IpcMainInvokeEvent, payload: unknown): boolean {
   return true;
 }
 
+/**
+ * Fetches one Release asset's bytes from the GitHub API.
+ *
+ * Runs in the main process specifically because it is not: the renderer's
+ * `fetch` is bound by CORS, and GitHub's Release asset CDN sends no
+ * `Access-Control-Allow-Origin` header on the asset response — only the
+ * `/releases/latest` metadata call does. Node's `fetch` has no such
+ * restriction, which is the whole reason this download does not happen in
+ * `src/update/`.
+ */
+async function fetchReleaseAssetBytes(url: string): Promise<Uint8Array> {
+  const token = process.env.TAPIN_UPDATE_TOKEN;
+  const headers: Record<string, string> = { Accept: 'application/octet-stream' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    throw new Error(`http-error:${response.status}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * Downloads one Release asset and its `.sha256` sidecar, verifies the
+ * checksum, and only then hands anything back to the renderer (D6: checksum
+ * fail refuses install, fail closed).
+ *
+ * A theme pack's verified JSON text is returned directly — the renderer
+ * passes it straight to `installPack`, Plan 04's own activator, unchanged.
+ * An app installer is instead written to the Downloads folder and added to
+ * `writtenExports`, so `revealWorkbook` can show it in Finder; its bytes
+ * never cross the bridge at all (D3: no electron-updater, no in-place swap —
+ * the operator runs the installer themselves).
+ */
+async function downloadVerifiedAsset(
+  _event: IpcMainInvokeEvent,
+  payload: unknown,
+): Promise<DownloadVerifiedAssetResult> {
+  const request = parseDownloadVerifiedAssetRequest(payload);
+  if (!request) return { ok: false, reason: 'invalid-request' };
+
+  let assetBytes: Uint8Array;
+  let sidecarBytes: Uint8Array;
+  try {
+    [assetBytes, sidecarBytes] = await Promise.all([
+      fetchReleaseAssetBytes(request.assetUrl),
+      fetchReleaseAssetBytes(request.sha256Url),
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    return {
+      ok: false,
+      reason: message.startsWith('http-error:') ? 'http-error' : 'network',
+    };
+  }
+
+  const sidecarText = Buffer.from(sidecarBytes).toString('utf-8');
+  const verification = await verifySha256(assetBytes, sidecarText);
+  if (!verification.ok) return { ok: false, reason: 'checksum' };
+
+  if (request.isTheme) {
+    return { ok: true, kind: 'theme', text: Buffer.from(assetBytes).toString('utf-8') };
+  }
+
+  try {
+    const destination = path.join(app.getPath('downloads'), request.suggestedName);
+    await fs.writeFile(destination, assetBytes);
+    writtenExports.add(destination);
+    return { ok: true, kind: 'app', path: destination, bytes: assetBytes.byteLength };
+  } catch {
+    return { ok: false, reason: 'write-failed' };
+  }
+}
+
+/**
+ * The manual fallback link (offline, firewalled, or the operator just wants
+ * to see the Release notes first). `setWindowOpenHandler` below denies every
+ * `window.open`/`target=_blank`, so this is the one deliberate escape hatch —
+ * and it takes no argument from the renderer: the URL is this constant, never
+ * a string the page could substitute.
+ */
+function openReleasesPage(): boolean {
+  void shell.openExternal(RELEASES_PAGE_URL);
+  return true;
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1180,
@@ -299,6 +394,8 @@ void app.whenReady().then(() => {
 
   ipcMain.handle('attendance:save-workbook', saveWorkbook);
   ipcMain.handle('attendance:reveal-workbook', revealWorkbook);
+  ipcMain.handle('attendance:download-verified-asset', downloadVerifiedAsset);
+  ipcMain.handle('attendance:open-releases-page', openReleasesPage);
 
   createWindow();
 

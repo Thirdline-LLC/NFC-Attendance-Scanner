@@ -396,7 +396,13 @@ verification on the M2:
 3. Leave `publish: null` in `electron-builder.yml`. Uploading assets to a
    Release is a publishing *step*; wiring electron-builder `publish` or adding
    `electron-updater` would make the app check a feed at runtime and break
-   Must #11 (no automatic updates / no network path for updates).
+   Must #11 (no automatic updates). Must #11's "no network path for updates"
+   half is superseded by D-T3 (`docs/decisions/2026-09-23-tapin-pilot-decisions.md`):
+   a teacher-initiated, PIN-gated "Check for updates" is allowed to read
+   Release metadata and — on this desktop build only — download and verify an
+   asset in the main process before handing it to the operator. It is still
+   never automatic and never an in-place binary swap; see
+   `docs/plans/07-update-checker.md` and `docs/update-token-ops.md`.
 4. **Private repo:** recipients need GitHub access (org member or a release
    asset URL shared to someone who can download). Do not assume an anonymous
    public download link. Document who may download in the release notes.

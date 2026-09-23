@@ -15,6 +15,17 @@ export function buildTarget(): BuildTarget {
 }
 
 /**
+ * The running app's own version (`package.json`'s), stamped in by
+ * `vite.config.ts` the same way `VITE_BUILD_TARGET` is. Plan 07's update
+ * check compares a Release tag against this. Under vitest nothing stamps it,
+ * so a fixed placeholder stands in — tests that care stub the env instead.
+ */
+export function appVersion(): string {
+  const declared = import.meta.env.VITE_APP_VERSION;
+  return typeof declared === 'string' && declared.length > 0 ? declared : '0.0.0-dev';
+}
+
+/**
  * Everything the service-worker decision depends on, gathered in one object so
  * the rule below can be tested without a build, a WebView or a desktop shell.
  */

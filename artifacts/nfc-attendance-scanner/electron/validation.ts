@@ -82,3 +82,59 @@ export function resolveBundledAsset(
 
   return isInsideDirectory(rendererDir, resolved) ? resolved : null;
 }
+
+/**
+ * A GitHub REST API Release-asset URL, and nothing else (Plan 07).
+ *
+ * `downloadVerifiedAsset` fetches whatever URL the renderer hands it, so this
+ * is what keeps that from becoming an arbitrary-URL fetch on the operator's
+ * behalf: only `https://api.github.com/repos/<owner>/<repo>/releases/assets/<id>`
+ * is accepted, matching the `apiUrl` shape `@workspace/update` parses off a
+ * release. `browser_download_url`s and anything on another host are refused.
+ */
+const GITHUB_RELEASE_ASSET_URL =
+  /^https:\/\/api\.github\.com\/repos\/[\w.-]+\/[\w.-]+\/releases\/assets\/\d+$/;
+
+export function isGithubReleaseAssetUrl(url: unknown): url is string {
+  return typeof url === 'string' && GITHUB_RELEASE_ASSET_URL.test(url);
+}
+
+/**
+ * The request shape for downloading and verifying one Release asset.
+ *
+ * `suggestedName` names the file this becomes on disk if it is an app
+ * installer (never used for a theme pack, which is never written to disk).
+ * It is re-validated here, not trusted from the release JSON the renderer
+ * already parsed — the same allowlist-not-sanitiser approach as
+ * `parseSaveRequest`.
+ */
+const INSTALLER_FILENAME = /^[\w.-]+\.(dmg|apk)$/;
+
+export type DownloadVerifiedAssetRequest = {
+  assetUrl: string;
+  sha256Url: string;
+  suggestedName: string;
+  /** True for a `.nfc-theme` pack: verified bytes are returned as text, never written to disk. */
+  isTheme: boolean;
+};
+
+export function parseDownloadVerifiedAssetRequest(
+  payload: unknown,
+): DownloadVerifiedAssetRequest | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const { assetUrl, sha256Url, suggestedName, isTheme } = payload as Record<string, unknown>;
+
+  if (!isGithubReleaseAssetUrl(assetUrl)) return null;
+  if (!isGithubReleaseAssetUrl(sha256Url)) return null;
+  if (typeof isTheme !== 'boolean') return null;
+
+  if (isTheme) {
+    if (typeof suggestedName !== 'string' || !suggestedName.endsWith('.nfc-theme')) {
+      return null;
+    }
+  } else if (typeof suggestedName !== 'string' || !INSTALLER_FILENAME.test(suggestedName)) {
+    return null;
+  }
+
+  return { assetUrl, sha256Url, suggestedName, isTheme };
+}

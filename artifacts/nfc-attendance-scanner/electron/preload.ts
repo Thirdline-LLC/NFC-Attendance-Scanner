@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 import type {
   DesktopBridge,
+  DownloadVerifiedAssetRequest,
+  DownloadVerifiedAssetResult,
   WorkbookSaveRequest,
   WorkbookSaveResult,
 } from '../src/platform/desktop-bridge';
@@ -33,6 +35,21 @@ const bridge: DesktopBridge = {
 
   revealWorkbook(path: string): Promise<boolean> {
     return ipcRenderer.invoke('attendance:reveal-workbook', String(path));
+  },
+
+  downloadVerifiedAsset(
+    request: DownloadVerifiedAssetRequest,
+  ): Promise<DownloadVerifiedAssetResult> {
+    return ipcRenderer.invoke('attendance:download-verified-asset', {
+      assetUrl: String(request.assetUrl),
+      sha256Url: String(request.sha256Url),
+      suggestedName: String(request.suggestedName),
+      isTheme: Boolean(request.isTheme),
+    });
+  },
+
+  openReleasesPage(): Promise<boolean> {
+    return ipcRenderer.invoke('attendance:open-releases-page');
   },
 };
 
