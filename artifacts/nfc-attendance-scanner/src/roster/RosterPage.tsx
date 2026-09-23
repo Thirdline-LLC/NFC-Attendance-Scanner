@@ -12,10 +12,12 @@ import {
   applyRosterImport,
   deletePerson,
   DuplicateEmailError,
+  getActiveBody,
   listPersons,
   previewPersonRemoval,
   recordActivity,
   updatePerson,
+  type AttendanceBody,
   type Person,
   type PersonRemoval,
 } from '@/data/attendance-store';
@@ -41,6 +43,7 @@ import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
  */
 export function RosterPage() {
   const [persons, setPersons] = useState<Person[]>([]);
+  const [activeBody, setActiveBody] = useState<AttendanceBody | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -134,7 +137,9 @@ export function RosterPage() {
     setIsLoading(true);
     setLoadFailed(false);
     try {
-      setPersons(await listPersons());
+      const [persons, body] = await Promise.all([listPersons(), getActiveBody()]);
+      setPersons(persons);
+      setActiveBody(body);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -162,7 +167,7 @@ export function RosterPage() {
       setImportResult(null);
       setExportResult(null);
       try {
-        const parsed = await parseRosterFile(file);
+        const parsed = await parseRosterFile(file, activeBody ?? undefined);
         const counts = await applyRosterImport(parsed.entries);
         setImportResult({
           ok: true,
@@ -203,7 +208,7 @@ export function RosterPage() {
         setIsImporting(false);
       }
     },
-    [],
+    [activeBody],
   );
 
   const handleExport = useCallback(async () => {
@@ -407,6 +412,7 @@ export function RosterPage() {
               isExporting={isExporting}
               exportResult={exportResult}
               studentCount={persons.length}
+              activeBody={activeBody}
             />
             <RosterManager
               persons={persons}

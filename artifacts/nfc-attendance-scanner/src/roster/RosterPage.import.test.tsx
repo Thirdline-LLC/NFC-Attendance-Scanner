@@ -290,6 +290,87 @@ describe('RosterPage roster import', () => {
   });
 });
 
+describe('RosterPage CSV import', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function csvFile(content: string, name = 'roster.csv'): File {
+    return new File([content], name, { type: 'text/csv' });
+  }
+
+  it('pre-enrolls students from a CSV file', async () => {
+    const csv = [
+      'first_name,last_name,grad_year,email',
+      'Jordan,Lee,2027,jlee27@stjohnschs.org',
+      'Priya,Nair,2028,pnair28@stjohnschs.org',
+    ].join('\n');
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-import');
+
+    await importFile(user, csvFile(csv));
+
+    const summary = await screen.findByTestId('text-import-summary');
+    expect(summary.textContent).toContain('2 students added');
+    expect(summary.textContent).toContain('0 refused');
+    const stored = await listPersons();
+    expect(stored).toHaveLength(2);
+    expect(stored.every((p) => p.cardUid === undefined)).toBe(true);
+  });
+
+  it('shows body banner and refuses CSV with mismatched body_name', async () => {
+    const csv = [
+      'first_name,last_name,grad_year,email,body_name,body_type',
+      'Jordan,Lee,2027,jlee27@stjohnschs.org,Chess Club,club',
+    ].join('\n');
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-import');
+
+    // Active body banner should be present (default body is 'Club')
+    expect(screen.getByTestId('text-active-body-banner')).toBeTruthy();
+
+    await importFile(user, csvFile(csv));
+
+    const failure = await screen.findByTestId('text-import-failed');
+    expect(failure.textContent).toContain('Nothing was imported');
+    expect(failure.textContent).toContain('Chess Club');
+    expect(await listPersons()).toHaveLength(0);
+  });
+
+  it('is idempotent: re-importing the same CSV changes nothing', async () => {
+    const csv = [
+      'first_name,last_name,grad_year,email',
+      'Jordan,Lee,2027,jlee27@stjohnschs.org',
+    ].join('\n');
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-import');
+
+    await importFile(user, csvFile(csv));
+    await screen.findByTestId('text-import-summary');
+    await waitForImportIdle();
+
+    await importFile(user, csvFile(csv, 'roster2.csv'));
+    await waitFor(() => {
+      const summary = screen.getByTestId('text-import-summary');
+      expect(summary.textContent).toContain('0 students added');
+      expect(summary.textContent).toContain('1 already up to date');
+    });
+    expect(await listPersons()).toHaveLength(1);
+  });
+});
+
 describe('RosterPage roster export', () => {
   beforeEach(async () => {
     localStorage.clear();
