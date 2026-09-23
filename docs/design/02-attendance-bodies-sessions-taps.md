@@ -4,18 +4,20 @@
 
 ## Overview
 
-Domain model for **one AttendanceBody per device**, sessions, and append-only taps. Replaces club-hardcoded language with configurable `typeLabel` while preserving Wave 1 session/metrics behavior.
+Domain model for **first-class AttendanceBody entities** (class, club, faculty, custom). Each body owns its roster and tap history/metrics. A device holds an `activeBodyId` attachment for scanning. Replaces club-hardcoded language while preserving Wave 1 session/metrics **per body**.
 
-## One-device–one-body
+## Entity ownership + device attachment (D-T2 revised)
 
-- Exactly one `activeBodyId` in settings.
-- Creating/replacing a body is teacher PIN-gated.
-- **D-T2 (2026-09-23):** On switch, **KEEP** existing taps on the device and reassign; export is available but **not required**; do **not** block the swap for export.
-- No desk UI to flip bodies mid-meeting.
+- Many bodies may exist on one device; each keeps its own **roster and tap history**.
+- Exactly one `activeBodyId` in settings — the body the scanner is attached to.
+- Creating a body / switching active body is teacher PIN-gated.
+- **Reassignment** = point the device at a different body. Roster and history **stay with the entity**; nothing is wiped because the device “moved.”
+- Export remains available but **not required** before switch.
+- No desk UI to flip bodies mid-queue.
 
 ## Model
 
-See blueprint §5. Metrics (unique attendance, duplicates, unknown cards) are **per device / per body**, never school-wide (SoR workbook holds the merge).
+See blueprint §5. Metrics (unique attendance, duplicates, unknown cards) are **per body entity**, never school-wide (SoR workbook holds the merge). Dashboard figures for “this session” are the **active** body’s.
 
 ## UI notes
 
@@ -30,7 +32,7 @@ Boot → load active body → sessions rotate via Start New Session → taps app
 ## Edge cases
 
 - Import members while body unset → force body create first.
-- Reconfigure body with existing taps → **KEEP** taps and reassign to the new active body (D-T2). Export optional.
+- Switch active body → previous body’s roster + taps remain stored under that bodyId; new active body uses its own roster/history (D-T2). Export optional.
 - Alumni / retention predicates unchanged; scoped to active body’s members.
 
 ## FERPA

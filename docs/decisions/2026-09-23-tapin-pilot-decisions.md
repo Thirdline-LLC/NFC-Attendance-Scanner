@@ -12,11 +12,18 @@
 
 **Rationale:** Start unsigned for the SJC pilot; add key infrastructure when scaling to multiple schools.
 
-## D-T2 — Body-replace keeps taps
+## D-T2 — Classes/clubs own roster + history; devices attach
 
-**Decision:** When a device switches club/class (active `AttendanceBody`), **KEEP** existing taps on the device and **reassign** them as appropriate to the new body context (product rule: do not wipe history on swap). Export remains available but is **not required** before reassignment. Do **not** block the swap for export.
+**Decision (revised 2026-09-23):** **Classes and clubs (AttendanceBody entities) are first-class.** Each class/club owns its own **roster** and its own **tap history / metrics**. Devices do **not** own rosters.
 
-**Supersedes:** Earlier blueprint preference to “block replace until export confirmed.”
+- A device simply **attaches** to whichever class or club is currently **active** on it.
+- **Reassignment** means pointing the device at a different class/club entity.
+- The roster and tap history **stay with the entity**, never migrate as “device property,” and are **not wiped** on switch.
+- Export remains **optional** — not required before reassignment.
+
+**Clarification:** “Keep old taps” means keep each entity’s **roster and associated tap history**, not orphan device-level rows without a body.
+
+**Supersedes:** (a) earlier “block replace until export,” and (b) the brief “KEEP taps and reassign onto the new body” wording that implied device-owned history.
 
 ## D-T3 — GitHub Releases on school Wi‑Fi
 

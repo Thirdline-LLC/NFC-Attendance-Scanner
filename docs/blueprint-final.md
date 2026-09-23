@@ -84,20 +84,21 @@ NFC-Attendance-Scanner/
 
 Migration is incremental: new packages wrap existing modules under `artifacts/…` without a big-bang move.
 
-## 5. One-device–one-body model
+## 5. Entity-owned bodies; device attaches to one active body
 
-Each physical kiosk is bound to **exactly one** `AttendanceBody` at a time.
+**Classes/clubs are first-class entities** (D-T2 revised). Each `AttendanceBody` owns its roster and tap history. A physical kiosk **attaches** to exactly one **active** body for scanning; other bodies may remain stored on the same device with their own rosters/history intact.
 
 ```
-AttendanceBody { id, name, typeLabel, createdAt }
+AttendanceBody { id, name, typeLabel, createdAt }   # owns roster + metrics
   typeLabel ∈ "club" | "class" | "faculty" | custom string
-Member { id, bodyId, firstName, lastName, gradYear?, email?, cardUid? }
-Session { id, bodyId, startedAt, endedAt? }
-Tap { id, bodyId, sessionId, cardUid, memberId?, scannedAt, counted }
+Member { id, bodyId, … }   # roster belongs to the body
+Session { id, bodyId, … }
+Tap { id, bodyId, … }      # history belongs to the body
+DeviceSettings.activeBodyId  # attachment pointer only
 ```
 
 - Desk UX never switches bodies mid-queue.  
-- Changing body is **teacher PIN-gated reconfiguration**: KEEP existing taps and reassign; export remains available but is **not** required before swap (D-T2, 2026-09-23).  
+- Teacher PIN-gated **reassignment** = change `activeBodyId` to another entity; roster/history stay with each entity; **no wipe**; export optional (D-T2).  
 - Theme `bodyTypePresets` supply **labels only**, not rosters.
 
 ## 6. Local FERPA data map
@@ -166,14 +167,14 @@ Optional in-app “Check for update” may read **public release metadata** and 
 |---|---|
 | Tauri desktop | **Dropped** — Capacitor D1 wins |
 | Supabase / cloud DB | **Forbidden** |
-| Many bodies per device day-to-day | **Dropped** — one-device–one-body |
+| Device-owned single roster wiped on switch | **Dropped** — entities own roster/history; device attaches (D-T2) |
 | Theme baked at build | **Dropped** — runtime `.nfc-theme` |
 | Peer sync of records | **Forbidden** (existing docs) |
 
 ## 12. Decided (2026-09-23) — see `docs/decisions/2026-09-23-tapin-pilot-decisions.md`
 
 1. **Theme signing:** UNSIGNED for pilot (local admin install). Keep `signature` / `checksums` seam; do not implement signing yet. Add keys when multi-school.  
-2. **Body-replace:** KEEP old taps; reassign on club/class switch. Export optional — do **not** block swap for export.  
+2. **Bodies:** Classes/clubs own roster + tap history; device only attaches to the active entity. Reassignment does not wipe. Export optional (D-T2 revised).  
 3. **GitHub Releases on school Wi‑Fi:** allowed for app + theme updates.  
 
 ### Still open (school / brand, not blocking docs)

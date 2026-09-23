@@ -8,7 +8,7 @@
 |---|---|
 | No cloud DB in blueprint/specs/plans | PASS |
 | Capacitor D1 honored; Tauri not required | PASS |
-| One-device–one-body consistent across 02/03/blueprint | PASS |
+| Entity-owned bodies; device attaches to active body (D-T2) | PASS |
 | Themes forbid student data; separate from roster packs | PASS |
 | Releases = binaries + themes; no peer sync | PASS |
 | Import never-delete + card ignore preserved | PASS |
@@ -19,7 +19,7 @@
 
 ## Decided 2026-09-23 (no longer open)
 
-1. **Body replace:** KEEP taps; reassign; export not required (D-T2).
+1. **Bodies:** Class/club entities own roster + tap history; device attaches; no wipe on reassignment; export optional (D-T2 revised).
 2. **Theme signing:** UNSIGNED pilot; signature seam only (D-T1).
 3. **School Wi‑Fi → GitHub Releases:** allowed (D-T3).
 
@@ -33,7 +33,7 @@
 
 ## Conflicts fixed in this docs set
 
-- Dropped Tauri and multi-body-per-device day-to-day from voice drafts.
+- Dropped Tauri; clarified multi-entity-on-device with single active attachment (D-T2).
 - Explicitly separated `.nfc-theme` (branding) from `.nfc-pack` (roster members).
 
 ## Verdict
