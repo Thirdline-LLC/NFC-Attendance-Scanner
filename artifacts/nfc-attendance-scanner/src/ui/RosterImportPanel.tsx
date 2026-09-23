@@ -6,9 +6,8 @@ import {
   Upload,
 } from 'lucide-react';
 
-import type { RosterImportCounts } from '@/data/attendance-store';
+import type { AttendanceBody, RosterImportCounts } from '@/data/attendance-store';
 import type { RejectedRosterRow } from '@/lib/roster-workbook';
-import { ROSTER_COLUMNS } from '@/lib/roster-workbook';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 
 /** What one finished import did, as counts and reasons — never as students. */
@@ -34,6 +33,8 @@ type RosterImportPanelProps = {
   isExporting: boolean;
   exportResult: ExportResult;
   studentCount: number;
+  /** The active body, shown in a banner so the teacher knows what they are importing into. */
+  activeBody?: AttendanceBody | null;
 };
 
 /** The most reasons worth printing; past this the sheet is the problem. */
@@ -65,6 +66,7 @@ export function RosterImportPanel({
   isExporting,
   exportResult,
   studentCount,
+  activeBody,
 }: RosterImportPanelProps) {
   const headingId = useId();
   const fileId = useId();
@@ -101,14 +103,32 @@ export function RosterImportPanel({
             Pre-enroll from a spreadsheet
           </h2>
           <p className="mt-1.5 text-sm leading-5 text-[hsl(var(--muted-foreground))]">
-            Import an <code className="font-mono text-xs">.xlsx</code> with the
-            columns {ROSTER_COLUMNS.join(', ')}. Leave the card column empty:
-            students arrive without a card, and each card is linked at the
-            scanner the first time it is tapped. A student who already taps
-            with a card keeps it — an import never changes a card.
+            Import a <code className="font-mono text-xs">.csv</code>,{' '}
+            <code className="font-mono text-xs">.xlsx</code>, or{' '}
+            <code className="font-mono text-xs">.nfc-pack</code> with columns{' '}
+            <code className="font-mono text-xs">
+              first_name, last_name, grad_year, email
+            </code>
+            . Leave the card column empty: students arrive without a card, and
+            each card is linked at the scanner the first time it is tapped. A
+            student who already taps with a card keeps it — an import never
+            changes a card.
           </p>
         </div>
       </header>
+
+      {activeBody ? (
+        <p
+          className="mt-4 rounded-xl border border-[hsl(var(--accent)/.35)] bg-[hsl(var(--accent)/.06)] px-3 py-2 text-xs text-[hsl(var(--muted-foreground))]"
+          data-testid="text-active-body-banner"
+        >
+          Importing into{' '}
+          <strong className="font-semibold text-[hsl(var(--foreground))]">
+            {activeBody.name}
+          </strong>{' '}
+          <span className="opacity-70">({activeBody.typeLabel})</span>
+        </p>
+      ) : null}
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <label
@@ -123,7 +143,7 @@ export function RosterImportPanel({
           ref={inputRef}
           id={fileId}
           type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          accept=".csv,.xlsx,.nfc-pack,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
           disabled={isImporting}
           onChange={(event) => void chooseFile(event.target.files?.[0])}
           className="sr-only"

@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 
-import type { Person, RosterEntry } from '@/data/attendance-store';
+import type { AttendanceBody, Person, RosterEntry } from '@/data/attendance-store';
 import { deriveGrade } from '@/lib/attendance-export';
 import { maskCardUid } from '@/lib/scan-format';
 import { formatSessionDate } from '@/lib/session-formatting';
@@ -39,6 +39,9 @@ export type RosterSheetRow = {
   Grade: string;
   /** `••••` + last four, or empty for a student with no card yet. */
   'Card (last 4)': string;
+  /** Optional body scope columns — read on import, refused on mismatch. */
+  'Body Name'?: string;
+  'Body Type'?: string;
 };
 
 export const ROSTER_SHEET_NAME = 'Roster';
@@ -61,18 +64,27 @@ export const ROSTER_COLUMNS: (keyof RosterSheetRow)[] = [
 const HEADER_ALIASES: Record<string, keyof RosterSheetRow> = {
   'first name': 'First Name',
   first: 'First Name',
+  first_name: 'First Name',
   'last name': 'Last Name',
   last: 'Last Name',
   surname: 'Last Name',
+  last_name: 'Last Name',
   'graduation year': 'Graduation Year',
   'grad year': 'Graduation Year',
   'class of': 'Graduation Year',
+  grad_year: 'Graduation Year',
+  graduation_year: 'Graduation Year',
   email: 'Email',
   'email address': 'Email',
+  email_address: 'Email',
   grade: 'Grade',
   'card (last 4)': 'Card (last 4)',
   'card last 4': 'Card (last 4)',
   card: 'Card (last 4)',
+  body_name: 'Body Name',
+  'body name': 'Body Name',
+  body_type: 'Body Type',
+  'body type': 'Body Type',
 };
 
 /** The columns a row cannot be understood without. */
@@ -204,8 +216,14 @@ function selectSheet(workbook: XLSX.WorkBook): XLSX.WorkSheet {
  * cell would mean the teacher imports nothing until the sheet is perfect. A
  * file with no recognisable headers at all is a different thing — that is the
  * wrong file, not a bad row — and does throw.
+ *
+ * When `activeBody` is supplied and a row's `body_name` or `body_type` column
+ * is non-empty but does not match, the entire file is refused.
  */
-export function parseRosterWorkbook(workbook: XLSX.WorkBook): ParsedRoster {
+export function parseRosterWorkbook(
+  workbook: XLSX.WorkBook,
+  activeBody?: AttendanceBody,
+): ParsedRoster {
   const sheet = selectSheet(workbook);
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
     defval: '',
@@ -248,6 +266,22 @@ export function parseRosterWorkbook(workbook: XLSX.WorkBook): ParsedRoster {
     // A wholly blank line is spreadsheet padding, not a student, and reporting
     // it as refused would make every file look half broken.
     if (!firstName && !lastName && !gradYearText && !emailText) return;
+
+    // Body column validation: refuse the entire file on first mismatch.
+    if (activeBody) {
+      const bodyName = read('Body Name');
+      const bodyType = read('Body Type');
+      if (bodyName && bodyName.toLowerCase() !== activeBody.name.toLowerCase()) {
+        throw new RosterFormatError(
+          `This file is for "${bodyName}", but the active body is "${activeBody.name}". Switch to the right body before importing.`,
+        );
+      }
+      if (bodyType && bodyType.toLowerCase() !== activeBody.typeLabel.toLowerCase()) {
+        throw new RosterFormatError(
+          `This file has body type "${bodyType}", but the active body type is "${activeBody.typeLabel}". Switch to the right body before importing.`,
+        );
+      }
+    }
 
     if (read('Card (last 4)')) cardsIgnored += 1;
 
@@ -312,7 +346,20 @@ export function parseRosterWorkbook(workbook: XLSX.WorkBook): ParsedRoster {
 }
 
 /** Reads an uploaded `.xlsx` file into entries and reasons. */
-export async function parseRosterFile(file: File): Promise<ParsedRoster> {
+export async function parseRosterFile(
+  file: File,
+  activeBody?: AttendanceBody,
+): Promise<ParsedRoster> {
+  const name = file.name.toLowerCase();
+
+  if (name.endsWith('.nfc-pack')) {
+    return parseNfcPack(await file.text(), activeBody);
+  }
+
+  if (name.endsWith('.csv')) {
+    return parseRosterCsv(await file.text(), activeBody);
+  }
+
   let workbook: XLSX.WorkBook;
 
   try {
@@ -323,5 +370,425 @@ export async function parseRosterFile(file: File): Promise<ParsedRoster> {
     );
   }
 
-  return parseRosterWorkbook(workbook);
+  return parseRosterWorkbook(workbook, activeBody);
+}
+
+// ---------------------------------------------------------------------------
+// CSV import (snake_case headers, body_name / body_type optional columns)
+// ---------------------------------------------------------------------------
+
+/** Header spellings accepted for each CSV column, folded to lowercase. */
+const CSV_HEADER_ALIASES: Record<string, keyof CsvRow> = {
+  first_name: 'first_name',
+  first: 'first_name',
+  'first name': 'first_name',
+  last_name: 'last_name',
+  last: 'last_name',
+  surname: 'last_name',
+  'last name': 'last_name',
+  grad_year: 'grad_year',
+  graduation_year: 'grad_year',
+  'grad year': 'grad_year',
+  'graduation year': 'grad_year',
+  'class of': 'grad_year',
+  email: 'email',
+  'email address': 'email',
+  email_address: 'email',
+  body_name: 'body_name',
+  'body name': 'body_name',
+  body_type: 'body_type',
+  'body type': 'body_type',
+};
+
+type CsvRow = {
+  first_name: string;
+  last_name: string;
+  grad_year: string;
+  email: string;
+  body_name: string;
+  body_type: string;
+};
+
+/**
+ * Splits a single CSV line into fields, honouring double-quoted fields and
+ * the `""` escape for a literal quote inside one.
+ */
+function splitCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      fields.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current);
+  return fields;
+}
+
+/**
+ * Parses a CSV roster file into entries and rejected rows.
+ *
+ * Accepts both the app's snake_case headers (`first_name`, `last_name`,
+ * `grad_year`) and the relaxed aliases the xlsx parser already accepts, so
+ * a file exported from another tool still imports cleanly.
+ *
+ * When `body_name` or `body_type` columns are present and their values are
+ * non-empty, they must match the active body or the entire file is refused.
+ */
+export function parseRosterCsvText(
+  text: string,
+  activeBody?: AttendanceBody,
+): ParsedRoster {
+  const lines = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter((l) => l.trim().length > 0);
+
+  if (lines.length === 0) {
+    throw new RosterFormatError('That CSV file is empty.');
+  }
+
+  const headerLine = lines[0];
+  const rawHeaders = splitCsvLine(headerLine);
+  const columns = new Map<keyof CsvRow, number>();
+
+  for (let i = 0; i < rawHeaders.length; i++) {
+    const canonical = CSV_HEADER_ALIASES[rawHeaders[i].trim().toLowerCase().replace(/\s+/g, ' ')];
+    if (canonical && !columns.has(canonical)) {
+      columns.set(canonical, i);
+    }
+  }
+
+  const missing: string[] = [];
+  for (const required of ['first_name', 'last_name', 'grad_year'] as const) {
+    if (!columns.has(required)) missing.push(required);
+  }
+  if (missing.length > 0) {
+    throw new RosterFormatError(
+      `That file does not look like a roster CSV: it is missing the ${missing.join(', ')} column${missing.length === 1 ? '' : 's'}. Download the template to get a file with the right headers.`,
+    );
+  }
+
+  const read = (fields: string[], col: keyof CsvRow): string => {
+    const idx = columns.get(col);
+    return idx !== undefined ? (fields[idx] ?? '').trim() : '';
+  };
+
+  const dataLines = lines.slice(1);
+  const entries: RosterEntry[] = [];
+  const rejected: RejectedRosterRow[] = [];
+  let cardsIgnored = 0;
+  const seenEmails = new Set<string>();
+
+  for (let i = 0; i < dataLines.length; i++) {
+    const line = i + 2;
+    const fields = splitCsvLine(dataLines[i]);
+
+    const firstName = read(fields, 'first_name');
+    const lastName = read(fields, 'last_name');
+    const gradYearText = read(fields, 'grad_year');
+    const emailText = read(fields, 'email');
+    const bodyName = read(fields, 'body_name');
+    const bodyType = read(fields, 'body_type');
+
+    if (!firstName && !lastName && !gradYearText && !emailText) continue;
+
+    // Body column validation: refuse the entire file on first mismatch.
+    if (activeBody) {
+      if (bodyName && bodyName.toLowerCase() !== activeBody.name.toLowerCase()) {
+        throw new RosterFormatError(
+          `This file is for "${bodyName}", but the active body is "${activeBody.name}". Switch to the right body before importing.`,
+        );
+      }
+      if (bodyType && bodyType.toLowerCase() !== activeBody.typeLabel.toLowerCase()) {
+        throw new RosterFormatError(
+          `This file has body type "${bodyType}", but the active body type is "${activeBody.typeLabel}". Switch to the right body before importing.`,
+        );
+      }
+    }
+
+    if (!firstName || !lastName) {
+      rejected.push({ row: line, reason: 'Missing a first or last name.' });
+      continue;
+    }
+
+    const gradYear = Number(gradYearText);
+    if (
+      !/^\d{4}$/.test(gradYearText) ||
+      gradYear < MIN_GRAD_YEAR ||
+      gradYear > MAX_GRAD_YEAR
+    ) {
+      rejected.push({
+        row: line,
+        reason: `Graduation year "${gradYearText}" is not a four-digit year.`,
+      });
+      continue;
+    }
+
+    let email = emailText.toLowerCase();
+    if (!email) {
+      try {
+        email = deriveStudentEmail(firstName, lastName, gradYear);
+      } catch {
+        rejected.push({
+          row: line,
+          reason: 'No email, and one could not be derived from the name.',
+        });
+        continue;
+      }
+    }
+
+    if (!isSchoolDomainEmail(email)) {
+      rejected.push({
+        row: line,
+        reason: `The email is not a ${SCHOOL_EMAIL_DOMAIN} address.`,
+      });
+      continue;
+    }
+
+    if (seenEmails.has(email)) {
+      rejected.push({
+        row: line,
+        reason: 'The email is already used by an earlier row in this file.',
+      });
+      continue;
+    }
+
+    seenEmails.add(email);
+    entries.push({ firstName, lastName, gradYear, email });
+  }
+
+  return { entries, rejected, cardsIgnored };
+}
+
+/**
+ * Parses a CSV text string from an uploaded `.csv` file.
+ * Thin wrapper that hands the raw text to `parseRosterCsvText`.
+ */
+async function parseRosterCsv(
+  text: string,
+  activeBody?: AttendanceBody,
+): Promise<ParsedRoster> {
+  return parseRosterCsvText(text, activeBody);
+}
+
+// ---------------------------------------------------------------------------
+// .nfc-pack (JSON bundle, optional ed25519 signature)
+// ---------------------------------------------------------------------------
+
+/** The v1 `.nfc-pack` schema — only fields the import needs. */
+type NfcPackMember = {
+  first_name: string;
+  last_name: string;
+  grad_year: number;
+  email?: string;
+};
+
+type NfcPackBody = {
+  name: string;
+  typeLabel: string;
+};
+
+type NfcPackV1 = {
+  v: 1;
+  body: NfcPackBody;
+  members: NfcPackMember[];
+  signature?: {
+    alg: string;
+    keyId: string;
+    sig: string;
+  };
+};
+
+/**
+ * Parses a `.nfc-pack` JSON string into roster entries.
+ *
+ * Signature is optional for day-to-day use (the PIN gate is the security
+ * boundary). The seam for verifying signed packs is present — the `signature`
+ * field is extracted and passed to `verifyNfcPackSignature` — but verification
+ * is a no-op until a key store is wired in.
+ *
+ * Body mismatch refuses the entire file, consistent with the design's
+ * "prefer entire file for packs" rule.
+ */
+export function parseNfcPackJson(
+  json: unknown,
+  activeBody?: AttendanceBody,
+): ParsedRoster {
+  if (
+    typeof json !== 'object' ||
+    json === null ||
+    (json as Record<string, unknown>)['v'] !== 1
+  ) {
+    throw new RosterFormatError(
+      'That .nfc-pack file is not a valid v1 pack. Check the file and try again.',
+    );
+  }
+
+  const pack = json as NfcPackV1;
+
+  if (
+    !pack.body ||
+    typeof pack.body.name !== 'string' ||
+    typeof pack.body.typeLabel !== 'string'
+  ) {
+    throw new RosterFormatError(
+      'That .nfc-pack file is missing its "body" field.',
+    );
+  }
+
+  if (!Array.isArray(pack.members)) {
+    throw new RosterFormatError(
+      'That .nfc-pack file is missing its "members" array.',
+    );
+  }
+
+  // Body validation: refuse the entire file on mismatch.
+  if (activeBody) {
+    if (pack.body.name.toLowerCase() !== activeBody.name.toLowerCase()) {
+      throw new RosterFormatError(
+        `This pack is for "${pack.body.name}", but the active body is "${activeBody.name}". Switch to the right body before importing.`,
+      );
+    }
+    if (pack.body.typeLabel.toLowerCase() !== activeBody.typeLabel.toLowerCase()) {
+      throw new RosterFormatError(
+        `This pack has body type "${pack.body.typeLabel}", but the active body type is "${activeBody.typeLabel}". Switch to the right body before importing.`,
+      );
+    }
+  }
+
+  // Signature seam: verify when a key store is available; accept unsigned packs
+  // for the PIN-gated day-to-day path.
+  if (pack.signature) {
+    verifyNfcPackSignature(pack.signature, pack);
+  }
+
+  const entries: RosterEntry[] = [];
+  const rejected: RejectedRosterRow[] = [];
+  const cardsIgnored = 0;
+  const seenEmails = new Set<string>();
+
+  for (let i = 0; i < pack.members.length; i++) {
+    const member = pack.members[i];
+    const line = i + 1;
+
+    if (
+      typeof member.first_name !== 'string' ||
+      typeof member.last_name !== 'string'
+    ) {
+      rejected.push({ row: line, reason: 'Missing a first or last name.' });
+      continue;
+    }
+
+    const firstName = member.first_name.trim();
+    const lastName = member.last_name.trim();
+
+    if (!firstName || !lastName) {
+      rejected.push({ row: line, reason: 'Missing a first or last name.' });
+      continue;
+    }
+
+    if (typeof member.grad_year !== 'number' || !Number.isInteger(member.grad_year)) {
+      rejected.push({
+        row: line,
+        reason: `Graduation year is not a valid integer.`,
+      });
+      continue;
+    }
+
+    const gradYear = member.grad_year;
+    if (gradYear < MIN_GRAD_YEAR || gradYear > MAX_GRAD_YEAR) {
+      rejected.push({
+        row: line,
+        reason: `Graduation year ${gradYear} is out of range.`,
+      });
+      continue;
+    }
+
+    let email = (member.email ?? '').toLowerCase().trim();
+    if (!email) {
+      try {
+        email = deriveStudentEmail(firstName, lastName, gradYear);
+      } catch {
+        rejected.push({
+          row: line,
+          reason: 'No email, and one could not be derived from the name.',
+        });
+        continue;
+      }
+    }
+
+    if (!isSchoolDomainEmail(email)) {
+      rejected.push({
+        row: line,
+        reason: `The email is not a ${SCHOOL_EMAIL_DOMAIN} address.`,
+      });
+      continue;
+    }
+
+    if (seenEmails.has(email)) {
+      rejected.push({
+        row: line,
+        reason: 'The email is already used by an earlier entry in this pack.',
+      });
+      continue;
+    }
+
+    seenEmails.add(email);
+    entries.push({ firstName, lastName, gradYear, email });
+  }
+
+  return { entries, rejected, cardsIgnored };
+}
+
+/**
+ * Signature verification seam for signed `.nfc-pack` files.
+ *
+ * Currently a no-op: unsigned packs are accepted at the PIN gate, and signed
+ * pack distribution as Release assets is out of scope for Wave 1. The seam is
+ * here so a later commit can wire in a key store without touching the parse
+ * path.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function verifyNfcPackSignature(
+  _signature: NfcPackV1['signature'],
+  _pack: NfcPackV1,
+): void {
+  // No-op: accept unsigned and signed packs equally until a key store is wired in.
+}
+
+async function parseNfcPack(
+  text: string,
+  activeBody?: AttendanceBody,
+): Promise<ParsedRoster> {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new RosterFormatError(
+      'That .nfc-pack file is not valid JSON. Check the file and try again.',
+    );
+  }
+
+  return parseNfcPackJson(json, activeBody);
 }
