@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   History,
   KeyRound,
+  Layers,
   RefreshCw,
   ScanLine,
   Target,
@@ -29,6 +30,7 @@ import { describeActivity } from '@/lib/activity-wording';
 import {
   type ActivityEntry,
   type AlumniRemoval,
+  type AttendanceBody,
   type HistoryPurge,
   isValidAttendanceTarget,
   MAX_ATTENDANCE_TARGET,
@@ -61,6 +63,13 @@ type DashboardProps = {
   activity?: ActivityEntry[];
   /** Opens the change-PIN dialog. Optional: without it the card is not shown. */
   onChangePin?: () => void;
+  /**
+   * The class/club this device is currently attached to (D-T2). Optional,
+   * paired with `onChangeBody` — without both the card is not shown.
+   */
+  activeBody?: AttendanceBody;
+  /** Opens the body switcher: create a body, or attach to a different one. */
+  onChangeBody?: () => void;
   /**
    * The two retention actions with their previews. Optional: the
    * presentational tests render without a page. A `null` preview means the
@@ -104,6 +113,8 @@ export function Dashboard({
   onSaveTarget,
   activity = [],
   onChangePin,
+  activeBody,
+  onChangeBody,
   retention,
 }: DashboardProps) {
   const { ytd, gradeBreakdown, enrolledStudents, unidentified } = metrics;
@@ -215,6 +226,10 @@ export function Dashboard({
         <ActivitySection entries={activity} />
 
         {retention ? <RetentionSection {...retention} /> : null}
+
+        {activeBody && onChangeBody ? (
+          <BodyCard body={activeBody} onChangeBody={onChangeBody} />
+        ) : null}
 
         {onChangePin ? <TeacherPinCard onChangePin={onChangePin} /> : null}
       </div>
@@ -600,6 +615,43 @@ function ActivitySection({ entries }: { entries: ActivityEntry[] }) {
           })}
         </ul>
       )}
+    </Card>
+  );
+}
+
+/**
+ * The class/club this kiosk is attached to (D-T2). Reassignment points the
+ * device at a different body; it never wipes the one just left, and never
+ * requires exporting first.
+ */
+function BodyCard({
+  body,
+  onChangeBody,
+}: {
+  body: AttendanceBody;
+  onChangeBody: () => void;
+}) {
+  return (
+    <Card eyebrow="Attendance body" icon={<Layers aria-hidden="true" size={16} />}>
+      <p
+        className="mt-1 text-sm font-semibold text-[hsl(var(--foreground))]"
+        data-testid="text-active-body"
+      >
+        {body.name} <span className="text-[hsl(var(--muted-foreground))]">· {body.typeLabel}</span>
+      </p>
+      <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+        The class or club this device is scanning for. Every body keeps its
+        own roster and history — switching never deletes another body's data.
+      </p>
+      <button
+        type="button"
+        onClick={onChangeBody}
+        className="mt-4 flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+        data-testid="button-change-body"
+      >
+        <Layers aria-hidden="true" size={14} />
+        Change body…
+      </button>
     </Card>
   );
 }

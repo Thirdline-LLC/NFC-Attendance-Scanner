@@ -4,8 +4,10 @@ import {
   addPerson,
   clearAllAttendanceHistory,
   countSessionAttendance,
+  getActiveBodyId,
   getAttendanceTarget,
   listActivity,
+  listBodies,
   listPersons,
   listSessionIds,
   listSessionTapRecords,
@@ -306,8 +308,10 @@ describe('upgrading a version 3 database', () => {
     );
     // `counted` is a boolean and IndexedDB has no boolean key, so the index
     // over it and the two compound indexes that included it could never hold
-    // an entry. Version 4 removes all three.
-    expect(indexes).toEqual(['personId', 'scannedAt', 'sessionId', 'uid']);
+    // an entry. Version 4 removes all three. `bodyId` is the version 7
+    // backfill index, present because reading through the store upgrades all
+    // the way to the current schema.
+    expect(indexes).toEqual(['bodyId', 'personId', 'scannedAt', 'sessionId', 'uid']);
 
     // Oldest first, as `listSessionTapRecords` returns them.
     expect(taps.map((tap) => [tap.uid, tap.counted])).toEqual([
@@ -413,14 +417,82 @@ describe('version 5 to 6', () => {
     expect(await listActivity()).toEqual([]);
 
     await withRawDatabase(async (raw) => {
-      expect(raw.verno).toBe(6);
+      // Reading through the store upgrades all the way to the current
+      // schema, not just to 6 — `bodies` and its backfill land too.
+      expect(raw.verno).toBe(7);
       expect(raw.tables.map((table) => table.name).sort()).toEqual([
         'activity',
+        'bodies',
         'persons',
         'scans',
         'settings',
         'taps',
       ]);
+    });
+  });
+});
+
+describe('version 6 to 7', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  /** A database frozen at version 6: every table before bodies existed. */
+  async function seedVersion6(): Promise<void> {
+    const legacy = new Dexie(DATABASE_NAME);
+    legacy.version(6).stores({
+      scans: 'uid, scannedAt',
+      persons: '++id, &cardUid, lastName, gradYear, enrolledAt',
+      taps: '++id, uid, scannedAt, personId, sessionId',
+      settings: 'key',
+      activity: '++id, at, kind',
+    });
+    await legacy.open();
+    await legacy.table('persons').bulkAdd([ROSA, KAI]);
+    await legacy.table('taps').bulkAdd([
+      {
+        uid: ROSA_CARD,
+        scannedAt: '2025-09-10T22:31:00.000Z',
+        personId: ROSA.id,
+        sessionId: 'session-a',
+        counted: true,
+      },
+      {
+        uid: STRANGER_CARD,
+        scannedAt: '2025-09-10T22:33:00.000Z',
+        personId: null,
+        sessionId: 'session-a',
+        counted: false,
+      },
+    ]);
+    legacy.close();
+  }
+
+  it('backfills a single body from current club semantics and assigns every row to it', async () => {
+    await seedVersion6();
+
+    const bodies = await listBodies();
+    expect(bodies).toHaveLength(1);
+    const [body] = bodies;
+
+    const activeBodyId = await getActiveBodyId();
+    expect(activeBodyId).toBe(body.id);
+
+    // Every pre-existing person and tap belongs to the one backfilled body —
+    // nothing is orphaned, and nothing is invented.
+    expect((await listPersons()).map((person) => person.lastName)).toEqual([
+      'Alvarez',
+      'Nakamura',
+    ]);
+    expect(await listTapRecords()).toHaveLength(2);
+
+    await withRawDatabase(async (raw) => {
+      expect(raw.verno).toBe(7);
+      const persons = await raw.table('persons').toArray();
+      const taps = await raw.table('taps').toArray();
+      expect(persons.every((person) => person.bodyId === body.id)).toBe(true);
+      expect(taps.every((tap) => tap.bodyId === body.id)).toBe(true);
     });
   });
 });
