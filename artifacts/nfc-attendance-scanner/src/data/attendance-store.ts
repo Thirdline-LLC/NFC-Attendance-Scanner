@@ -195,7 +195,14 @@ database
   .version(7)
   .stores({
     scans: 'uid, scannedAt',
-    persons: '++id, &cardUid, lastName, gradYear, enrolledAt, bodyId',
+    // The card was globally unique through v6, back when the device was
+    // implicitly one club. Each body now owns its own roster (D-T2), so two
+    // different bodies may enroll the same physical card for two different
+    // students — the uniqueness that matters is per body, not per device.
+    // Every v1-v6 row lands under the one backfilled body, so this migration
+    // cannot introduce a compound-key collision: their cardUids were already
+    // globally unique, which is a stronger guarantee than this index needs.
+    persons: '++id, &[bodyId+cardUid], lastName, gradYear, enrolledAt, bodyId',
     taps: '++id, uid, scannedAt, personId, sessionId, bodyId',
     settings: 'key',
     activity: '++id, at, kind',
@@ -238,16 +245,31 @@ const settingsTable = database.table<{ key: string; value: string }, string>(
 const activityTable = database.table<ActivityEntry, number>('activity');
 const bodiesTable = database.table<AttendanceBody, number>('bodies');
 
+// A brand-new install never runs the v7 `.upgrade()` above — Dexie only
+// upgrades a database that already existed at an earlier version. `populate`
+// is Dexie's hook for "this database has never existed before", firing once
+// inside the same transaction that creates every table, which is why it is
+// the one safe place to seed a fresh kiosk's first body: nothing else can be
+// racing it, unlike the `getActiveBodyId` fallback below, which several
+// concurrent first reads could all reach at once.
+database.on('populate', async () => {
+  const bodyId = await bodiesTable.add({
+    name: 'Club',
+    typeLabel: 'club',
+    createdAt: new Date().toISOString(),
+  });
+  await settingsTable.put({ key: ACTIVE_BODY_ID_KEY, value: String(bodyId) });
+});
+
 /**
- * The card is a globally unique index, so at most one row can match — but a
- * card enrolled under a different body is not this device's roster right
- * now, so a match outside the active body is treated as no match (D-T2:
- * "desk cannot switch bodies").
+ * The card is unique per body (`&[bodyId+cardUid]`), not per device: a
+ * different body may enroll the same physical card for a different student,
+ * so the lookup is scoped to the active body from the start rather than
+ * finding a match and then checking whose it is.
  */
 export async function findPersonByUid(cardUid: string): Promise<Person | undefined> {
   const bodyId = await getActiveBodyId();
-  const person = await personsTable.where('cardUid').equals(cardUid).first();
-  return person?.bodyId === bodyId ? person : undefined;
+  return personsTable.where('[bodyId+cardUid]').equals([bodyId, cardUid]).first();
 }
 
 export async function listPersons(): Promise<Person[]> {
@@ -398,6 +420,7 @@ export async function bindCardToPerson(input: {
   cardUid: string;
   sessionId: string;
 }): Promise<CardBinding> {
+  const bodyId = await getActiveBodyId();
   return database.transaction('rw', personsTable, tapsTable, async () => {
     const person = await personsTable.get(input.personId);
     if (!person) {
@@ -407,9 +430,13 @@ export async function bindCardToPerson(input: {
       throw new CardAlreadyBoundError(person);
     }
 
+    // Scoped to this body: the card index is per body (`&[bodyId+cardUid]`),
+    // so a different body may already use this same physical card for one of
+    // its own students without conflict, and that ownership is neither this
+    // body's business to block on nor to reveal.
     const owner = await personsTable
-      .where('cardUid')
-      .equals(input.cardUid)
+      .where('[bodyId+cardUid]')
+      .equals([bodyId, input.cardUid])
       .first();
     if (owner && owner.id !== input.personId) {
       throw new CardTakenError(owner);
@@ -420,7 +447,10 @@ export async function bindCardToPerson(input: {
     const sessionTaps = (
       await tapsTable.where('sessionId').equals(input.sessionId).toArray()
     )
-      .filter((tap) => tap.uid === input.cardUid && tap.id !== undefined)
+      .filter(
+        (tap) =>
+          tap.bodyId === bodyId && tap.uid === input.cardUid && tap.id !== undefined,
+      )
       .sort((a, b) => Date.parse(a.scannedAt) - Date.parse(b.scannedAt));
     // One count per card per session is the rule `recordSessionTap` keeps, so
     // a card already counted here — bound, unbound and bound again — gains
@@ -444,7 +474,7 @@ export async function bindCardToPerson(input: {
     return {
       person: bound,
       countedThisSession,
-      attendanceCount: await countSessionAttendance(input.sessionId),
+      attendanceCount: await countSessionAttendanceFor(input.sessionId, bodyId),
     };
   });
 }
@@ -555,12 +585,16 @@ export async function setActiveBody(bodyId: number): Promise<void> {
 /**
  * The id of the body this device is currently attached to.
  *
- * A fresh v1-v6 database is backfilled with exactly one body and this
- * setting during the upgrade to v7, so the fallback path below only matters
- * for a database that somehow lost that setting (a hand-edited `settings`
- * row) or has no body at all yet (a brand-new v7+ database that has never
- * called `createBody`) — both recover into a usable state rather than
- * leaving every body-scoped read and write with nothing to filter on.
+ * A fresh v1-v6 database is backfilled with exactly one body during the
+ * upgrade to v7, and a brand-new database gets its first body from the
+ * `populate` handler above, so the fallback below only matters for a
+ * database that somehow lost the setting (a hand-edited `settings` row) —
+ * recovering into a usable state rather than leaving every body-scoped read
+ * and write with nothing to filter on. It runs inside a transaction and
+ * re-checks the setting once inside: several calls can reach the fallback at
+ * once (the dashboard alone starts about six body-resolving reads in one
+ * `Promise.all`), and without the re-check each one would create its own
+ * "Club".
  */
 export async function getActiveBodyId(): Promise<number> {
   const stored = Number(await readSetting(ACTIVE_BODY_ID_KEY));
@@ -568,15 +602,26 @@ export async function getActiveBodyId(): Promise<number> {
     return stored;
   }
 
-  const [firstBody] = await listBodies();
-  if (firstBody?.id !== undefined) {
-    await setActiveBody(firstBody.id);
-    return firstBody.id;
-  }
+  return database.transaction('rw', settingsTable, bodiesTable, async () => {
+    const current = Number(await readSetting(ACTIVE_BODY_ID_KEY));
+    if (Number.isInteger(current) && (await bodiesTable.get(current))) {
+      return current;
+    }
 
-  const created = await createBody({ name: 'Club', typeLabel: 'club' });
-  await setActiveBody(created.id as number);
-  return created.id as number;
+    const [firstBody] = await listBodies();
+    if (firstBody?.id !== undefined) {
+      await writeSetting(ACTIVE_BODY_ID_KEY, String(firstBody.id));
+      return firstBody.id;
+    }
+
+    const createdId = await bodiesTable.add({
+      name: 'Club',
+      typeLabel: 'club',
+      createdAt: new Date().toISOString(),
+    });
+    await writeSetting(ACTIVE_BODY_ID_KEY, String(createdId));
+    return createdId;
+  });
 }
 
 /** The body this device is currently attached to. */
@@ -603,9 +648,17 @@ export type PersonRemoval = {
  * `personId` and is matched to its student retroactively by UID
  * (`resolveTapPerson`), so deleting only the id-matched rows would leave taps
  * that the export and the dashboard still resolve back to a deleted student.
+ *
+ * Scoped to the person's own body: the card index is per body now
+ * (`&[bodyId+cardUid]`), so a different body's roster can legitimately use
+ * the same physical card for a different student, and an unscoped match by
+ * `uid` would delete or count that other body's taps of it.
  */
 async function tapsBelongingTo(person: Person): Promise<TapRecord[]> {
-  const taps = await tapsTable.toArray();
+  const taps = await tapsTable
+    .where('bodyId')
+    .equals(person.bodyId as number)
+    .toArray();
 
   return taps.filter(
     (tap) =>
@@ -902,16 +955,41 @@ export async function listSessionIds(): Promise<string[]> {
   return [...sessionIds];
 }
 
+/**
+ * Session ids are not unique across bodies — the device never rotates the
+ * session id on a switch (D-T2 only promises the roster and history stay
+ * put) — so every session-keyed read is scoped to the active body as well,
+ * the same way `listPersons`/`listTapRecords` are.
+ */
 export async function listSessionTapRecords(sessionId: string): Promise<TapRecord[]> {
-  return tapsTable.where('sessionId').equals(sessionId).sortBy('scannedAt');
-}
-
-export async function countSessionAttendance(sessionId: string): Promise<number> {
+  const bodyId = await getActiveBodyId();
   return tapsTable
     .where('sessionId')
     .equals(sessionId)
-    .filter((tap) => tap.counted)
+    .filter((tap) => tap.bodyId === bodyId)
+    .sortBy('scannedAt');
+}
+
+/**
+ * `bodyId` is a parameter for the same reason `alumniWithTaps` takes one:
+ * `recordSessionTap` and `bindCardToPerson` call this from inside their own
+ * `tapsTable`-only transactions, and resolving the active body there would
+ * touch `settings`/`bodies`, which are outside that transaction's declared
+ * tables.
+ */
+async function countSessionAttendanceFor(
+  sessionId: string,
+  bodyId: number,
+): Promise<number> {
+  return tapsTable
+    .where('sessionId')
+    .equals(sessionId)
+    .filter((tap) => tap.bodyId === bodyId && tap.counted)
     .count();
+}
+
+export async function countSessionAttendance(sessionId: string): Promise<number> {
+  return countSessionAttendanceFor(sessionId, await getActiveBodyId());
 }
 
 export async function recordSessionTap(input: {
@@ -931,12 +1009,12 @@ export async function recordSessionTap(input: {
     const prior = await tapsTable
       .where('sessionId')
       .equals(input.sessionId)
-      .filter((tap) => tap.uid === input.uid && tap.counted)
+      .filter((tap) => tap.bodyId === bodyId && tap.uid === input.uid && tap.counted)
       .first();
     const counted = input.personId !== null && !prior;
     const tap = { ...input, bodyId, counted };
     const id = await tapsTable.add(tap);
-    const attendanceCount = await countSessionAttendance(input.sessionId);
+    const attendanceCount = await countSessionAttendanceFor(input.sessionId, bodyId);
 
     return {
       tap: { ...tap, id },
