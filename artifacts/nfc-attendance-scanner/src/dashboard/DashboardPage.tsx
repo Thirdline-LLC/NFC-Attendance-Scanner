@@ -3,18 +3,23 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
 import {
   ACTIVITY_LOG_CAP,
+  createBody,
+  getActiveBody,
   listActivity,
+  listBodies,
   listPersons,
   previewAlumniRemoval,
   previewHistoryPurge,
   purgeHistoryBefore,
   recordActivity,
   removeAlumni,
+  setActiveBody,
   setAttendanceTarget,
   getAttendanceTarget,
   listTapRecords,
   type ActivityEntry,
   type AlumniRemoval,
+  type AttendanceBody,
   type HistoryPurge,
   type Person,
   type TapRecord,
@@ -30,6 +35,7 @@ import {
   formatSessionDateLabel,
 } from '@/lib/session-formatting';
 import { RetentionDialog } from '@/ui/RetentionDialog';
+import { BodySwitcherDialog } from '@/ui/BodySwitcherDialog';
 import { Dashboard } from '@/ui/Dashboard';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
@@ -78,6 +84,14 @@ export function DashboardPage() {
   const [retentionWorking, setRetentionWorking] = useState(false);
   const [retentionFailed, setRetentionFailed] = useState(false);
   const [retentionNotice, setRetentionNotice] = useState<string | null>(null);
+  // The body this device is attached to (D-T2), and the switcher that lets a
+  // teacher create another body or point the device at one that already
+  // exists. Neither previous nor new body's data is ever touched by this.
+  const [activeBody, setActiveBodyState] = useState<AttendanceBody | null>(null);
+  const [switchingBody, setSwitchingBody] = useState(false);
+  const [bodies, setBodies] = useState<AttendanceBody[]>([]);
+  const [bodyWorking, setBodyWorking] = useState(false);
+  const [bodyError, setBodyError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -87,13 +101,14 @@ export function DashboardPage() {
       // read once here and shared by the metrics and both retention previews.
       const now = new Date().toISOString();
       const start = schoolYearStart(now);
-      const [taps, persons, target, recent, stale, graduates] = await Promise.all([
+      const [taps, persons, target, recent, stale, graduates, body] = await Promise.all([
         listTapRecords(),
         listPersons(),
         getAttendanceTarget(),
         listActivity(),
         previewHistoryPurge((scannedAt) => formatSessionDate(scannedAt) < start),
         previewAlumniRemoval((person) => deriveGrade(person.gradYear, now) === 'Alumni'),
+        getActiveBody(),
       ]);
       setMetrics(computeDashboardMetrics(taps, persons, now, target));
       setHistory({ taps, persons });
@@ -101,6 +116,7 @@ export function DashboardPage() {
       setBoundary(start);
       setHistoryPreview(stale);
       setAlumniPreview(graduates);
+      setActiveBodyState(body);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -251,6 +267,52 @@ export function DashboardPage() {
       ? `This deletes ${plural(historyPreview?.tapCount ?? 0, 'tap')} across ${plural(historyPreview?.sessionCount ?? 0, 'session')} recorded before ${formatSessionDateLabel(boundary)}, including sessions already finished. They will disappear from the dashboard and from any export made after this. The roster is untouched.`
       : `This removes ${plural(alumniPreview?.studentCount ?? 0, 'graduated student')} and ${plural(alumniPreview?.tapCount ?? 0, 'tap')} — every check-in that resolves to them, by name or by card. Their cards can be enrolled again as new students.`;
 
+  const openBodySwitcher = useCallback(async () => {
+    setBodyError(null);
+    setBodies(await listBodies());
+    setSwitchingBody(true);
+  }, []);
+
+  /**
+   * Reassignment only: switching just moves `activeBodyId`, so the reload
+   * that follows shows the newly-active body's own roster and history —
+   * never the one just left.
+   */
+  const selectBody = useCallback(
+    async (bodyId: number) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      try {
+        await setActiveBody(bodyId);
+        setSwitchingBody(false);
+        await load();
+      } catch {
+        setBodyError("This device couldn't switch bodies. Try again.");
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [load],
+  );
+
+  const createAndSwitchBody = useCallback(
+    async (input: { name: string; typeLabel: string }) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      try {
+        const created = await createBody(input);
+        await setActiveBody(created.id as number);
+        setSwitchingBody(false);
+        await load();
+      } catch {
+        setBodyError("This device couldn't create that body. Try again.");
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [load],
+  );
+
   return (
     <main
       className="grain relative min-h-[100dvh] overflow-hidden bg-[hsl(var(--background))]"
@@ -358,6 +420,8 @@ export function DashboardPage() {
               onExportAll={history ? () => void exportAll() : undefined}
               onSaveTarget={saveTarget}
               activity={activity}
+              activeBody={activeBody ?? undefined}
+              onChangeBody={() => void openBodySwitcher()}
               onChangePin={() => {
                 setPinNotice(null);
                 setChangingPin(true);
@@ -416,6 +480,18 @@ export function DashboardPage() {
           }
           onConfirm={() => void confirmRetention()}
           onCancel={() => setRetentionAction(null)}
+        />
+      ) : null}
+
+      {switchingBody ? (
+        <BodySwitcherDialog
+          bodies={bodies}
+          activeBodyId={activeBody?.id}
+          isWorking={bodyWorking}
+          error={bodyError}
+          onSelect={(bodyId) => void selectBody(bodyId)}
+          onCreate={(input) => void createAndSwitchBody(input)}
+          onCancel={() => setSwitchingBody(false)}
         />
       ) : null}
 

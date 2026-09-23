@@ -1,6 +1,6 @@
 import Dexie from 'dexie';
 import * as XLSX from 'xlsx';
-import { cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,13 +64,29 @@ function renderPage() {
   );
 }
 
-/** Picks a file in the import panel and waits for the page to settle. */
+/** Picks a file in the import panel. Callers wait on the result they expect. */
 async function importFile(
   user: ReturnType<typeof userEvent.setup>,
   file: File,
 ) {
   await user.upload(screen.getByTestId('input-roster-file'), file);
-  await screen.findByTestId('roster-import');
+}
+
+/**
+ * userEvent.upload is a silent no-op while the file input is disabled.
+ * handleImport sets isImporting before its awaits and clears it only in
+ * finally — after the summary is already painted — so waiting on the summary
+ * alone is not enough before a second upload.
+ *
+ * Check the DOM `disabled` property directly: this suite has no jest-dom, so
+ * `toBeDisabled()` is not a matcher.
+ */
+async function waitForImportIdle() {
+  await waitFor(() => {
+    expect(
+      (screen.getByTestId('input-roster-file') as HTMLInputElement).disabled,
+    ).toBe(false);
+  });
 }
 
 describe('RosterPage roster import', () => {
@@ -109,25 +125,20 @@ describe('RosterPage roster import', () => {
     renderPage();
     await screen.findByTestId('roster-import');
     await importFile(user, rosterFile([row(), priyaRow]));
-    const firstSummary = await screen.findByTestId('text-import-summary');
+    await screen.findByTestId('text-import-summary');
+    // Must unlock before the second upload; otherwise userEvent.upload no-ops.
+    await waitForImportIdle();
     const afterFirst = await listPersons();
 
-    // handleImport sets result to null before applying the second file, which
-    // unmounts this node. Waiting on that specific element (not a re-query)
-    // synchronises on the second import starting even when the next summary
-    // mounts in the same turn — no timeout bump, no retry flag.
-    await user.upload(
-      screen.getByTestId('input-roster-file'),
-      rosterFile([row(), priyaRow]),
-    );
-    // Fast path: the second import can clear+replace the summary before we
-    // start waiting. Slow path: the node is still mounted — wait for unmount.
-    if (firstSummary.isConnected) {
-      await waitForElementToBeRemoved(firstSummary);
-    }
-    const secondSummary = await screen.findByTestId('text-import-summary');
-    expect(secondSummary.textContent).toContain('0 students added');
-    expect(secondSummary.textContent).toContain('2 already up to date');
+    await importFile(user, rosterFile([row(), priyaRow]));
+    // Sync on the second import's distinct counts — not on the intermediate
+    // null clear, which can batch with the success update under act() so the
+    // summary node never unmounts.
+    await waitFor(() => {
+      const summary = screen.getByTestId('text-import-summary');
+      expect(summary.textContent).toContain('0 students added');
+      expect(summary.textContent).toContain('2 already up to date');
+    });
     expect(await listPersons()).toEqual(afterFirst);
   });
 

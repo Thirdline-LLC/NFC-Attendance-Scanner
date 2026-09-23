@@ -23,6 +23,14 @@ export type Person = {
   gradYear: number;
   email: string;
   enrolledAt: string;
+  /**
+   * Which `AttendanceBody` owns this roster row. Optional on the type — not
+   * on the row — so the many pure functions and fixtures that build a
+   * `Person` without caring which body it belongs to (metrics, exports,
+   * roster formatting) don't have to fabricate one; the store itself always
+   * stamps it on write and filters by it on read.
+   */
+  bodyId?: number;
 };
 
 /**
@@ -43,6 +51,20 @@ export type TapRecord = {
   personId: number | null;
   sessionId: string;
   counted: boolean;
+  /** Which `AttendanceBody` this tap's history belongs to. See `Person.bodyId`. */
+  bodyId?: number;
+};
+
+/**
+ * A class, club, faculty group, or other entity a kiosk can attach to. Each
+ * one owns its own roster and tap history (D-T2); the device merely points
+ * `settings.activeBodyId` at whichever one it is currently scanning for.
+ */
+export type AttendanceBody = {
+  id?: number;
+  name: string;
+  typeLabel: string;
+  createdAt: string;
 };
 
 export type ActivityKind =
@@ -163,6 +185,52 @@ database.version(6).stores({
   settings: 'key',
   activity: '++id, at, kind',
 });
+const ACTIVE_BODY_ID_KEY = 'active-body-id';
+// Every version 1-6 database was implicitly one club's roster and history.
+// `bodies` makes that explicit (D-T2): the upgrader creates the one body
+// that database already was, points every existing person and tap at it, and
+// attaches the device to it, so nothing already on disk is orphaned or
+// re-homed by the schema change.
+database
+  .version(7)
+  .stores({
+    scans: 'uid, scannedAt',
+    // The card was globally unique through v6, back when the device was
+    // implicitly one club. Each body now owns its own roster (D-T2), so two
+    // different bodies may enroll the same physical card for two different
+    // students — the uniqueness that matters is per body, not per device.
+    // Every v1-v6 row lands under the one backfilled body, so this migration
+    // cannot introduce a compound-key collision: their cardUids were already
+    // globally unique, which is a stronger guarantee than this index needs.
+    persons: '++id, &[bodyId+cardUid], lastName, gradYear, enrolledAt, bodyId',
+    taps: '++id, uid, scannedAt, personId, sessionId, bodyId',
+    settings: 'key',
+    activity: '++id, at, kind',
+    bodies: '++id, createdAt',
+  })
+  .upgrade(async (transaction) => {
+    const bodyId = await transaction.table('bodies').add({
+      name: 'Club',
+      typeLabel: 'club',
+      createdAt: new Date().toISOString(),
+    });
+    await transaction
+      .table('persons')
+      .toCollection()
+      .modify((person: Person) => {
+        person.bodyId = bodyId;
+      });
+    await transaction
+      .table('taps')
+      .toCollection()
+      .modify((tap: TapRecord) => {
+        tap.bodyId = bodyId;
+      });
+    await transaction.table('settings').put({
+      key: ACTIVE_BODY_ID_KEY,
+      value: String(bodyId),
+    });
+  });
 // Pre-enrollment rows from a v1/v2 database. Nothing writes here any more —
 // the table is kept so `clearAllAttendanceHistory` can still purge what an
 // upgraded database carried up, and so the schema versions stay replayable.
@@ -175,13 +243,38 @@ const settingsTable = database.table<{ key: string; value: string }, string>(
   'settings',
 );
 const activityTable = database.table<ActivityEntry, number>('activity');
+const bodiesTable = database.table<AttendanceBody, number>('bodies');
 
+// A brand-new install never runs the v7 `.upgrade()` above — Dexie only
+// upgrades a database that already existed at an earlier version. `populate`
+// is Dexie's hook for "this database has never existed before", firing once
+// inside the same transaction that creates every table, which is why it is
+// the one safe place to seed a fresh kiosk's first body: nothing else can be
+// racing it, unlike the `getActiveBodyId` fallback below, which several
+// concurrent first reads could all reach at once.
+database.on('populate', async () => {
+  const bodyId = await bodiesTable.add({
+    name: 'Club',
+    typeLabel: 'club',
+    createdAt: new Date().toISOString(),
+  });
+  await settingsTable.put({ key: ACTIVE_BODY_ID_KEY, value: String(bodyId) });
+});
+
+/**
+ * The card is unique per body (`&[bodyId+cardUid]`), not per device: a
+ * different body may enroll the same physical card for a different student,
+ * so the lookup is scoped to the active body from the start rather than
+ * finding a match and then checking whose it is.
+ */
 export async function findPersonByUid(cardUid: string): Promise<Person | undefined> {
-  return personsTable.where('cardUid').equals(cardUid).first();
+  const bodyId = await getActiveBodyId();
+  return personsTable.where('[bodyId+cardUid]').equals([bodyId, cardUid]).first();
 }
 
 export async function listPersons(): Promise<Person[]> {
-  return personsTable.orderBy('lastName').toArray();
+  const bodyId = await getActiveBodyId();
+  return personsTable.where('bodyId').equals(bodyId).sortBy('lastName');
 }
 
 /**
@@ -190,7 +283,7 @@ export async function listPersons(): Promise<Person[]> {
  * already taps with a card of their own.
  */
 export async function listUnboundPersons(): Promise<Person[]> {
-  return (await personsTable.orderBy('lastName').toArray()).filter(isUnbound);
+  return (await listPersons()).filter(isUnbound);
 }
 
 /**
@@ -208,17 +301,22 @@ export class DuplicateEmailError extends Error {
 }
 
 /**
- * Guards the roster's one-address-per-student rule. Runs inside the caller's
- * transaction so the check and the write cannot be interleaved with another.
- * `excludeId` lets a student keep their own address while being edited.
+ * Guards the roster's one-address-per-student rule, scoped to one body: each
+ * `AttendanceBody` owns its own roster (D-T2), so the same address may belong
+ * to a student in one body and a different student in another. Runs inside
+ * the caller's transaction so the check and the write cannot be interleaved
+ * with another. `excludeId` lets a student keep their own address while being
+ * edited.
  */
 async function assertEmailAvailable(
   email: string,
+  bodyId: number,
   excludeId?: number,
 ): Promise<void> {
   // Compared exactly as the enrollment form compares, so the two layers agree
   // on what counts as a duplicate.
-  const owner = findEmailOwner(email, await personsTable.toArray(), excludeId);
+  const roster = await personsTable.where('bodyId').equals(bodyId).toArray();
+  const owner = findEmailOwner(email, roster, excludeId);
 
   if (owner) {
     throw new DuplicateEmailError(owner);
@@ -229,19 +327,24 @@ async function assertEmailAvailable(
  * Generic in what it is handed so the result keeps it: enrolling a card comes
  * back as a student who certainly has one, while a roster row with no card
  * comes back without. Callers that only need a `Person` are unaffected.
+ *
+ * Always adds to the active body's roster (D-T2) — callers never choose a
+ * body, which is the whole point of "the device attaches to one body".
  */
-export async function addPerson<T extends Omit<Person, 'id'>>(
+export async function addPerson<T extends Omit<Person, 'id' | 'bodyId'>>(
   person: T,
-): Promise<T & { id: number }> {
+): Promise<T & { id: number; bodyId: number }> {
+  const bodyId = await getActiveBodyId();
   return database.transaction('rw', personsTable, async () => {
-    await assertEmailAvailable(person.email);
+    await assertEmailAvailable(person.email, bodyId);
     // A copy, because Dexie stamps the generated key onto the object it is
     // handed. Stamping the caller's object turns an innocent reuse of it —
     // spreading a fixture, retrying a failed save — into an insert carrying
     // somebody else's primary key, which fails as a ConstraintError far from
     // the cause.
-    const id = await personsTable.add({ ...person });
-    return { ...person, id };
+    const record = { ...person, bodyId };
+    const id = await personsTable.add({ ...record });
+    return { ...record, id };
   });
 }
 
@@ -250,7 +353,11 @@ export async function updatePerson(
   changes: Pick<Person, 'firstName' | 'lastName' | 'gradYear' | 'email'>,
 ): Promise<Person> {
   return database.transaction('rw', personsTable, async () => {
-    await assertEmailAvailable(changes.email, personId);
+    const existing = await personsTable.get(personId);
+    if (!existing) {
+      throw new Error(`No enrolled student has id ${personId}.`);
+    }
+    await assertEmailAvailable(changes.email, existing.bodyId as number, personId);
     await personsTable.update(personId, changes);
     const updatedPerson = await personsTable.get(personId);
     if (!updatedPerson) {
@@ -313,6 +420,7 @@ export async function bindCardToPerson(input: {
   cardUid: string;
   sessionId: string;
 }): Promise<CardBinding> {
+  const bodyId = await getActiveBodyId();
   return database.transaction('rw', personsTable, tapsTable, async () => {
     const person = await personsTable.get(input.personId);
     if (!person) {
@@ -322,9 +430,13 @@ export async function bindCardToPerson(input: {
       throw new CardAlreadyBoundError(person);
     }
 
+    // Scoped to this body: the card index is per body (`&[bodyId+cardUid]`),
+    // so a different body may already use this same physical card for one of
+    // its own students without conflict, and that ownership is neither this
+    // body's business to block on nor to reveal.
     const owner = await personsTable
-      .where('cardUid')
-      .equals(input.cardUid)
+      .where('[bodyId+cardUid]')
+      .equals([bodyId, input.cardUid])
       .first();
     if (owner && owner.id !== input.personId) {
       throw new CardTakenError(owner);
@@ -335,7 +447,10 @@ export async function bindCardToPerson(input: {
     const sessionTaps = (
       await tapsTable.where('sessionId').equals(input.sessionId).toArray()
     )
-      .filter((tap) => tap.uid === input.cardUid && tap.id !== undefined)
+      .filter(
+        (tap) =>
+          tap.bodyId === bodyId && tap.uid === input.cardUid && tap.id !== undefined,
+      )
       .sort((a, b) => Date.parse(a.scannedAt) - Date.parse(b.scannedAt));
     // One count per card per session is the rule `recordSessionTap` keeps, so
     // a card already counted here — bound, unbound and bound again — gains
@@ -359,7 +474,7 @@ export async function bindCardToPerson(input: {
     return {
       person: bound,
       countedThisSession,
-      attendanceCount: await countSessionAttendance(input.sessionId),
+      attendanceCount: await countSessionAttendanceFor(input.sessionId, bodyId),
     };
   });
 }
@@ -436,6 +551,89 @@ export async function writeSetting(key: string, value: string): Promise<void> {
   await settingsTable.put({ key, value });
 }
 
+/** Every body on this device, oldest first. */
+export async function listBodies(): Promise<AttendanceBody[]> {
+  return bodiesTable.orderBy('createdAt').toArray();
+}
+
+/** Creates a body. Does not attach the device to it — call `setActiveBody` too. */
+export async function createBody(input: {
+  name: string;
+  typeLabel: string;
+}): Promise<AttendanceBody> {
+  const body: Omit<AttendanceBody, 'id'> = {
+    ...input,
+    createdAt: new Date().toISOString(),
+  };
+  const id = await bodiesTable.add({ ...body });
+  return { ...body, id };
+}
+
+/**
+ * Points this device's `activeBodyId` at another body. Reassignment only —
+ * the previous body's roster and tap history stay exactly where they are
+ * (D-T2): nothing here touches `persons` or `taps`.
+ */
+export async function setActiveBody(bodyId: number): Promise<void> {
+  const body = await bodiesTable.get(bodyId);
+  if (!body) {
+    throw new Error(`No attendance body has id ${bodyId}.`);
+  }
+  await writeSetting(ACTIVE_BODY_ID_KEY, String(bodyId));
+}
+
+/**
+ * The id of the body this device is currently attached to.
+ *
+ * A fresh v1-v6 database is backfilled with exactly one body during the
+ * upgrade to v7, and a brand-new database gets its first body from the
+ * `populate` handler above, so the fallback below only matters for a
+ * database that somehow lost the setting (a hand-edited `settings` row) —
+ * recovering into a usable state rather than leaving every body-scoped read
+ * and write with nothing to filter on. It runs inside a transaction and
+ * re-checks the setting once inside: several calls can reach the fallback at
+ * once (the dashboard alone starts about six body-resolving reads in one
+ * `Promise.all`), and without the re-check each one would create its own
+ * "Club".
+ */
+export async function getActiveBodyId(): Promise<number> {
+  const stored = Number(await readSetting(ACTIVE_BODY_ID_KEY));
+  if (Number.isInteger(stored) && (await bodiesTable.get(stored))) {
+    return stored;
+  }
+
+  return database.transaction('rw', settingsTable, bodiesTable, async () => {
+    const current = Number(await readSetting(ACTIVE_BODY_ID_KEY));
+    if (Number.isInteger(current) && (await bodiesTable.get(current))) {
+      return current;
+    }
+
+    const [firstBody] = await listBodies();
+    if (firstBody?.id !== undefined) {
+      await writeSetting(ACTIVE_BODY_ID_KEY, String(firstBody.id));
+      return firstBody.id;
+    }
+
+    const createdId = await bodiesTable.add({
+      name: 'Club',
+      typeLabel: 'club',
+      createdAt: new Date().toISOString(),
+    });
+    await writeSetting(ACTIVE_BODY_ID_KEY, String(createdId));
+    return createdId;
+  });
+}
+
+/** The body this device is currently attached to. */
+export async function getActiveBody(): Promise<AttendanceBody> {
+  const bodyId = await getActiveBodyId();
+  const body = await bodiesTable.get(bodyId);
+  if (!body) {
+    throw new Error(`Active body ${bodyId} could not be found.`);
+  }
+  return body;
+}
+
 /** What removing a student would take with them. */
 export type PersonRemoval = {
   tapCount: number;
@@ -450,9 +648,17 @@ export type PersonRemoval = {
  * `personId` and is matched to its student retroactively by UID
  * (`resolveTapPerson`), so deleting only the id-matched rows would leave taps
  * that the export and the dashboard still resolve back to a deleted student.
+ *
+ * Scoped to the person's own body: the card index is per body now
+ * (`&[bodyId+cardUid]`), so a different body's roster can legitimately use
+ * the same physical card for a different student, and an unscoped match by
+ * `uid` would delete or count that other body's taps of it.
  */
 async function tapsBelongingTo(person: Person): Promise<TapRecord[]> {
-  const taps = await tapsTable.toArray();
+  const taps = await tapsTable
+    .where('bodyId')
+    .equals(person.bodyId as number)
+    .toArray();
 
   return taps.filter(
     (tap) =>
@@ -533,24 +739,28 @@ function summarizeTaps(taps: readonly TapRecord[]): HistoryPurge {
 export async function previewHistoryPurge(
   isStale: (scannedAt: string) => boolean,
 ): Promise<HistoryPurge> {
-  const taps = (await tapsTable.toArray()).filter((tap) =>
-    isStale(tap.scannedAt),
-  );
+  const bodyId = await getActiveBodyId();
+  const taps = (
+    await tapsTable.where('bodyId').equals(bodyId).toArray()
+  ).filter((tap) => isStale(tap.scannedAt));
   return summarizeTaps(taps);
 }
 
 /**
- * Deletes every tap the predicate marks stale, and the same rows from the
- * legacy `scans` table. The roster is untouched: a card's identity outlives
- * its attendance record. One transaction over both tables.
+ * Deletes every tap the predicate marks stale, scoped to the active body, and
+ * the same rows from the legacy `scans` table — `scans` predates bodies
+ * entirely, so it is cleared without regard to which body is active. The
+ * roster is untouched: a card's identity outlives its attendance record. One
+ * transaction over both tables.
  */
 export async function purgeHistoryBefore(
   isStale: (scannedAt: string) => boolean,
 ): Promise<HistoryPurge> {
+  const bodyId = await getActiveBodyId();
   return database.transaction('rw', scansTable, tapsTable, async () => {
-    const stale = (await tapsTable.toArray()).filter((tap) =>
-      isStale(tap.scannedAt),
-    );
+    const stale = (
+      await tapsTable.where('bodyId').equals(bodyId).toArray()
+    ).filter((tap) => isStale(tap.scannedAt));
     await tapsTable.bulkDelete(
       stale.map((tap) => tap.id).filter((id): id is number => id !== undefined),
     );
@@ -562,18 +772,33 @@ export async function purgeHistoryBefore(
   });
 }
 
-/** The graduates and every tap that resolves to them, by id or by card. */
+/**
+ * The graduates and every tap that resolves to them, by id or by card,
+ * scoped to `bodyId`.
+ *
+ * `bodyId` is a parameter rather than resolved here so that `removeAlumni`
+ * can call this from inside its own `personsTable`/`tapsTable` transaction:
+ * resolving the active body reads `settings` (and possibly `bodies`), which
+ * are not part of that transaction's table set, and Dexie throws
+ * `NotFoundError` for a table access outside the ambient transaction's
+ * declared tables.
+ */
 async function alumniWithTaps(
   isAlumni: (person: Person) => boolean,
+  bodyId: number,
 ): Promise<{ alumni: Person[]; taps: TapRecord[] }> {
-  const alumni = (await personsTable.toArray()).filter(isAlumni);
+  const alumni = (
+    await personsTable.where('bodyId').equals(bodyId).toArray()
+  ).filter(isAlumni);
   const ids = new Set(alumni.map((person) => person.id));
   const cards = new Set(
     alumni
       .map((person) => person.cardUid)
       .filter((cardUid): cardUid is string => cardUid !== undefined),
   );
-  const taps = (await tapsTable.toArray()).filter(
+  const taps = (
+    await tapsTable.where('bodyId').equals(bodyId).toArray()
+  ).filter(
     (tap) =>
       (tap.personId !== null && ids.has(tap.personId)) || cards.has(tap.uid),
   );
@@ -587,7 +812,7 @@ async function alumniWithTaps(
 export async function previewAlumniRemoval(
   isAlumni: (person: Person) => boolean,
 ): Promise<AlumniRemoval> {
-  const { alumni, taps } = await alumniWithTaps(isAlumni);
+  const { alumni, taps } = await alumniWithTaps(isAlumni, await getActiveBodyId());
   return { studentCount: alumni.length, tapCount: taps.length };
 }
 
@@ -599,8 +824,9 @@ export async function previewAlumniRemoval(
 export async function removeAlumni(
   isAlumni: (person: Person) => boolean,
 ): Promise<AlumniRemoval> {
+  const bodyId = await getActiveBodyId();
   return database.transaction('rw', personsTable, tapsTable, async () => {
-    const { alumni, taps } = await alumniWithTaps(isAlumni);
+    const { alumni, taps } = await alumniWithTaps(isAlumni, bodyId);
     await tapsTable.bulkDelete(
       taps.map((tap) => tap.id).filter((id): id is number => id !== undefined),
     );
@@ -654,12 +880,15 @@ export type RosterImportCounts = {
 export async function applyRosterImport(
   entries: readonly RosterEntry[],
 ): Promise<RosterImportCounts> {
+  const bodyId = await getActiveBodyId();
   return database.transaction('rw', personsTable, async () => {
     const counts: RosterImportCounts = { added: 0, updated: 0, skipped: 0 };
     // Read once and kept in step by hand: `findEmailOwner` is how the rest of
     // the app decides two addresses are the same one, and re-reading the whole
-    // table per row would make a class-sized import quadratic.
-    const roster = await personsTable.toArray();
+    // table per row would make a class-sized import quadratic. Scoped to the
+    // active body — importing a roster only ever touches that body's own
+    // students (D-T2).
+    const roster = await personsTable.where('bodyId').equals(bodyId).toArray();
 
     for (const entry of entries) {
       const existing = findEmailOwner(entry.email, roster);
@@ -667,6 +896,7 @@ export async function applyRosterImport(
       if (!existing) {
         const person: Omit<Person, 'id'> = {
           ...entry,
+          bodyId,
           enrolledAt: new Date().toISOString(),
         };
         const id = await personsTable.add({ ...person });
@@ -700,7 +930,8 @@ export async function applyRosterImport(
 }
 
 export async function listTapRecords(): Promise<TapRecord[]> {
-  return tapsTable.orderBy('scannedAt').toArray();
+  const bodyId = await getActiveBodyId();
+  return tapsTable.where('bodyId').equals(bodyId).sortBy('scannedAt');
 }
 
 /**
@@ -714,24 +945,51 @@ export async function listTapRecords(): Promise<TapRecord[]> {
 // already reads. Kept because it is the cheap way to ask "which sessions exist"
 // without loading every tap, and it is covered by tests.
 export async function listSessionIds(): Promise<string[]> {
-  // A Set keeps insertion order, which here is first-tap order.
+  const bodyId = await getActiveBodyId();
+  // A Set keeps insertion order, which here is first-tap order — `sortBy`
+  // reads the whole scoped slice up front rather than walking the index, but
+  // the `bodyId` clause already keeps that slice to one body's history.
+  const taps = await tapsTable.where('bodyId').equals(bodyId).sortBy('scannedAt');
   const sessionIds = new Set<string>();
-  await tapsTable.orderBy('scannedAt').each((tap) => {
-    sessionIds.add(tap.sessionId);
-  });
+  for (const tap of taps) sessionIds.add(tap.sessionId);
   return [...sessionIds];
 }
 
+/**
+ * Session ids are not unique across bodies — the device never rotates the
+ * session id on a switch (D-T2 only promises the roster and history stay
+ * put) — so every session-keyed read is scoped to the active body as well,
+ * the same way `listPersons`/`listTapRecords` are.
+ */
 export async function listSessionTapRecords(sessionId: string): Promise<TapRecord[]> {
-  return tapsTable.where('sessionId').equals(sessionId).sortBy('scannedAt');
-}
-
-export async function countSessionAttendance(sessionId: string): Promise<number> {
+  const bodyId = await getActiveBodyId();
   return tapsTable
     .where('sessionId')
     .equals(sessionId)
-    .filter((tap) => tap.counted)
+    .filter((tap) => tap.bodyId === bodyId)
+    .sortBy('scannedAt');
+}
+
+/**
+ * `bodyId` is a parameter for the same reason `alumniWithTaps` takes one:
+ * `recordSessionTap` and `bindCardToPerson` call this from inside their own
+ * `tapsTable`-only transactions, and resolving the active body there would
+ * touch `settings`/`bodies`, which are outside that transaction's declared
+ * tables.
+ */
+async function countSessionAttendanceFor(
+  sessionId: string,
+  bodyId: number,
+): Promise<number> {
+  return tapsTable
+    .where('sessionId')
+    .equals(sessionId)
+    .filter((tap) => tap.bodyId === bodyId && tap.counted)
     .count();
+}
+
+export async function countSessionAttendance(sessionId: string): Promise<number> {
+  return countSessionAttendanceFor(sessionId, await getActiveBodyId());
 }
 
 export async function recordSessionTap(input: {
@@ -746,16 +1004,17 @@ export async function recordSessionTap(input: {
   priorCountedAt: string | null;
   attendanceCount: number;
 }> {
+  const bodyId = await getActiveBodyId();
   return database.transaction('rw', tapsTable, async () => {
     const prior = await tapsTable
       .where('sessionId')
       .equals(input.sessionId)
-      .filter((tap) => tap.uid === input.uid && tap.counted)
+      .filter((tap) => tap.bodyId === bodyId && tap.uid === input.uid && tap.counted)
       .first();
     const counted = input.personId !== null && !prior;
-    const tap = { ...input, counted };
+    const tap = { ...input, bodyId, counted };
     const id = await tapsTable.add(tap);
-    const attendanceCount = await countSessionAttendance(input.sessionId);
+    const attendanceCount = await countSessionAttendanceFor(input.sessionId, bodyId);
 
     return {
       tap: { ...tap, id },
@@ -767,17 +1026,21 @@ export async function recordSessionTap(input: {
 }
 
 /**
- * Destructive: deletes every tap ever recorded, plus the pre-enrollment
- * `scans` table, in one transaction so a failure part-way cannot leave half
- * the history behind. The roster (`persons`) is deliberately untouched — a
- * card's identity outlives its attendance record. Nothing in the UI calls this
- * yet; it exists for a confirmed "delete all attendance history" action, never
- * for starting a session, which only rotates the session id.
+ * Destructive: deletes every tap the active body ever recorded, plus the
+ * pre-enrollment `scans` table, in one transaction so a failure part-way
+ * cannot leave half the history behind. `scans` predates bodies entirely and
+ * is cleared outright; `taps` is scoped so this cannot take another body's
+ * history with it (D-T2). The roster (`persons`) is deliberately untouched —
+ * a card's identity outlives its attendance record. Nothing in the UI calls
+ * this yet; it exists for a confirmed "delete all attendance history"
+ * action, never for starting a session, which only rotates the session id.
  */
 export async function clearAllAttendanceHistory(): Promise<void> {
+  const bodyId = await getActiveBodyId();
   await database.transaction('rw', scansTable, tapsTable, async () => {
     await scansTable.clear();
-    await tapsTable.clear();
+    const bodyTapIds = await tapsTable.where('bodyId').equals(bodyId).primaryKeys();
+    await tapsTable.bulkDelete(bodyTapIds);
   });
 }
 

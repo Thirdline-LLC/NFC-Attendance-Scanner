@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as attendanceStore from '@/data/attendance-store';
 import {
   addPerson,
+  createBody,
+  getActiveBody,
   recordActivity,
   recordSessionTap,
   type BoundPerson,
@@ -447,6 +449,62 @@ describe('DashboardPage teacher PIN', () => {
 
     expect(screen.queryByTestId('dialog-pin')).toBeNull();
     expect(await verifyOperatorPin('2468')).toEqual({ status: 'ok' });
+  });
+});
+
+describe('DashboardPage attendance body', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('shows the active body the device is attached to', async () => {
+    await seedTwoSessions();
+    renderPage();
+
+    expect((await screen.findByTestId('text-active-body')).textContent).toContain(
+      'Club',
+    );
+    expect(screen.getByTestId('text-active-body').textContent).toContain('club');
+  });
+
+  it('switches to an existing body without touching the one just left', async () => {
+    await seedTwoSessions();
+    const debateClub = await createBody({ name: 'Debate Club', typeLabel: 'club' });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.click(await screen.findByTestId(`button-body-${debateClub.id}`));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-active-body').textContent).toContain(
+        'Debate Club',
+      ),
+    );
+    expect((await getActiveBody()).id).toBe(debateClub.id);
+  });
+
+  it('creates a new body from the dashboard and attaches to it', async () => {
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.type(await screen.findByTestId('input-body-name'), 'Robotics Club');
+    await user.selectOptions(screen.getByTestId('select-body-type'), 'club');
+    await user.click(screen.getByTestId('button-body-create'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-active-body').textContent).toContain(
+        'Robotics Club',
+      ),
+    );
   });
 });
 
