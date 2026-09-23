@@ -1,0 +1,52 @@
+{
+  "v": 1,
+  "meta": {
+    "id": "sjc",
+    "orgName": "St. John's College High School",
+    "version": "1.0.0",
+    "minAppVersion": "1.0.0",
+    "createdAt": "2026-09-23T00:00:00.000Z"
+  },
+  "fonts": { "heading": "Playfair Display", "body": "Plus Jakarta Sans" },
+  "colors": {
+    "bg": "#FAFAF9",
+    "fg": "#0A0A0A",
+    "muted": "#52525B",
+    "border": "rgba(228,228,231,0.8)",
+    "accent": "#7F1D1D",
+    "accentFg": "#FAFAF9",
+    "success": "#166534",
+    "danger": "#991B1B",
+    "warning": "#854D0E",
+    "surface": "#FFFFFF",
+    "shadow": "0 1px 2px rgba(0,0,0,0.06)"
+  },
+  "assets": {
+    "logoMark": "assets/logo-mark.svg",
+    "logoWordmark": "assets/logo-wordmark.svg",
+    "favicon": "assets/favicon.png"
+  },
+  "copy": {
+    "appName": "SJC Attendance",
+    "shortName": "Attendance",
+    "teacherRoleLabel": "Teacher PIN",
+    "exportSchoolAccountNotice": "Send this file only to a school account."
+  },
+  "bodyTypePresets": [
+    { "id": "club", "label": "Club" },
+    { "id": "class", "label": "Class" },
+    { "id": "faculty", "label": "Faculty" },
+    { "id": "custom", "label": "Custom" }
+  ],
+  "layout": { "density": "comfortable", "radius": "sm", "asymmetryHint": "editorial" },
+  "checksums": {
+    "assets/logo-mark.svg": "sha256:REPLACE",
+    "assets/logo-wordmark.svg": "sha256:REPLACE",
+    "assets/favicon.png": "sha256:REPLACE"
+  },
+  "signature": {
+    "alg": "ed25519",
+    "keyId": "thirdline-theme-1",
+    "sig": "REPLACE_WITH_REAL_SIGNATURE"
+  }
+}
