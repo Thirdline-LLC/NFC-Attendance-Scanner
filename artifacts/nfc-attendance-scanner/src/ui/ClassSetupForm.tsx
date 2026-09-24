@@ -280,7 +280,7 @@ export function ClassSetupForm({
         className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60"
         data-testid="button-class-create"
       >
-        {isWorking ? 'Working…' : `Create class and ${count} ${count === 1 ? childWord : childPlural}`}
+        {isWorking ? 'Working…' : `Create ${parentTypeLabel.trim() || DEFAULT_CLASS_TYPE_LABEL} and ${count} ${count === 1 ? childWord : childPlural}`}
       </button>
     </form>
   );

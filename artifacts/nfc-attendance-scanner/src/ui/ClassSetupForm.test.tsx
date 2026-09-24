@@ -133,6 +133,12 @@ describe('Class with periods setup', () => {
     await user.type(childLabel, 'section');
     expect(previewRows()[0]).toBe('1 · section');
     expect(create.textContent).toBe('Create class and 5 sections');
+    const classLabel = screen.getByTestId('input-class-type-label');
+    await user.clear(classLabel);
+    await user.type(classLabel, 'course');
+    expect(create.textContent).toBe('Create course and 5 sections');
+    await user.clear(classLabel);
+    await user.type(classLabel, 'class');
 
     await user.click(create);
     expect(props.onCreateClass).toHaveBeenCalledWith({
