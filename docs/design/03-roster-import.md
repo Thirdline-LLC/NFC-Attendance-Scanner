@@ -38,7 +38,12 @@ No taps, no full card UIDs. Signature optional in Wave “import unsigned xlsx�
 
 ## Sample template
 
-See `templates/roster-template.csv`:
+See `templates/roster-template.csv` for the static reference copy. In the app, the Students
+page's import panel has its own **Download template** buttons (xlsx primary, CSV secondary;
+`src/lib/roster-template.ts`) that generate the same shape on demand, with `Body Name` /
+`Body Type` pre-filled from the active body so a file downloaded and re-imported unmodified can
+never be refused for a mismatch. The xlsx template also ships an `Instructions` sheet beside the
+`Roster` sheet — the importer selects its input by sheet name, so the extra sheet is inert to it.
 
 ```csv
 first_name,last_name,grad_year,email,body_name,body_type
@@ -49,7 +54,7 @@ Avery,Chen,2028,achen28@stjohnschs.org,Robotics,club
 
 1. Teacher PIN → Students (or Body admin).  
 2. Confirm active body banner.  
-3. Download template **or** Export roster (headers).  
+3. Download template (blank, body pre-filled) **or** Export roster (existing students, headers).  
 4. Choose file → parse → preview counts + refused lines.  
 5. Confirm → write Dexie; `activity` `import-roster` with counts only.  
 6. First meeting: unknown card + uncarded members → “Whose card is ••••?”  

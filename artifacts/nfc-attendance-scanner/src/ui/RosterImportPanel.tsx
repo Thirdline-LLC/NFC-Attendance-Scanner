@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Download,
+  FileDown,
   FileSpreadsheet,
   Upload,
 } from 'lucide-react';
@@ -24,7 +25,7 @@ export type RosterImportResult =
   | { ok: false; message: string }
   | null;
 
-type RosterImportPanelProps = {
+export type RosterImportPanelProps = {
   /** Resolves once the chosen file has been read and applied, or refused. */
   onImport: (file: File) => Promise<void>;
   isImporting: boolean;
@@ -35,6 +36,10 @@ type RosterImportPanelProps = {
   studentCount: number;
   /** The active body, shown in a banner so the teacher knows what they are importing into. */
   activeBody?: AttendanceBody | null;
+  /** A blank roster to fill in, in either format the importer accepts. */
+  onDownloadTemplate: (format: 'xlsx' | 'csv') => void;
+  isDownloadingTemplate: boolean;
+  templateResult: ExportResult;
 };
 
 /** The most reasons worth printing; past this the sheet is the problem. */
@@ -67,6 +72,9 @@ export function RosterImportPanel({
   exportResult,
   studentCount,
   activeBody,
+  onDownloadTemplate,
+  isDownloadingTemplate,
+  templateResult,
 }: RosterImportPanelProps) {
   const headingId = useId();
   const fileId = useId();
@@ -161,6 +169,29 @@ export function RosterImportPanel({
             ? 'Building the file…'
             : `Export roster (${plural(studentCount, 'student')})`}
         </button>
+        <span className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onDownloadTemplate('xlsx')}
+            disabled={isDownloadingTemplate}
+            aria-label="Download a blank roster template as an Excel spreadsheet"
+            className="flex items-center gap-2 rounded-xl border border-[hsl(var(--border))] px-4 py-3 text-sm font-bold text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-wait disabled:opacity-60"
+            data-testid="button-download-template"
+          >
+            <FileDown aria-hidden="true" size={15} />
+            {isDownloadingTemplate ? 'Building the template…' : 'Download template'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDownloadTemplate('csv')}
+            disabled={isDownloadingTemplate}
+            aria-label="Download a blank roster template as a CSV file"
+            className="rounded-xl border border-[hsl(var(--border))] px-3 py-3 text-xs font-bold uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-wait disabled:opacity-60"
+            data-testid="button-download-template-csv"
+          >
+            CSV
+          </button>
+        </span>
         {fileName && !isImporting ? (
           <p
             className="text-xs text-[hsl(var(--muted-foreground))]"
@@ -172,6 +203,7 @@ export function RosterImportPanel({
       </div>
 
       <ExportNotice result={exportResult} />
+      <ExportNotice result={templateResult} />
 
       {result?.ok === false ? (
         <p
