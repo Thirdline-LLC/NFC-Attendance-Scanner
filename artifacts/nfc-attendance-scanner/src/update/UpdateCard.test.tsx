@@ -88,6 +88,13 @@ describe('UpdateCard', () => {
     localStorage.clear();
   });
 
+  it('shows this build as 1.0.1 with the in-place updater line', () => {
+    (globalThis as { __TAPIN_APP_VERSION__?: string }).__TAPIN_APP_VERSION__ = '1.0.1';
+    render(<UpdateCard />);
+    expect(screen.getByTestId('text-app-version').textContent).toBe('v1.0.1');
+    expect(screen.getByTestId('text-in-place-updater').textContent).toBe('In-place updater');
+  });
+
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
