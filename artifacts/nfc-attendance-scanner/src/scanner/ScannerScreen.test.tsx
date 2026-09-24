@@ -44,7 +44,8 @@ const knownPerson: Omit<Person, 'id'> = {
 /** End Session is the teacher's: types the PIN into the gate and submits by button. */
 async function passGate(user: ReturnType<typeof userEvent.setup>, pin = '2468') {
   await screen.findByTestId('dialog-pin');
-  await user.type(screen.getByTestId('input-pin'), pin);
+  // The field appears only after the gate's async hasOperatorPin() read.
+  await user.type(await screen.findByTestId('input-pin'), pin);
   await user.click(screen.getByTestId('button-pin-submit'));
   await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
 }
