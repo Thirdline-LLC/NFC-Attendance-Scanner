@@ -19,6 +19,7 @@ import {
 import type {
   DashboardMetrics,
   GradeBreakdownRow,
+  PeriodBreakdownRow,
   SessionSnapshot,
   UnidentifiedCard,
 } from '@/lib/attendance-metrics';
@@ -101,6 +102,13 @@ type DashboardProps = {
    */
   onMetricsScopeChange?: (scope: 'body' | 'subtree') => void;
   /**
+   * The class view's per-child table (Design 09 §2). Shown only with the
+   * "This body + descendants" figures, and only when the active body has
+   * children. `childLabel` names the first column ("period"), from the
+   * children's own type label.
+   */
+  periodBreakdown?: { childLabel: string; rows: PeriodBreakdownRow[] };
+  /**
    * The two retention actions with their previews. Optional: the
    * presentational tests render without a page. A `null` preview means the
    * read has not answered yet.
@@ -151,6 +159,7 @@ export function Dashboard({
   onChangeBody,
   onManageVocabulary,
   onMetricsScopeChange,
+  periodBreakdown,
   retention,
 }: DashboardProps) {
   const { ytd, gradeBreakdown, enrolledStudents, unidentified } = metrics;
@@ -269,6 +278,10 @@ export function Dashboard({
             </ul>
           </Card>
         </div>
+
+        {metrics.scope === 'subtree' && periodBreakdown && periodBreakdown.rows.length > 0 ? (
+          <PeriodBreakdownTable {...periodBreakdown} />
+        ) : null}
 
         <UnidentifiedCardSection
           tapCount={unidentified.tapCount}
@@ -552,6 +565,85 @@ function GradeRow({ row }: { row: GradeBreakdownRow }) {
         {row.enrolled}
       </span>
     </li>
+  );
+}
+
+/**
+ * Design 09 §2: one row per period under the class, with the same year-to-date
+ * rules as the roll-up above it. A real table so a screen reader can read a
+ * row against its column headers.
+ */
+function PeriodBreakdownTable({
+  childLabel,
+  rows,
+}: {
+  childLabel: string;
+  rows: PeriodBreakdownRow[];
+}) {
+  const heading = childLabel.charAt(0).toUpperCase() + childLabel.slice(1);
+  const cell = 'px-3 py-2.5 text-right tabular-nums';
+  return (
+    <Card eyebrow={`By ${childLabel}`} icon={<Layers aria-hidden="true" size={16} />}>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[26rem] text-sm" data-testid="table-period-breakdown">
+          <caption className="pb-2 text-left text-xs leading-5 text-[hsl(var(--muted-foreground))]">
+            This school year. Average attendance is students present per meeting as a share of
+            that {childLabel}’s roster.
+          </caption>
+          <thead>
+            <tr className="border-b border-[hsl(var(--border))] text-[11px] font-semibold text-[hsl(var(--muted-foreground))]">
+              <th scope="col" className="px-3 py-2 text-left font-semibold">
+                {heading}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold">
+                Meetings held
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold">
+                Unique present
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold">
+                Avg attendance
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.bodyId}
+                className="border-b border-[hsl(var(--border)/.6)] last:border-b-0"
+                data-testid={`row-period-${row.bodyId}`}
+              >
+                <th
+                  scope="row"
+                  className="px-3 py-2.5 text-left font-semibold text-[hsl(var(--foreground))]"
+                >
+                  {row.name}
+                  {row.archived ? (
+                    <span className="font-normal text-[hsl(var(--muted-foreground))]"> · Archived</span>
+                  ) : null}
+                </th>
+                <td className={`${cell} text-[hsl(var(--foreground))]`}>{row.meetingsHeld}</td>
+                <td className={`${cell} text-[hsl(var(--foreground))]`}>
+                  {row.uniquePresent}
+                  <span className="text-[hsl(var(--muted-foreground))]"> of {row.enrolled}</span>
+                </td>
+                <td className={`${cell} text-[hsl(var(--foreground))]`}>
+                  {row.averageAttendancePercent === null ? (
+                    <span className="text-[hsl(var(--muted-foreground))]">
+                      —<span className="sr-only">
+                        {row.enrolled === 0 ? ' no students enrolled' : ' no meetings yet'}
+                      </span>
+                    </span>
+                  ) : (
+                    formatPercent(row.averageAttendancePercent)
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

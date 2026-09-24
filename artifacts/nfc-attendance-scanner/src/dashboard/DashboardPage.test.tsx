@@ -958,6 +958,66 @@ describe('DashboardPage attendance body', () => {
     );
   });
 
+  it('shows a per-period breakdown on the class view', async () => {
+    const seniorYear = currentSeniorGradYear(new Date().toISOString());
+    const { parent, periods } = await attendanceStore.createClassWithPeriods({
+      className: 'English 11',
+      periodNames: ['Period 1', 'Period 3'],
+    });
+    const [first, third] = periods;
+    // Period 1: two students; one meeting with both, one with one.
+    await setActiveBody(first.id as number);
+    const [a, b] = await Promise.all(
+      ['a', 'b'].map((suffix, index) =>
+        addPerson({
+          cardUid: `04000000000A${index}0`,
+          firstName: `Student${suffix}`,
+          lastName: 'One',
+          gradYear: seniorYear,
+          email: `p1-${suffix}@example.com`,
+          enrolledAt: secondsAgo(200),
+        }),
+      ),
+    );
+    await recordSessionTap({ sessionId: 'p1-a', uid: a.cardUid, scannedAt: secondsAgo(120), personId: a.id });
+    await recordSessionTap({ sessionId: 'p1-a', uid: b.cardUid, scannedAt: secondsAgo(119), personId: b.id });
+    await recordSessionTap({ sessionId: 'p1-b', uid: a.cardUid, scannedAt: secondsAgo(60), personId: a.id });
+    // Period 3: one student enrolled, no meetings yet.
+    await setActiveBody(third.id as number);
+    await addPerson({
+      cardUid: '04000000000C00',
+      firstName: 'Studentc',
+      lastName: 'Three',
+      gradYear: seniorYear,
+      email: 'p3-c@example.com',
+      enrolledAt: secondsAgo(200),
+    });
+    await setActiveBody(parent.id as number);
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('dashboard');
+    // "This body" alone: the class itself has no taps, and no table.
+    expect(screen.queryByTestId('table-period-breakdown')).toBeNull();
+
+    await user.click(screen.getByTestId('button-metrics-subtree'));
+    const table = await screen.findByTestId('table-period-breakdown');
+    const headers = within(table)
+      .getAllByRole('columnheader')
+      .map((cell) => cell.textContent);
+    expect(headers).toEqual(['Period', 'Meetings held', 'Unique present', 'Avg attendance']);
+
+    const firstRow = within(screen.getByTestId(`row-period-${first.id}`)).getAllByRole('cell');
+    expect(within(screen.getByTestId(`row-period-${first.id}`)).getByRole('rowheader').textContent).toBe('Period 1');
+    // 2 meetings; both students present at least once; (2 + 1) / 2 = 1.5 of 2 = 75%.
+    expect(firstRow.map((cell) => cell.textContent)).toEqual(['2', '2 of 2', '75%']);
+    const thirdRow = within(screen.getByTestId(`row-period-${third.id}`)).getAllByRole('cell');
+    expect(thirdRow.map((cell) => cell.textContent)).toEqual(['0', '0 of 1', '— no meetings yet']);
+
+    await user.click(screen.getByTestId('button-metrics-this-body'));
+    expect(screen.queryByTestId('table-period-breakdown')).toBeNull();
+  });
+
   it('shows a child body with its path and still switches to it', async () => {
     const parent = await getActiveBody();
     const child = await createBody({

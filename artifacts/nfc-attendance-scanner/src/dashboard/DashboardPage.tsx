@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
-import { formatBodySubtitle, subtreeBodyIds } from '@/data/body-hierarchy';
+import { formatBodySubtitle, isArchived, subtreeBodyIds } from '@/data/body-hierarchy';
 import {
   ACTIVITY_LOG_CAP,
   BodyHierarchyError,
@@ -48,6 +48,7 @@ import {
 import { deriveGrade, exportAttendanceWorkbook } from '@/lib/attendance-export';
 import {
   computeDashboardMetrics,
+  computePeriodBreakdown,
   computeRollupDashboardMetrics,
   schoolYearStart,
   type DashboardMetrics,
@@ -191,6 +192,31 @@ export function DashboardPage() {
     subtreePersons: Person[];
     target: number;
   } | null>(null);
+
+  // The class view's per-period table (Design 09 §2), from the same subtree
+  // rows the roll-up figures were computed from. Only built for the subtree
+  // scope; the column header follows the children's type label.
+  const periodBreakdown = useMemo(() => {
+    if (metricsScope !== 'subtree' || !metricsBundle || !metrics || activeBody?.id === undefined) {
+      return undefined;
+    }
+    const parentId = activeBody.id;
+    const children = bodies.filter((body) => body.parentId === parentId);
+    if (children.length === 0) return undefined;
+    const live = children.filter((body) => !isArchived(body));
+    const labels = new Set((live.length > 0 ? live : children).map((body) => body.typeLabel.trim().toLowerCase()));
+    const childLabel = labels.size === 1 ? [...labels][0] : 'child';
+    return {
+      childLabel,
+      rows: computePeriodBreakdown(
+        parentId,
+        bodies,
+        metricsBundle.subtreeTaps,
+        metricsBundle.subtreePersons,
+        metrics.computedAt,
+      ),
+    };
+  }, [metricsScope, metricsBundle, metrics, activeBody, bodies]);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -950,6 +976,7 @@ export function DashboardPage() {
               onChangeBody={() => void openBodySwitcher()}
               onManageVocabulary={openVocabDialog}
               onMetricsScopeChange={changeMetricsScope}
+              periodBreakdown={periodBreakdown}
               onChangePin={() => {
                 setPinNotice(null);
                 setChangingPin(true);
