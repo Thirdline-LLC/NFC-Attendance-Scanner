@@ -94,6 +94,13 @@ export function UpdateCard() {
         </p>
       ) : null}
 
+      <p
+        className="mt-3 text-sm font-medium text-[hsl(var(--foreground))]"
+        data-testid="text-in-place-updater"
+      >
+        In-place updater
+      </p>
+
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[hsl(var(--muted-foreground))]">
         <dt>This app</dt>
         <dd className="text-right font-mono text-[hsl(var(--foreground))]" data-testid="text-app-version">
