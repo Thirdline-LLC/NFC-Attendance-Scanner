@@ -142,6 +142,9 @@ export function DashboardPage() {
   const [hasPin, setHasPin] = useState(false);
   const [disablingPinRequired, setDisablingPinRequired] = useState(false);
   const [enablingPinSetup, setEnablingPinSetup] = useState(false);
+  // "Set PIN" from the missing-PIN alert: the existing set-PIN form, opened
+  // without touching the requirement (which stayed on throughout).
+  const [settingMissingPin, setSettingMissingPin] = useState(false);
   // The two retention previews, read with the page so the buttons can say
   // what they would do before anyone presses them; the action being
   // confirmed, whether it is running, and what it said when it finished.
@@ -393,6 +396,32 @@ export function DashboardPage() {
     setPinError(
       'There is no teacher PIN on this device anymore, so the requirement was not turned off. Set a PIN to manage it.',
     );
+  }, []);
+
+  // A stale switch error should not linger beside whatever the teacher does
+  // next: any dialog opening on this page clears it.
+  const anyDialogOpen =
+    changingPin ||
+    disablingPinRequired ||
+    enablingPinSetup ||
+    settingMissingPin ||
+    retentionAction !== null ||
+    switchingBody ||
+    managingVocab;
+  useEffect(() => {
+    if (anyDialogOpen) setPinError(null);
+  }, [anyDialogOpen]);
+
+  /** The missing-PIN alert's "Set PIN" finished: a PIN exists again. */
+  const finishSettingMissingPin = useCallback(() => {
+    setSettingMissingPin(false);
+    setHasPin(true);
+    setPinError(null);
+    setPinNotice('Teacher PIN set.');
+    // The set form logged its own row; re-read only the log.
+    void listActivity()
+      .then(setActivity)
+      .catch(() => undefined);
   }, []);
 
   const exportAll = useCallback(async () => {
@@ -925,6 +954,26 @@ export function DashboardPage() {
                 data-testid="text-pin-required-error"
               >
                 {pinError}
+                <span className="mt-2 flex flex-wrap gap-2">
+                  {!hasPin ? (
+                    <button
+                      type="button"
+                      onClick={() => setSettingMissingPin(true)}
+                      className="rounded-lg border border-[hsl(var(--destructive)/.6)] px-2.5 py-1 font-semibold hover:bg-[hsl(var(--destructive)/.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                      data-testid="button-pin-error-set-pin"
+                    >
+                      Set PIN
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setPinError(null)}
+                    className="rounded-lg px-2.5 py-1 font-semibold underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                    data-testid="button-pin-error-dismiss"
+                  >
+                    Dismiss
+                  </button>
+                </span>
               </p>
             ) : null}
             {retentionNotice ? (
@@ -996,9 +1045,16 @@ export function DashboardPage() {
       {changingPin ? (
         <PinDialog
           mode="change"
-          onChanged={() => {
+          onChanged={(outcome) => {
             setChangingPin(false);
-            setPinNotice('Teacher PIN changed.');
+            if (outcome === 'set') {
+              // There was no PIN to change; one now exists again.
+              setHasPin(true);
+              setPinError(null);
+              setPinNotice('Teacher PIN set.');
+            } else {
+              setPinNotice('Teacher PIN changed.');
+            }
             // The log gained a row; re-read only that. A failed re-read leaves
             // the list one row stale, which the next refresh corrects.
             void listActivity()
@@ -1024,6 +1080,13 @@ export function DashboardPage() {
           mode="gate"
           onUnlocked={() => void confirmEnablePinAfterSetup()}
           onCancel={() => setEnablingPinSetup(false)}
+        />
+      ) : null}
+      {settingMissingPin ? (
+        <PinDialog
+          mode="gate"
+          onUnlocked={finishSettingMissingPin}
+          onCancel={() => setSettingMissingPin(false)}
         />
       ) : null}
     </main>

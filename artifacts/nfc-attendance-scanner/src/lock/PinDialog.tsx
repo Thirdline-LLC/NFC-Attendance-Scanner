@@ -24,7 +24,15 @@ import { useTheme } from '@/theme/ThemeProvider';
 
 type PinDialogProps =
   | { mode: 'gate'; onUnlocked: () => void; onCancel: () => void }
-  | { mode: 'change'; onChanged: () => void; onCancel: () => void }
+  | {
+      mode: 'change';
+      /**
+       * `'set'` when there turned out to be no PIN to change (the dialog fell
+       * back to setting one, which the caller may word differently).
+       */
+      onChanged: (outcome?: 'changed' | 'set') => void;
+      onCancel: () => void;
+    }
   | {
       mode: 'verify';
       /**
@@ -289,6 +297,9 @@ export function PinDialog(props: PinDialogProps) {
         await setOperatorPin(pin);
         await logQuietly('pin-set');
         if (props.mode === 'gate') props.onUnlocked();
+        // Change mode lands here when the PIN had vanished ('unset'): the new
+        // PIN is saved, so the dialog finishes instead of staying open.
+        else if (props.mode === 'change') props.onChanged('set');
       } else if (phase === 'unlock') {
         const verdict =
           props.mode === 'verify' && props.verify
@@ -317,7 +328,7 @@ export function PinDialog(props: PinDialogProps) {
           await changeOperatorPin(current, pin),
           async () => {
             await logQuietly('pin-changed');
-            if (props.mode === 'change') props.onChanged();
+            if (props.mode === 'change') props.onChanged('changed');
           },
           () => setCurrent(''),
         );

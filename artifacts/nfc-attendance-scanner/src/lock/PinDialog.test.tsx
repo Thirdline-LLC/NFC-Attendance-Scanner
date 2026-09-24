@@ -293,4 +293,25 @@ describe('PinDialog', () => {
       expect(onVerified).not.toHaveBeenCalled();
     });
   });
+
+  it('change mode with no PIN left falls back to setting one, then finishes with onChanged("set")', async () => {
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    render(<PinDialog mode="change" onChanged={onChanged} onCancel={() => {}} />);
+
+    await user.type(await screen.findByTestId('input-pin-current'), '2468');
+    await user.type(screen.getByTestId('input-pin'), '1357');
+    await user.type(screen.getByTestId('input-pin-confirm'), '1357');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-pin-title').textContent).toBe('Set a teacher PIN'),
+    );
+    await user.type(screen.getByTestId('input-pin'), '1357');
+    await user.type(screen.getByTestId('input-pin-confirm'), '1357');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith('set'));
+    expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
+  });
 });
