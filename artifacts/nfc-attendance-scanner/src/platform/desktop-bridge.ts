@@ -1,17 +1,19 @@
 /**
  * The entire surface the Electron preload exposes to this React app.
  *
- * It is deliberately one verb wide. There is no "read a file", no "run a
- * command" and no way to name an arbitrary path: the renderer hands over bytes
- * and a suggested filename, and the main process decides — with the operator,
- * through the system Save dialog — where they may land. Anything the renderer
- * could be tricked into asking for is therefore something the operator has
- * already agreed to on screen.
+ * There is no "read a file", no "run a command" and no way to name an
+ * arbitrary path. Workbook export hands over bytes and a suggested filename;
+ * the main process decides — with the operator, through the system Save
+ * dialog — where they may land. Update install hands over a GitHub Release
+ * asset URL the main process re-validates; the bundle it replaces is the one
+ * this process is running from, never a path the page chose.
  *
  * This file is the single definition of that contract. `electron/preload.ts`
  * imports the same types, so the two halves cannot drift apart without a type
  * error.
  */
+
+import type { InPlaceFailureReason, InPlaceProgressPhase } from '@workspace/update';
 
 /** What the renderer asks the desktop shell to save. */
 export type WorkbookSaveRequest = {
@@ -57,15 +59,35 @@ export type DownloadVerifiedAssetRequest = {
  */
 export type DownloadVerifiedAssetResult =
   | { ok: true; kind: 'theme'; text: string }
-  | { ok: true; kind: 'app'; path: string; bytes: number }
   | {
       ok: false;
       reason: 'invalid-request' | 'network' | 'http-error' | 'checksum' | 'write-failed';
     };
 
+/** Pushed on `attendance:update-progress` while an in-place install is running. */
+export type UpdateProgressEvent = {
+  phase: InPlaceProgressPhase;
+};
+
+export type InstallAppUpdateRequest = {
+  assetUrl: string;
+  sha256Url: string;
+  suggestedName: string;
+};
+
+export type InstallAppUpdateResult =
+  | { ok: true; phase: 'relaunching' }
+  | {
+      ok: false;
+      reason: InPlaceFailureReason | 'invalid-request';
+      message: string;
+    };
+
 export type DesktopBridge = {
   /** Marks the shell, and lets a test build a convincing fake. */
   readonly platform: 'electron';
+  /** CPU of this Mac. The update check uses it to pick an arm64 disk image. */
+  readonly hostArch?: 'arm64' | 'x64';
   saveWorkbook(request: WorkbookSaveRequest): Promise<WorkbookSaveResult>;
   /**
    * Opens the operating system's file browser on a workbook this session
@@ -74,13 +96,22 @@ export type DesktopBridge = {
    */
   revealWorkbook(path: string): Promise<boolean>;
   /**
-   * Downloads one Release asset and its checksum sidecar in the main process
-   * (Node has no CORS restriction; the renderer's own `fetch` does — see
-   * `electron/main.ts`), verifies it, and only then returns it.
+   * Downloads one theme-pack Release asset and its checksum sidecar in the
+   * main process (Node has no CORS restriction; the renderer's own `fetch`
+   * does — see `electron/main.ts`), verifies it, and only then returns the
+   * pack text. App disk images use `installAppUpdate`.
    */
   downloadVerifiedAsset(
     request: DownloadVerifiedAssetRequest,
   ): Promise<DownloadVerifiedAssetResult>;
+  /**
+   * Verified in-place replacement of this Mac's installed app. The main
+   * process emits `onUpdateProgress` while the invoke is in flight, then
+   * quits on success. Absent on a bridge that only knows the older
+   * download-to-Downloads behaviour.
+   */
+  installAppUpdate?(request: InstallAppUpdateRequest): Promise<InstallAppUpdateResult>;
+  onUpdateProgress?(listener: (event: UpdateProgressEvent) => void): () => void;
   /** Opens the Release notes in the OS browser — the one allowed external navigation. */
   openReleasesPage(): Promise<boolean>;
 };

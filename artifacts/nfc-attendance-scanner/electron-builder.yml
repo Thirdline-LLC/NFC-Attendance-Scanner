@@ -32,8 +32,9 @@ files:
 
 asar: true
 
-# No update feed, by design. The app makes no network calls at runtime, and an
-# updater would be the one thing that did.
+# No electron-updater feed. `publish: null` stays. A teacher-initiated check
+# reads public GitHub Releases and, on macOS, replaces the installed .app in
+# place. That path is our own code (`@workspace/update`), not an update feed.
 publish: null
 
 mac:

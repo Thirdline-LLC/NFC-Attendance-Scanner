@@ -12,14 +12,20 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron';
 
-import { verifySha256 } from '@workspace/update';
+import { runInPlaceInstall, verifySha256 } from '@workspace/update';
 
-import type { DownloadVerifiedAssetResult, WorkbookSaveResult } from '../src/platform/desktop-bridge';
+import type {
+  DownloadVerifiedAssetResult,
+  InstallAppUpdateResult,
+  WorkbookSaveResult,
+} from '../src/platform/desktop-bridge';
 import { RELEASES_PAGE_URL } from '../src/update/repo-config';
 // Every rule applied to renderer input lives in validation.ts, which imports
 // no Electron and is therefore unit-tested directly.
+import { createInPlaceHost, fetchReleaseAssetBytes } from './in-place-host';
 import {
   parseDownloadVerifiedAssetRequest,
+  parseInstallAppUpdateRequest,
   parseSaveRequest,
   resolveBundledAsset,
 } from './validation';
@@ -231,45 +237,26 @@ function revealWorkbook(_event: IpcMainInvokeEvent, payload: unknown): boolean {
 }
 
 /**
- * Fetches one Release asset's bytes from the GitHub API.
- *
- * Runs in the main process specifically because it is not: the renderer's
- * `fetch` is bound by CORS, and GitHub's Release asset CDN sends no
- * `Access-Control-Allow-Origin` header on the asset response — only the
- * `/releases/latest` metadata call does. Node's `fetch` has no such
- * restriction, which is the whole reason this download does not happen in
- * `src/update/`.
- */
-async function fetchReleaseAssetBytes(url: string): Promise<Uint8Array> {
-  const token = process.env.TAPIN_UPDATE_TOKEN;
-  const headers: Record<string, string> = { Accept: 'application/octet-stream' };
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const response = await fetch(url, { headers });
-  if (!response.ok) {
-    throw new Error(`http-error:${response.status}`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
-}
-
-/**
  * Downloads one Release asset and its `.sha256` sidecar, verifies the
  * checksum, and only then hands anything back to the renderer (D6: checksum
  * fail refuses install, fail closed).
  *
- * A theme pack's verified JSON text is returned directly — the renderer
- * passes it straight to `installPack`, Plan 04's own activator, unchanged.
- * An app installer is instead written to the Downloads folder and added to
- * `writtenExports`, so `revealWorkbook` can show it in Finder; its bytes
- * never cross the bridge at all (D3: no electron-updater, no in-place swap —
- * the operator runs the installer themselves).
+ * Theme packs only. A verified pack's JSON is returned to the renderer,
+ * which passes it to `installPack` — Plan 04's activator, unchanged. App
+ * disk images go through `installAppUpdate` instead: they are verified and
+ * then replace the running bundle. They are not written to Downloads and
+ * their bytes never cross the bridge.
+ *
+ * The fetch itself lives in `in-place-host.ts` because the renderer's
+ * `fetch` is bound by CORS, and GitHub's release CDN sends no
+ * `Access-Control-Allow-Origin` on the asset bytes.
  */
 async function downloadVerifiedAsset(
   _event: IpcMainInvokeEvent,
   payload: unknown,
 ): Promise<DownloadVerifiedAssetResult> {
   const request = parseDownloadVerifiedAssetRequest(payload);
-  if (!request) return { ok: false, reason: 'invalid-request' };
+  if (!request || !request.isTheme) return { ok: false, reason: 'invalid-request' };
 
   let assetBytes: Uint8Array;
   let sidecarBytes: Uint8Array;
@@ -290,17 +277,46 @@ async function downloadVerifiedAsset(
   const verification = await verifySha256(assetBytes, sidecarText);
   if (!verification.ok) return { ok: false, reason: 'checksum' };
 
-  if (request.isTheme) {
-    return { ok: true, kind: 'theme', text: Buffer.from(assetBytes).toString('utf-8') };
+  return { ok: true, kind: 'theme', text: Buffer.from(assetBytes).toString('utf-8') };
+}
+
+/**
+ * Teacher-confirmed in-place replacement of the running macOS app.
+ *
+ * Progress events (`downloading`, `installing`, `relaunching`) are pushed
+ * while this invoke is still in flight. On success the helper is already
+ * detached and `app.quit()` has been asked for; the helper waits for this
+ * pid, swaps the bundle, and opens it again. A failure returns here and
+ * does not quit.
+ */
+async function installAppUpdate(
+  event: IpcMainInvokeEvent,
+  payload: unknown,
+): Promise<InstallAppUpdateResult> {
+  const request = parseInstallAppUpdateRequest(payload);
+  if (!request) {
+    return {
+      ok: false,
+      reason: 'invalid-request',
+      message: 'The desktop shell refused this update request.',
+    };
   }
 
   try {
-    const destination = path.join(app.getPath('downloads'), request.suggestedName);
-    await fs.writeFile(destination, assetBytes);
-    writtenExports.add(destination);
-    return { ok: true, kind: 'app', path: destination, bytes: assetBytes.byteLength };
+    return await runInPlaceInstall(
+      { assetUrl: request.assetUrl, sha256Url: request.sha256Url },
+      createInPlaceHost((progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('attendance:update-progress', progress);
+        }
+      }),
+    );
   } catch {
-    return { ok: false, reason: 'write-failed' };
+    return {
+      ok: false,
+      reason: 'stage-failed',
+      message: 'The update could not be prepared. Nothing was installed.',
+    };
   }
 }
 
@@ -395,6 +411,7 @@ void app.whenReady().then(() => {
   ipcMain.handle('attendance:save-workbook', saveWorkbook);
   ipcMain.handle('attendance:reveal-workbook', revealWorkbook);
   ipcMain.handle('attendance:download-verified-asset', downloadVerifiedAsset);
+  ipcMain.handle('attendance:install-app-update', installAppUpdate);
   ipcMain.handle('attendance:open-releases-page', openReleasesPage);
 
   createWindow();

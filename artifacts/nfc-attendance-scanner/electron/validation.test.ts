@@ -6,6 +6,7 @@ import {
   isInsideDirectory,
   MAX_BASE64_LENGTH,
   parseDownloadVerifiedAssetRequest,
+  parseInstallAppUpdateRequest,
   parseSaveRequest,
   resolveBundledAsset,
 } from './validation';
@@ -149,12 +150,22 @@ describe('isGithubReleaseAssetUrl', () => {
     ).toBe(true);
   });
 
+  it('accepts the public browser download URL for this repo', () => {
+    expect(
+      isGithubReleaseAssetUrl(
+        'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg',
+      ),
+    ).toBe(true);
+  });
+
   it.each([
-    ['a browser_download_url instead of the API url', 'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.0/tapin.dmg'],
+    ['a download URL for a different repository', 'https://github.com/evil/NFC-Attendance-Scanner/releases/download/v1.0.0/tapin.dmg'],
     ['a different host entirely', 'https://evil.example.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/1'],
     ['plain http, not https', 'http://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/1'],
     ['a non-numeric asset id', 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/abc'],
     ['a different api.github.com path entirely', 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/latest'],
+    ['an API asset URL for a different repository', 'https://api.github.com/repos/evil/other/releases/assets/1'],
+    ['a download URL with a .. segment', 'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.0/../../etc/passwd'],
     ['a non-string value', 42],
     ['null', null],
   ])('refuses %s', (_case, url) => {
@@ -197,6 +208,36 @@ describe('parseDownloadVerifiedAssetRequest', () => {
       sha256Url: SIDECAR_URL,
       suggestedName: 'tapin-sjc-v1.1.0.nfc-theme',
       isTheme: true,
+    });
+  });
+
+  it('accepts the electron-builder arm64 disk image name', () => {
+    expect(
+      parseDownloadVerifiedAssetRequest({
+        assetUrl: ASSET_URL,
+        sha256Url: SIDECAR_URL,
+        suggestedName: 'SJC Attendance-1.0.1-arm64.dmg',
+        isTheme: false,
+      }),
+    ).toMatchObject({ suggestedName: 'SJC Attendance-1.0.1-arm64.dmg', isTheme: false });
+  });
+
+  it('accepts an in-place install request that uses the public download URL', () => {
+    const browser =
+      'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg';
+    const sidecar =
+      'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg.sha256';
+    expect(
+      parseInstallAppUpdateRequest({
+        assetUrl: browser,
+        sha256Url: sidecar,
+        suggestedName: 'SJC Attendance-1.0.1-arm64.dmg',
+      }),
+    ).toEqual({
+      assetUrl: browser,
+      sha256Url: sidecar,
+      suggestedName: 'SJC Attendance-1.0.1-arm64.dmg',
+      isTheme: false,
     });
   });
 
