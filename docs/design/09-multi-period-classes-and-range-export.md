@@ -2,7 +2,7 @@
 
 **Status:** Spec 2026-09-24 (docs only, no implementation in this PR)  
 **Baseline:** [Design 02](02-attendance-bodies-sessions-taps.md) (D-T2), [Design 05](05-pin-and-roles.md), [Design 06](06-export-and-sor.md), [Design 08](08-configurable-body-hierarchy.md) (08a/08b shipped, 08c deferred).  
-**Amends:** Designs 05, 06, 08 (see [Amendments](#amendments-to-existing-designs)). Amendments land in the implementing slices, not in this PR.
+**Amends:** Designs 02, 05, 06, 08 (see [Amendments](#amendments-to-existing-designs)). Amendments land in the implementing slices, not in this PR.
 
 ## Problem
 
@@ -36,7 +36,7 @@ Lives on the PIN-gated dashboard (same place as 08a structure edits). No new rol
 2. Enter the class name (e.g. "English 11").
 3. Choose the number of periods (1–10).
 4. Period names auto-fill "Period 1" … "Period N". Each is editable (e.g. "Period 2 – Room 114"). The teacher can instead enter their real bell periods (e.g. 1, 3, 4, 6, 7).
-5. Preview: `English 11` with the period rows beneath it, in order.
+5. Preview: `English 11` with the period rows beneath it, in order. The default type labels ("class", "period") are pre-filled and editable before creating (e.g. "course" / "section", or "club" / "team").
 6. **Create** → one transaction creates the parent (`typeLabel` "class") and N children (`typeLabel` "period"), `sortOrder` in the entered order. Labels are added to the 08b vocabulary automatically (existing behavior).
 7. Follow-up prompt: **Add students to each period**. For each period: *Download template* (the roster template button, pre-filled with that period's body name/type) → *Upload*, or *Skip for now*.
 
@@ -56,11 +56,21 @@ Optional: seed a 08b `BodyFieldDef` "Period" (and "Room") for `typeLabel` "perio
 
 **Recommendation and decision: no PIN, sibling-only, logged.**
 
-- A compact control on the scanner lists only the **sibling periods under the active body's parent** (e.g. when on "English 11 › Period 3", it offers Periods 1–5 of English 11). It never lists unrelated bodies, parents, or archived bodies. Hidden when the active body has no siblings.
+- **Visibility:** the switcher is shown only when the active body has a non-null `parentId` **and** that parent has at least one other non-archived child. A root body (`parentId` null) never shows the switcher, so unrelated roots can never appear in it.
+- **Scope:** it lists only the **non-archived children of the active body's parent** (e.g. when on "English 11 › Period 3", it offers Periods 1–5 of English 11). Never the parent itself, other roots, cousins, deeper descendants, or archived bodies.
+- **Mid-queue rule:** switching is **disabled while a tap is pending** (a scan being resolved, an unknown-card / "Whose card is ••••?" prompt, or an enroll dialog open). The control re-enables once the queue is empty. This preserves the D-T2 rule that the scanner never flips bodies mid-queue: every tap is resolved against the body that was active when it was read.
+- **Session rule:** sessions are per body. On switch, the current body's open session is left as is (it ends by End Session or the existing session rules, unchanged). Taps after the switch join the **new body's open session for the current meeting day if one exists; otherwise a new session is started for the new body** using the existing session-creation logic. A session never spans two bodies.
 - Switching changes `activeBodyId` only. It never shows a roster, tap history, or metrics.
 - On switch, a clear confirmation: "Now taking attendance for **Period 3**" (and the desk subtitle updates as today).
 - Each switch writes an activity entry `body-switch` with body ids/labels only — no student name, email, or card UID.
-- Optional per-device setting **Require PIN to switch periods** (default off) for unattended kiosks.
+- Optional per-device setting **Require PIN to switch periods** (default off) for unattended kiosks. Changing this setting follows the protection-toggle rule below.
+
+### Protection-toggle rule (applies to this design and the Design 05 PIN switch)
+
+- **Turning a protection off** (the Design 05 "Require teacher PIN" switch to off, or "Require PIN to switch periods" to off) **requires the current PIN**.
+- **Turning a protection on** needs no PIN (Asher's decision for the PIN switch, 2026-09-24): it only adds protection and re-enables the existing PIN hash.
+- Every change to either toggle, in either direction, writes a PII-free activity entry (`pin-disabled` / `pin-enabled`, `switch-pin-disabled` / `switch-pin-enabled`) with timestamp only.
+- Both toggles live on the PIN-gated dashboard.
 
 **Rationale (FERPA vs usability).** The switcher discloses no education records; its only risk is data integrity (a student switching periods so taps land in the wrong period), which is visible in the activity log and correctable. Requiring the PIN five-plus times a day pushes teachers toward turning the PIN off entirely (the Design 05 on/off switch), which is the larger privacy risk.
 
@@ -76,9 +86,9 @@ Optional: seed a 08b `BodyFieldDef` "Period" (and "Room") for `typeLabel` "perio
 ### Workbook
 | Sheet | Contents |
 |---|---|
-| **Summary** | Header block: body path, range, exported-at. One row per enrolled person: meetings attended, meetings held (in range), attendance %, first and last check-in in range. |
+| **Summary** | Header block: body path, range, exported-at. One row per enrolled person: meetings attended, meetings held (in range), attendance %, first and last check-in in range. **Meetings held** for a person = sessions of that body in the range on or after the person's `enrolledAt` date, so a student added partway through is not penalized for earlier meetings. |
 | **Attendance** | Today's per-tap rows (Design 06), filtered to the range. Masked card column unchanged. |
-| **By meeting** | One row per meeting date (session): date, present count, roster size. |
+| **By meeting** | One row per **session** (a body can have more than one session on a date): date, session start time, present count, roster size at that session. |
 | **Activity** | Only for **All time** (preserves Design 06 whole-history behavior). |
 
 ### Data model
@@ -86,6 +96,7 @@ None. Taps already carry `scannedAt` and `bodyId`; filtering happens before the 
 
 ## 5. Class-wide roll-up export (08c export half, pulled forward)
 
+- **Subtree depth:** "all periods" means **the body plus all non-archived-or-archived descendants at any depth** (matching the Design 08 "This body + descendants" roll-up), not only direct children. Summary by period lists each descendant with its full path.
 - When the selected body has children, the Export dialog adds a scope choice: **This body only** / **This body + all periods** (wording follows the children's label; generic "children" otherwise). Same range options.
 - Workbook additions for the subtree scope:
   - **Summary by period:** one row per child (meetings held, unique present, average attendance %), plus a whole-class total row.
@@ -115,7 +126,8 @@ Step 5 precedes 6 because 6 reuses its dialog and Summary builder.
 
 | Design | Current text | Amendment (lands with the slice noted) |
 |---|---|---|
-| **05 PIN & roles** | PIN always guards teacher pages. | PIN may be toggled off by a teacher (slice 2). Scanner period switching is not a teacher action and does not require the PIN, with an optional per-device "require PIN to switch" setting (slice 4). Note: while the PIN is off, anyone at the device can run range and class-wide exports. |
+| **02 Bodies, sessions, taps (D-T2)** | Switching the active body is PIN-gated (dashboard only); the desk never flips bodies mid-queue. | A sibling-only period switcher on the scanner may change `activeBodyId` without the PIN (unless the per-device setting requires it). The no-flip-mid-queue rule is kept: switching is disabled while any tap is pending. Sessions stay per body; taps after a switch join the new body's session (slice 4). |
+| **05 PIN & roles** | PIN always guards teacher pages. | PIN may be toggled off by a teacher (slice 2). Scanner period switching is not a teacher action and does not require the PIN, with an optional per-device "require PIN to switch" setting (slice 4). Protection-toggle rule: turning either protection off requires the current PIN; turning it on does not; every change is logged without PII. Note: while the PIN is off, anyone at the device can run range and class-wide exports. |
 | **06 Export & SoR** | Session export and all-history export (+ Activity sheet) for the active body; no date filter. | Adds range export with Summary and By meeting sheets; Activity sheet only on All time (slice 5). Adds subtree scope with Period column and Summary by period (slice 6). |
 | **08 Body hierarchy** | "No body control on the scanner." Export and retention stay on the active body; subtree workbook is 08c. | Allows a sibling-only period switcher on the scanner (slice 4). Moves the subtree-export half of 08c into Design 09 (slice 6); import half stays 08c. |
 
