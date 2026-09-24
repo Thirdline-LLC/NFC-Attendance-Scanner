@@ -69,4 +69,35 @@ describe('templates/roster-template.csv', () => {
     expect(parsed.entries).toHaveLength(1);
     expect(parsed.rejected).toHaveLength(0);
   });
+
+  describe('with a non-club active body (the examples carry no body columns)', () => {
+    const CHESS_TEAM: AttendanceBody = {
+      id: 2,
+      name: 'Varsity Chess',
+      typeLabel: 'team',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      parentId: null,
+    };
+
+    it('does not refuse the whole file for a body mismatch; the examples are refused row by row', () => {
+      const parsed = parseRosterCsvText(STATIC_TEMPLATE, CHESS_TEAM);
+      expect(parsed.entries).toHaveLength(0);
+      expect(parsed.rejected).toHaveLength(2);
+    });
+
+    it('imports nobody with only the example emails cleared', () => {
+      const parsed = parseRosterCsvText(withEmailsCleared(STATIC_TEMPLATE), CHESS_TEAM);
+      expect(parsed.entries).toHaveLength(0);
+      expect(parsed.rejected).toHaveLength(2);
+    });
+
+    it('imports the real rows added below the examples', () => {
+      const text = `${STATIC_TEMPLATE.trim()}\nJane,Smith,2027,,Varsity Chess,team\n`;
+      const parsed = parseRosterCsvText(text, CHESS_TEAM);
+      expect(parsed.entries).toEqual([
+        expect.objectContaining({ firstName: 'Jane', lastName: 'Smith', gradYear: 2027 }),
+      ]);
+      expect(parsed.rejected).toHaveLength(2);
+    });
+  });
 });

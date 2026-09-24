@@ -34,6 +34,13 @@ type PinDialogProps =
        */
       verify?: (pin: string) => Promise<PinVerification>;
       onVerified: () => void;
+      /**
+       * The PIN vanished between opening this and submitting (`unset`). A
+       * confirmation has nothing to confirm then, so rather than turning into
+       * a set-PIN form (which cannot complete this action) the dialog hands
+       * back to the caller. Without it, the dialog shows a clear message.
+       */
+      onPinMissing?: () => void;
       onCancel: () => void;
     };
 
@@ -69,6 +76,8 @@ const HELPERS: Record<Exclude<Phase, 'checking' | 'storage-error'>, string> = {
 const WRONG = 'That PIN is not right.';
 const MISMATCH = 'The PINs do not match.';
 const STORAGE = "This device isn't letting the app read its settings.";
+const PIN_MISSING =
+  'There is no teacher PIN on this device anymore, so nothing was changed. Close this and set a PIN first.';
 const NO_CRYPTO =
   'This device cannot secure a PIN — open the app from its installed or https address.';
 
@@ -281,10 +290,18 @@ export function PinDialog(props: PinDialogProps) {
         await logQuietly('pin-set');
         if (props.mode === 'gate') props.onUnlocked();
       } else if (phase === 'unlock') {
-        await handleVerdict(
+        const verdict =
           props.mode === 'verify' && props.verify
             ? await props.verify(pin)
-            : await verifyOperatorPin(pin),
+            : await verifyOperatorPin(pin);
+        if (props.mode === 'verify' && verdict.status === 'unset') {
+          setPin('');
+          if (props.onPinMissing) props.onPinMissing();
+          else setError(PIN_MISSING);
+          return;
+        }
+        await handleVerdict(
+          verdict,
           () => {
             if (props.mode === 'gate') props.onUnlocked();
             else if (props.mode === 'verify') props.onVerified();

@@ -71,15 +71,18 @@ function safeBodyField(value: string): string {
 }
 
 /**
- * One row of clearly-example data. The email is an `example.com` address on
- * purpose: it is not a school address, so an import left with this row still
- * in it is refused on that row rather than silently creating a fake student.
+ * One row of clearly-example data, refused by the importer on its own if it
+ * is left in. Two independent guards: the `(example)` graduation year fails
+ * the importer's four-digit check, and the email is an `example.com` address
+ * (not a school one). The year is what still holds if a teacher clears only
+ * the email — the importer would otherwise derive a school address and import
+ * Avery Chen as a real student. Same year form as templates/roster-template.csv.
  */
 function exampleRow(body?: AttendanceBody | null): TemplateRow {
   return {
     'First Name': 'Avery',
     'Last Name': 'Chen',
-    'Graduation Year': '2028',
+    'Graduation Year': '2028 (example)',
     Email: 'avery.chen@example.com',
     'Body Name': safeBodyField(body?.name ?? ''),
     'Body Type': safeBodyField(body?.typeLabel ?? ''),
@@ -129,8 +132,10 @@ const INSTRUCTIONS_LINES = [
   '  Body Type: Body Type, body_type',
   '',
   'Delete the entire example row (Avery Chen) before importing — do not just',
-  'clear its email. Clearing only the email leaves a real-looking name and',
-  'graduation year behind, which would import Avery Chen as a real student.',
+  'clear its email. Clearing only the email leaves a real-looking name behind,',
+  'and the app would derive a school address for it. Its graduation year is',
+  'written as "2028 (example)" so the importer refuses the row if it is left',
+  'in; your own rows need a plain four-digit year such as 2028.',
   '',
   'There is no card column. Cards are never set by import; each one binds',
   'the first time it is tapped at the scanner.',

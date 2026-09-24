@@ -96,6 +96,10 @@ function metricsFromBundle(
   return computeDashboardMetrics(bundle.bodyTaps, bundle.bodyPersons, now, bundle.target);
 }
 
+/** Shown when turning the PIN requirement back on could not be saved. */
+const PIN_ENABLE_FAILED =
+  "Couldn't turn the teacher PIN back on: this device isn't letting the app save its settings. The requirement is still off.";
+
 /**
  * The container behind `Dashboard`: it reads the whole tap history and the
  * roster together and folds them into metrics. Both reads happen in one pass so
@@ -128,6 +132,8 @@ export function DashboardPage() {
   // The change-PIN dialog and the one-line notice its success leaves behind.
   const [changingPin, setChangingPin] = useState(false);
   const [pinNotice, setPinNotice] = useState<string | null>(null);
+  // A failed switch change, shown apart from the success notice.
+  const [pinError, setPinError] = useState<string | null>(null);
   // The "Require teacher PIN" switch (Design 05): whether a PIN exists to
   // gate behind (`pinRequired` itself lives on the lock context above), and
   // the two dialogs a flip can open — verifying the current PIN to turn
@@ -308,7 +314,13 @@ export function DashboardPage() {
     // Unlock first: if the gate was relocked while off, re-arming it before
     // this would briefly swap the dashboard for a PIN prompt.
     unlock();
-    const verdict = await setPinRequired(true);
+    let verdict;
+    try {
+      verdict = await setPinRequired(true);
+    } catch {
+      setPinError(PIN_ENABLE_FAILED);
+      return;
+    }
     if (verdict.status !== 'ok') {
       // No PIN after all (e.g. cleared elsewhere): set one first.
       setEnablingPinSetup(true);
@@ -329,6 +341,7 @@ export function DashboardPage() {
   const requestPinRequiredChange = useCallback(
     (next: boolean) => {
       setPinNotice(null);
+      setPinError(null);
       if (!next) {
         setDisablingPinRequired(true);
         return;
@@ -357,10 +370,30 @@ export function DashboardPage() {
     setEnablingPinSetup(false);
     setHasPin(true);
     unlock();
-    await setPinRequired(true);
+    let verdict;
+    try {
+      verdict = await setPinRequired(true);
+    } catch {
+      setPinError(PIN_ENABLE_FAILED);
+      return;
+    }
+    // Logged only on a real change.
+    if (verdict.status !== 'ok') {
+      setPinError(PIN_ENABLE_FAILED);
+      return;
+    }
     setPinNotice('Teacher PIN set. Requirement turned on.');
     await logPinRequiredChange('pin-enabled');
   }, [setPinRequired, unlock, logPinRequiredChange]);
+
+  /** The PIN vanished while the turn-off dialog was open: close it and say so. */
+  const handlePinMissingOnDisable = useCallback(() => {
+    setDisablingPinRequired(false);
+    setHasPin(false);
+    setPinError(
+      'There is no teacher PIN on this device anymore, so the requirement was not turned off. Set a PIN to manage it.',
+    );
+  }, []);
 
   const exportAll = useCallback(async () => {
     if (!history) return;
@@ -885,6 +918,15 @@ export function DashboardPage() {
                 {pinNotice}
               </p>
             ) : null}
+            {pinError ? (
+              <p
+                className="mt-3 rounded-xl border border-[hsl(var(--destructive)/.45)] bg-[hsl(var(--destructive)/.08)] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--destructive))]"
+                role="alert"
+                data-testid="text-pin-required-error"
+              >
+                {pinError}
+              </p>
+            ) : null}
             {retentionNotice ? (
               <p
                 className="mt-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--muted-foreground))]"
@@ -972,6 +1014,7 @@ export function DashboardPage() {
           mode="verify"
           verify={(pin) => setPinRequired(false, pin)}
           onVerified={() => void confirmDisablePinRequired()}
+          onPinMissing={handlePinMissingOnDisable}
           onCancel={() => setDisablingPinRequired(false)}
         />
       ) : null}
