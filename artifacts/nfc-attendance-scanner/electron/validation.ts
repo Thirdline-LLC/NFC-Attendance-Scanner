@@ -14,7 +14,7 @@ import { UPDATE_REPO_NAME, UPDATE_REPO_OWNER } from '../src/update/repo-config';
 
 /**
  * The filename shape `buildAttendanceWorkbook` produces —
- * `attendance-2026-09-15-20260915T170000Z.xlsx` — and the only one accepted.
+ * `attendance-2026-09-15-20260915T170000Z.xlsx`.
  *
  * An allowlist rather than a sanitiser. It rules out a path separator, a
  * leading dot, a Windows drive letter, a different extension, a NUL and
@@ -23,6 +23,30 @@ import { UPDATE_REPO_NAME, UPDATE_REPO_OWNER } from '../src/update/repo-config';
  */
 export const EXPORT_FILENAME =
   /^attendance-\d{4}-\d{2}-\d{2}-\d{8}T\d{6}Z\.xlsx$/;
+
+/**
+ * The filename shape `buildRosterWorkbook` produces —
+ * `roster-2026-09-15-20260915T170000Z.xlsx` — same date-then-stamp shape as
+ * the attendance export, just a different prefix.
+ */
+export const ROSTER_EXPORT_FILENAME =
+  /^roster-\d{4}-\d{2}-\d{2}-\d{8}T\d{6}Z\.xlsx$/;
+
+/**
+ * The filename shape `buildRosterTemplateWorkbook` / `buildRosterTemplateCsv`
+ * produce — `tapin-roster-template-<slug>.xlsx` or `.csv`. The slug comes from
+ * `bodySlug` in `src/lib/roster-template.ts`, which is capped at 64 characters
+ * and restricted to `[a-z0-9-]`, so it can never fail this pattern.
+ */
+export const TEMPLATE_EXPORT_FILENAME =
+  /^tapin-roster-template-[a-z0-9-]{1,64}\.(?:xlsx|csv)$/;
+
+/** Every filename shape a save request may name. */
+const ALLOWED_EXPORT_FILENAMES = [
+  EXPORT_FILENAME,
+  ROSTER_EXPORT_FILENAME,
+  TEMPLATE_EXPORT_FILENAME,
+];
 
 /** 64 MB of base64. A full school year of taps is a few hundred kilobytes. */
 export const MAX_BASE64_LENGTH = 64 * 1024 * 1024;
@@ -40,7 +64,10 @@ export function parseSaveRequest(payload: unknown): WorkbookSaveRequest | null {
 
   const { filename, base64 } = payload as Record<string, unknown>;
 
-  if (typeof filename !== 'string' || !EXPORT_FILENAME.test(filename)) {
+  if (
+    typeof filename !== 'string' ||
+    !ALLOWED_EXPORT_FILENAMES.some((pattern) => pattern.test(filename))
+  ) {
     return null;
   }
   if (typeof base64 !== 'string' || base64.length === 0) return null;
@@ -165,6 +192,18 @@ export function parseDownloadVerifiedAssetRequest(
   }
 
   return { assetUrl, sha256Url, suggestedName, isTheme };
+}
+
+/**
+ * Which file-type filter the desktop Save dialog should offer, picked from
+ * the suggested filename's extension. A pure function so `saveDialogOptions`
+ * in `main.ts` — which cannot be unit-tested directly, since importing it
+ * requires Electron — can be a thin wrapper around this.
+ */
+export function saveDialogFilter(filename: string): { name: string; extensions: string[] } {
+  return filename.toLowerCase().endsWith('.csv')
+    ? { name: 'CSV file', extensions: ['csv'] }
+    : { name: 'Excel workbook', extensions: ['xlsx'] };
 }
 
 /** The in-place install IPC. Same asset rules as a non-theme download. */

@@ -16,6 +16,20 @@ import {
 export type DeliverableWorkbook = {
   filename: string;
   workbook: XLSX.WorkBook;
+  /**
+   * Defaults to `'xlsx'`. `'csv'` writes the workbook's first sheet out as
+   * plain CSV text instead of a zipped workbook — used for the CSV roster
+   * template, which is built as a one-sheet workbook so it can share this
+   * function's three delivery routes rather than duplicating them for text.
+   */
+  format?: 'xlsx' | 'csv';
+  /**
+   * The Capacitor share sheet's title, and the word used in its prefilled
+   * text. Defaults to `'Attendance export'`, the only kind this function
+   * originally delivered; a roster export or template names itself instead so
+   * the share sheet does not call a roster a piece of attendance data.
+   */
+  shareTitle?: string;
 };
 
 /**
@@ -55,11 +69,14 @@ function basename(filePath: string): string {
 }
 
 /** The bytes, base64-encoded, which is what both bridges carry. */
-function encodeWorkbook(workbook: XLSX.WorkBook): string {
+function encodeWorkbook(
+  workbook: XLSX.WorkBook,
+  format: 'xlsx' | 'csv',
+): string {
   return XLSX.write(workbook, {
-    bookType: 'xlsx',
+    bookType: format,
     type: 'base64',
-    compression: true,
+    compression: format === 'xlsx',
   });
 }
 
@@ -93,6 +110,8 @@ function encodeWorkbook(workbook: XLSX.WorkBook): string {
 export async function deliverWorkbook({
   filename,
   workbook,
+  format = 'xlsx',
+  shareTitle = 'Attendance export',
 }: DeliverableWorkbook): Promise<DeliveredExport> {
   // Checked before Capacitor: the desktop bridge is the more specific shell,
   // and `Capacitor.isNativePlatform()` is false inside Electron anyway.
@@ -101,7 +120,7 @@ export async function deliverWorkbook({
   if (desktop) {
     const result = await desktop.saveWorkbook({
       filename,
-      base64: encodeWorkbook(workbook),
+      base64: encodeWorkbook(workbook, format),
     });
 
     if (result.status === 'cancelled') throw new ExportCancelledError();
@@ -121,8 +140,8 @@ export async function deliverWorkbook({
 
   if (!Capacitor.isNativePlatform()) {
     XLSX.writeFile(workbook, filename, {
-      bookType: 'xlsx',
-      compression: true,
+      bookType: format,
+      compression: format === 'xlsx',
     });
     return { filename, delivery: 'download' };
   }
@@ -131,7 +150,7 @@ export async function deliverWorkbook({
   // going through a string avoids a Blob the WebView bridge cannot carry.
   const { uri } = await Filesystem.writeFile({
     path: filename,
-    data: encodeWorkbook(workbook),
+    data: encodeWorkbook(workbook, format),
     directory: Directory.Documents,
     recursive: true,
   });
@@ -139,10 +158,10 @@ export async function deliverWorkbook({
   try {
     if ((await Share.canShare()).value) {
       await Share.share({
-        title: 'Attendance export',
+        title: shareTitle,
         // `text` is what a mail or messaging target prefills; the file is the
         // payload either way.
-        text: `Attendance export ${filename}`,
+        text: `${shareTitle} ${filename}`,
         files: [uri],
       });
     }

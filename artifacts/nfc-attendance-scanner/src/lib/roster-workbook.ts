@@ -168,7 +168,10 @@ export async function exportRosterWorkbook(
   persons: readonly Person[],
   body?: AttendanceBody,
 ): Promise<DeliveredExport> {
-  return deliverWorkbook(buildRosterWorkbook(persons, new Date(), body));
+  return deliverWorkbook({
+    ...buildRosterWorkbook(persons, new Date(), body),
+    shareTitle: 'Roster export',
+  });
 }
 
 /** A row the import would not take, and the reason, in words a teacher can act on. */
@@ -280,12 +283,12 @@ export function parseRosterWorkbook(
     if (activeBody) {
       const bodyName = read('Body Name');
       const bodyType = read('Body Type');
-      if (bodyName && bodyName.toLowerCase() !== activeBody.name.toLowerCase()) {
+      if (bodyName && bodyName.toLowerCase() !== activeBody.name.trim().toLowerCase()) {
         throw new RosterFormatError(
           `This file is for "${bodyName}", but the active body is "${activeBody.name}". Switch to the right body before importing.`,
         );
       }
-      if (bodyType && bodyType.toLowerCase() !== activeBody.typeLabel.toLowerCase()) {
+      if (bodyType && bodyType.toLowerCase() !== activeBody.typeLabel.trim().toLowerCase()) {
         throw new RosterFormatError(
           `This file has body type "${bodyType}", but the active body type is "${activeBody.typeLabel}". Switch to the right body before importing.`,
         );
@@ -524,12 +527,12 @@ export function parseRosterCsvText(
 
     // Body column validation: refuse the entire file on first mismatch.
     if (activeBody) {
-      if (bodyName && bodyName.toLowerCase() !== activeBody.name.toLowerCase()) {
+      if (bodyName && bodyName.toLowerCase() !== activeBody.name.trim().toLowerCase()) {
         throw new RosterFormatError(
           `This file is for "${bodyName}", but the active body is "${activeBody.name}". Switch to the right body before importing.`,
         );
       }
-      if (bodyType && bodyType.toLowerCase() !== activeBody.typeLabel.toLowerCase()) {
+      if (bodyType && bodyType.toLowerCase() !== activeBody.typeLabel.trim().toLowerCase()) {
         throw new RosterFormatError(
           `This file has body type "${bodyType}", but the active body type is "${activeBody.typeLabel}". Switch to the right body before importing.`,
         );

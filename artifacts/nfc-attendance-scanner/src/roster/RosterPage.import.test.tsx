@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as attendanceStore from '@/data/attendance-store';
 import { addPerson, listPersons } from '@/data/attendance-store';
+import * as rosterTemplate from '@/lib/roster-template';
 import {
   ROSTER_COLUMNS,
   ROSTER_SHEET_NAME,
@@ -401,5 +402,67 @@ describe('RosterPage roster export', () => {
     expect(notice.textContent).toMatch(/roster-\d{4}-\d{2}-\d{2}/);
     // The file that just left the device names no card in full.
     expect(notice.textContent).not.toContain(JORDAN_CARD);
+  });
+});
+
+describe('RosterPage template download', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('delivers the xlsx template and reports it, passing the active body through', async () => {
+    const deliver = vi
+      .spyOn(rosterTemplate, 'deliverRosterTemplateWorkbook')
+      .mockResolvedValue({
+        filename: 'tapin-roster-template-club.xlsx',
+        delivery: 'download',
+      });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-import');
+
+    await user.click(screen.getByTestId('button-download-template'));
+
+    const notice = await screen.findByTestId('text-export-saved');
+    expect(notice.textContent).toContain('tapin-roster-template-club.xlsx');
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it('delivers the CSV template from the secondary button', async () => {
+    const deliver = vi
+      .spyOn(rosterTemplate, 'deliverRosterTemplateCsv')
+      .mockResolvedValue({
+        filename: 'tapin-roster-template-club.csv',
+        delivery: 'download',
+      });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-import');
+
+    await user.click(screen.getByTestId('button-download-template-csv'));
+
+    const notice = await screen.findByTestId('text-export-saved');
+    expect(notice.textContent).toContain('tapin-roster-template-club.csv');
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failed template build without touching the roster', async () => {
+    vi.spyOn(rosterTemplate, 'deliverRosterTemplateWorkbook').mockRejectedValue(
+      new Error('disk full'),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('roster-import');
+
+    await user.click(screen.getByTestId('button-download-template'));
+
+    expect(await screen.findByTestId('text-export-failed')).toBeTruthy();
+    expect(await listPersons()).toEqual([]);
   });
 });

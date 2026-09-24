@@ -164,6 +164,20 @@ describe('deliverWorkbook on a device', () => {
     expect(delivered.delivery).toBe('file');
   });
 
+  it('titles the share sheet "Attendance export" by default', async () => {
+    await deliverWorkbook(aWorkbook());
+
+    expect(share.mock.calls[0][0].title).toBe('Attendance export');
+    expect(share.mock.calls[0][0].text).toContain('Attendance export');
+  });
+
+  it('titles the share sheet with a caller-supplied title, for a roster or template export', async () => {
+    await deliverWorkbook({ ...aWorkbook(), shareTitle: 'Roster template' });
+
+    expect(share.mock.calls[0][0].title).toBe('Roster template');
+    expect(share.mock.calls[0][0].text).toContain('Roster template');
+  });
+
   it('fails loudly when the file cannot be written', async () => {
     writeFile.mockRejectedValue(new Error('no space'));
 

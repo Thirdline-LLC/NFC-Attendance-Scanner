@@ -26,6 +26,10 @@ import {
   parseRosterFile,
   RosterFormatError,
 } from '@/lib/roster-workbook';
+import {
+  deliverRosterTemplateCsv,
+  deliverRosterTemplateWorkbook,
+} from '@/lib/roster-template';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
 import type { ExportResult } from '@/ui/ExportNotice';
 import { RemoveStudentDialog } from '@/ui/RemoveStudentDialog';
@@ -68,6 +72,8 @@ export function RosterPage() {
   const [importResult, setImportResult] = useState<RosterImportResult>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<ExportResult>(null);
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
+  const [templateResult, setTemplateResult] = useState<ExportResult>(null);
 
   const askToRemove = useCallback((person: Person) => {
     setRemovedNotice(null);
@@ -166,6 +172,7 @@ export function RosterPage() {
       setIsImporting(true);
       setImportResult(null);
       setExportResult(null);
+      setTemplateResult(null);
       try {
         const parsed = await parseRosterFile(file, activeBody ?? undefined);
         const counts = await applyRosterImport(parsed.entries);
@@ -215,6 +222,7 @@ export function RosterPage() {
     setIsExporting(true);
     setExportResult(null);
     setImportResult(null);
+    setTemplateResult(null);
     try {
       const delivered = await exportRosterWorkbook(persons, activeBody ?? undefined);
       setExportResult({ ok: true, ...delivered });
@@ -240,6 +248,35 @@ export function RosterPage() {
       setIsExporting(false);
     }
   }, [persons, activeBody]);
+
+  /**
+   * A blank roster to fill in and re-import. Pre-filled with the active
+   * body so a file exported straight from here can never be refused for a
+   * body mismatch — only for the example row being left in.
+   */
+  const handleDownloadTemplate = useCallback(
+    async (format: 'xlsx' | 'csv') => {
+      setIsDownloadingTemplate(true);
+      setTemplateResult(null);
+      setExportResult(null);
+      setImportResult(null);
+      try {
+        const delivered =
+          format === 'csv'
+            ? await deliverRosterTemplateCsv(activeBody ?? undefined)
+            : await deliverRosterTemplateWorkbook(activeBody ?? undefined);
+        setTemplateResult({ ok: true, ...delivered });
+      } catch (error) {
+        setTemplateResult({
+          ok: false,
+          cancelled: error instanceof ExportCancelledError,
+        });
+      } finally {
+        setIsDownloadingTemplate(false);
+      }
+    },
+    [activeBody],
+  );
 
   const handleSave = useCallback(
     async (personId: number, changes: PersonChanges): Promise<boolean> => {
@@ -413,6 +450,9 @@ export function RosterPage() {
               exportResult={exportResult}
               studentCount={persons.length}
               activeBody={activeBody}
+              onDownloadTemplate={(format) => void handleDownloadTemplate(format)}
+              isDownloadingTemplate={isDownloadingTemplate}
+              templateResult={templateResult}
             />
             <RosterManager
               persons={persons}
