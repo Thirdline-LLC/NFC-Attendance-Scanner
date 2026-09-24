@@ -25,7 +25,9 @@ function renderAt(path: string) {
 /** Types the teacher PIN into the gate and submits by button. */
 async function passGate(user: ReturnType<typeof userEvent.setup>, pin = '2468') {
   const dialog = await screen.findByTestId('dialog-pin');
-  await user.type(within(dialog).getByTestId('input-pin'), pin);
+  // The gate opens in its "Checking this device…" phase and only renders the
+  // PIN field once the async hasOperatorPin() read resolves, so wait for it.
+  await user.type(await within(dialog).findByTestId('input-pin'), pin);
   await user.click(within(dialog).getByTestId('button-pin-submit'));
   await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
 }

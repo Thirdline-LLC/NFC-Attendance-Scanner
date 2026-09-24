@@ -72,6 +72,10 @@ export function describeActivity(entry: ActivityEntry): ActivityWording {
       return { action: 'Teacher PIN set', detail: '' };
     case 'pin-changed':
       return { action: 'Teacher PIN changed', detail: '' };
+    case 'pin-disabled':
+      return { action: 'PIN turned off', detail: '' };
+    case 'pin-enabled':
+      return { action: 'PIN turned on', detail: '' };
     case 'body-reparent':
       return { action: 'Moved a body in the tree', detail: '' };
     case 'body-archive':

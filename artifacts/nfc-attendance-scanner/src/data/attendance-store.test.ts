@@ -10,6 +10,7 @@ import {
   deletePerson,
   getAttendanceTarget,
   DuplicateEmailError,
+  getPinRequired,
   listPersons,
   listSessionIds,
   listSessionTapRecords,
@@ -23,7 +24,9 @@ import {
   recordSessionTap,
   removeAlumni,
   setAttendanceTarget,
+  setPinRequired,
   updatePerson,
+  writeSetting,
   type Person,
 } from './attendance-store';
 import { useAttendanceSession } from '@/scanner/use-attendance-session';
@@ -143,6 +146,33 @@ describe('the attendance target', () => {
     expect(await getAttendanceTarget()).toBe(DEFAULT_ATTENDANCE_TARGET);
     await setAttendanceTarget(25);
     expect(await getAttendanceTarget()).toBe(25);
+  });
+});
+
+describe('the pin-required setting', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  it('defaults to required, including on a device that has never set it', async () => {
+    expect(await getPinRequired()).toBe(true);
+  });
+
+  it('stores and returns false, then true again', async () => {
+    await setPinRequired(false);
+    expect(await getPinRequired()).toBe(false);
+
+    await setPinRequired(true);
+    expect(await getPinRequired()).toBe(true);
+  });
+
+  it('treats a corrupted stored value as required, not as off', async () => {
+    // A row that is neither 'true' nor 'false' — hand-edited or from some
+    // future format — must fail closed: only the literal 'false' turns the
+    // gate off.
+    await writeSetting('pin-required', 'nope');
+    expect(await getPinRequired()).toBe(true);
   });
 });
 
