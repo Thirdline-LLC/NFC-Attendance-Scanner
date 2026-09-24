@@ -66,6 +66,21 @@ type DashboardProps = {
   /** Opens the change-PIN dialog. Optional: without it the card is not shown. */
   onChangePin?: () => void;
   /**
+   * Whether the teacher PIN currently gates the locked routes, and whether a
+   * PIN has ever been set on this device. The switch is shown once `hasPin`
+   * is true, or once `pinRequired` is false — the recovery path for a device
+   * stuck with the gate off and no PIN (see `onTogglePinRequired`).
+   */
+  pinRequired?: boolean;
+  hasPin?: boolean;
+  /**
+   * The teacher asked to flip the switch to `next`. Turning it off is a
+   * request, not an action: the caller verifies the current PIN first and
+   * only then persists it, which is why this takes no promise to await —
+   * the card does not know whether the flip actually happened.
+   */
+  onTogglePinRequired?: (next: boolean) => void;
+  /**
    * The body this device is currently attached to (D-T2). Optional,
    * paired with `onChangeBody` — without both the card is not shown.
    */
@@ -128,6 +143,9 @@ export function Dashboard({
   onSaveTarget,
   activity = [],
   onChangePin,
+  pinRequired = true,
+  hasPin = false,
+  onTogglePinRequired,
   activeBody,
   activeBodyLabel,
   onChangeBody,
@@ -272,7 +290,14 @@ export function Dashboard({
           />
         ) : null}
 
-        {onChangePin ? <TeacherPinCard onChangePin={onChangePin} /> : null}
+        {onChangePin ? (
+          <TeacherPinCard
+            onChangePin={onChangePin}
+            pinRequired={pinRequired}
+            hasPin={hasPin}
+            onTogglePinRequired={onTogglePinRequired}
+          />
+        ) : null}
 
         {onChangePin ? <ThemeAdminPanel /> : null}
 
@@ -775,7 +800,27 @@ function BodyCard({
 }
 
 /** The one place the PIN can be changed. Setting it the first time happens at the gate. */
-function TeacherPinCard({ onChangePin }: { onChangePin: () => void }) {
+function TeacherPinCard({
+  onChangePin,
+  pinRequired,
+  hasPin,
+  onTogglePinRequired,
+}: {
+  onChangePin: () => void;
+  pinRequired: boolean;
+  hasPin: boolean;
+  onTogglePinRequired?: (next: boolean) => void;
+}) {
+  // Ordinarily the switch only appears once a PIN exists — reaching the
+  // dashboard at all normally means the LockedRoute gate already made the
+  // teacher set one. The `!pinRequired` half covers the one state that
+  // isn't reachable that way: the gate off with no PIN behind it (a
+  // hand-edited settings row, or a device upgraded from an odd state).
+  // Hiding the switch there would strand the teacher with no way back to a
+  // PIN at all, so it stays visible and routes an "on" tap to Set PIN
+  // instead of silently flipping the setting.
+  const showSwitch = (hasPin || !pinRequired) && onTogglePinRequired;
+
   return (
     <Card eyebrow="Teacher PIN" icon={<KeyRound aria-hidden="true" size={16} />}>
       <p
@@ -785,6 +830,41 @@ function TeacherPinCard({ onChangePin }: { onChangePin: () => void }) {
         Opens End Session, this page and the roster. A screen gate, not
         encryption — and there is no way to recover a forgotten PIN.
       </p>
+
+      {showSwitch ? (
+        <div className="mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] p-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-[hsl(var(--foreground))]">
+              Require teacher PIN
+            </p>
+            <p className="mt-0.5 text-xs leading-snug text-[hsl(var(--muted-foreground))]">
+              Off leaves the dashboard and roster open on this device with no
+              gate and no idle relock. Appropriate only where the device
+              itself stays with a teacher — never on an unattended kiosk.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pinRequired}
+            aria-label="Require teacher PIN"
+            onClick={() => onTogglePinRequired(!pinRequired)}
+            data-testid="switch-pin-required"
+            className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] ${
+              pinRequired
+                ? 'border-[hsl(var(--primary)/.6)] bg-[hsl(var(--primary))]'
+                : 'border-[hsl(var(--border))] bg-[hsl(var(--card))]'
+            }`}
+          >
+            <span
+              className={`inline-block size-[18px] transform rounded-full bg-[hsl(var(--primary-foreground))] shadow transition ${
+                pinRequired ? 'translate-x-[22px]' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+      ) : null}
+
       <button
         type="button"
         onClick={onChangePin}

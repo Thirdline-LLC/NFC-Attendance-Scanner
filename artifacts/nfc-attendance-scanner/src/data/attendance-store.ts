@@ -155,6 +155,8 @@ export type ActivityKind =
   | 'remove-alumni'
   | 'pin-set'
   | 'pin-changed'
+  | 'pin-disabled'
+  | 'pin-enabled'
   | 'body-reparent'
   | 'body-archive';
 
@@ -699,6 +701,23 @@ export async function readSetting(key: string): Promise<string | undefined> {
 
 export async function writeSetting(key: string, value: string): Promise<void> {
   await settingsTable.put({ key, value });
+}
+
+const PIN_REQUIRED_KEY = 'pin-required';
+
+/**
+ * Whether the teacher PIN gates the locked routes. Missing — a device that
+ * predates this setting, or one whose row was cleared — reads as required:
+ * the gate a teacher never opted out of must not go missing under them.
+ * Anything other than the literal `'false'` also reads as required, so a
+ * corrupted row fails closed rather than open.
+ */
+export async function getPinRequired(): Promise<boolean> {
+  return (await readSetting(PIN_REQUIRED_KEY)) !== 'false';
+}
+
+export async function setPinRequired(required: boolean): Promise<void> {
+  await writeSetting(PIN_REQUIRED_KEY, required ? 'true' : 'false');
 }
 
 /**

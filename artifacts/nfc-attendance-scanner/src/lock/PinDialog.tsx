@@ -24,12 +24,16 @@ import { useTheme } from '@/theme/ThemeProvider';
 
 type PinDialogProps =
   | { mode: 'gate'; onUnlocked: () => void; onCancel: () => void }
-  | { mode: 'change'; onChanged: () => void; onCancel: () => void };
+  | { mode: 'change'; onChanged: () => void; onCancel: () => void }
+  | { mode: 'verify'; onVerified: () => void; onCancel: () => void };
 
 /**
  * `checking` and `storage-error` belong to the gate: it has to read whether a
  * PIN exists before it knows which form to show. `change` is the dashboard's
- * mode and needs no read — the current PIN is asked for instead.
+ * mode and needs no read — the current PIN is asked for instead. `verify` is
+ * a confirmation on an already-unlocked screen (turning the PIN requirement
+ * off): the caller only opens it once a PIN is known to exist, so it goes
+ * straight to `unlock` the same way `change` goes straight to its own phase.
  */
 type Phase = 'checking' | 'storage-error' | 'set' | 'unlock' | 'change';
 
@@ -136,7 +140,9 @@ function PinField({ id, label, value, onChange, onSubmit, testId, inputRef }: Pi
  * PIN says only that it was wrong; a lockout counts down on screen.
  */
 export function PinDialog(props: PinDialogProps) {
-  const [phase, setPhase] = useState<Phase>(props.mode === 'change' ? 'change' : 'checking');
+  const [phase, setPhase] = useState<Phase>(
+    props.mode === 'change' ? 'change' : props.mode === 'verify' ? 'unlock' : 'checking',
+  );
   const [current, setCurrent] = useState('');
   const [pin, setPin] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -269,6 +275,7 @@ export function PinDialog(props: PinDialogProps) {
           await verifyOperatorPin(pin),
           () => {
             if (props.mode === 'gate') props.onUnlocked();
+            else if (props.mode === 'verify') props.onVerified();
           },
           () => setPin(''),
         );
@@ -411,7 +418,13 @@ export function PinDialog(props: PinDialogProps) {
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60"
             data-testid="button-pin-submit"
           >
-            {formPhase === 'set' ? 'Set PIN' : formPhase === 'change' ? 'Change PIN' : 'Unlock'}
+            {formPhase === 'set'
+              ? 'Set PIN'
+              : formPhase === 'change'
+                ? 'Change PIN'
+                : props.mode === 'verify'
+                  ? 'Confirm'
+                  : 'Unlock'}
           </button>
         ) : null}
 

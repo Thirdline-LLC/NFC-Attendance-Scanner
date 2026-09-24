@@ -61,6 +61,8 @@ import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
 import { PinDialog } from '@/lock/PinDialog';
+import { hasOperatorPin } from '@/data/operator-pin';
+import { useOperatorLock } from '@/lock/OperatorLockProvider';
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -101,6 +103,14 @@ function metricsFromBundle(
  * it.
  */
 export function DashboardPage() {
+  // The single source of truth for the PIN gate itself — DashboardPage is
+  // always mounted inside the app's one `OperatorLockProvider` (via
+  // `LockedRoute` in `AppRouter`), so flipping the switch here has to go
+  // through `setPinRequired`/`unlock` from the same context that
+  // `LockedRoute`, the idle relock and `RelockOnScanner` all read; writing
+  // straight to the store would persist the setting but leave this device's
+  // live gate one reload behind.
+  const { pinRequired, setPinRequired, unlock } = useOperatorLock();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   // The rows behind the metrics, kept so the export writes the same history
   // the numbers were computed from rather than re-reading a store that may
@@ -118,6 +128,14 @@ export function DashboardPage() {
   // The change-PIN dialog and the one-line notice its success leaves behind.
   const [changingPin, setChangingPin] = useState(false);
   const [pinNotice, setPinNotice] = useState<string | null>(null);
+  // The "Require teacher PIN" switch (Design 05): whether a PIN exists to
+  // gate behind (`pinRequired` itself lives on the lock context above), and
+  // the two dialogs a flip can open — verifying the current PIN to turn
+  // off, or setting one for the first time to turn on from a device that
+  // has never had one.
+  const [hasPin, setHasPin] = useState(false);
+  const [disablingPinRequired, setDisablingPinRequired] = useState(false);
+  const [enablingPinSetup, setEnablingPinSetup] = useState(false);
   // The two retention previews, read with the page so the buttons can say
   // what they would do before anyone presses them; the action being
   // confirmed, whether it is running, and what it said when it finished.
@@ -167,17 +185,27 @@ export function DashboardPage() {
       // read once here and shared by the metrics and both retention previews.
       const now = new Date().toISOString();
       const start = schoolYearStart(now);
-      const [body, allBodies, target, recent, stale, graduates, savedTypes, savedFields] =
-        await Promise.all([
-          getActiveBody(),
-          listBodies(),
-          getAttendanceTarget(),
-          listActivity(),
-          previewHistoryPurge((scannedAt) => formatSessionDate(scannedAt) < start),
-          previewAlumniRemoval((person) => deriveGrade(person.gradYear, now) === 'Alumni'),
-          listBodyTypeDefs(),
-          listBodyFieldDefs(),
-        ]);
+      const [
+        body,
+        allBodies,
+        target,
+        recent,
+        stale,
+        graduates,
+        savedTypes,
+        savedFields,
+        pinExists,
+      ] = await Promise.all([
+        getActiveBody(),
+        listBodies(),
+        getAttendanceTarget(),
+        listActivity(),
+        previewHistoryPurge((scannedAt) => formatSessionDate(scannedAt) < start),
+        previewAlumniRemoval((person) => deriveGrade(person.gradYear, now) === 'Alumni'),
+        listBodyTypeDefs(),
+        listBodyFieldDefs(),
+        hasOperatorPin(),
+      ]);
       const ids =
         body.id === undefined ? [] : subtreeBodyIds(body.id, allBodies);
       const [subtreeTaps, subtreePersons] = await Promise.all([
@@ -199,6 +227,7 @@ export function DashboardPage() {
       setBodies(allBodies);
       setTypeDefs(savedTypes);
       setFieldDefs(savedFields);
+      setHasPin(pinExists);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -247,6 +276,81 @@ export function DashboardPage() {
     },
     [metricsBundle],
   );
+
+  /**
+   * A row for the switch is a courtesy entry, exactly like the PIN-set and
+   * PIN-changed rows `PinDialog` writes: nothing downstream depends on it,
+   * and the setting itself is already persisted by the time this runs, so a
+   * write that fails here is allowed to pass in silence rather than make a
+   * completed toggle look like it failed.
+   */
+  const logPinRequiredChange = useCallback(
+    async (kind: 'pin-disabled' | 'pin-enabled') => {
+      try {
+        await recordActivity({ at: new Date().toISOString(), kind });
+        setActivity(await listActivity());
+      } catch {
+        // See above.
+      }
+    },
+    [],
+  );
+
+  /**
+   * Turning it back on needs no PIN — the hash was never touched while off.
+   * `unlock()` matters here: a teacher who reached this screen while the
+   * gate was off never went through the PIN dialog, so the in-memory
+   * unlock the gate itself checks is still false. Without this, re-arming
+   * the gate mid-visit would swap the dashboard for a PIN prompt under
+   * their hands.
+   */
+  const enablePinRequiredDirect = useCallback(async () => {
+    await setPinRequired(true);
+    unlock();
+    setPinNotice('Teacher PIN turned on.');
+    await logPinRequiredChange('pin-enabled');
+  }, [setPinRequired, unlock, logPinRequiredChange]);
+
+  /**
+   * The switch was flipped. Off always asks for the current PIN first — see
+   * `confirmDisablePinRequired`, which only runs once `PinDialog` has
+   * verified it. On is immediate unless there has never been a PIN to
+   * require, in which case it opens the same set-PIN form the locked-route
+   * gate itself falls back to, rather than silently enabling a requirement
+   * with nothing behind it.
+   */
+  const requestPinRequiredChange = useCallback(
+    (next: boolean) => {
+      setPinNotice(null);
+      if (!next) {
+        setDisablingPinRequired(true);
+        return;
+      }
+      if (hasPin) {
+        void enablePinRequiredDirect();
+      } else {
+        setEnablingPinSetup(true);
+      }
+    },
+    [hasPin, enablePinRequiredDirect],
+  );
+
+  const confirmDisablePinRequired = useCallback(async () => {
+    await setPinRequired(false);
+    setDisablingPinRequired(false);
+    setPinNotice('Teacher PIN turned off.');
+    await logPinRequiredChange('pin-disabled');
+  }, [setPinRequired, logPinRequiredChange]);
+
+  /** The set-PIN form itself already wrote the hash and its own log row. */
+  const confirmEnablePinAfterSetup = useCallback(async () => {
+    setEnablingPinSetup(false);
+    setHasPin(true);
+    await setPinRequired(true);
+    unlock();
+    setPinNotice('Teacher PIN set. Requirement turned on.');
+    await logPinRequiredChange('pin-enabled');
+  }, [setPinRequired, unlock, logPinRequiredChange]);
 
   const exportAll = useCallback(async () => {
     if (!history) return;
@@ -742,6 +846,9 @@ export function DashboardPage() {
                 setPinNotice(null);
                 setChangingPin(true);
               }}
+              pinRequired={pinRequired}
+              hasPin={hasPin}
+              onTogglePinRequired={requestPinRequiredChange}
               retention={{
                 schoolYearStart: boundary,
                 history: historyPreview,
@@ -847,6 +954,22 @@ export function DashboardPage() {
               .catch(() => undefined);
           }}
           onCancel={() => setChangingPin(false)}
+        />
+      ) : null}
+
+      {disablingPinRequired ? (
+        <PinDialog
+          mode="verify"
+          onVerified={() => void confirmDisablePinRequired()}
+          onCancel={() => setDisablingPinRequired(false)}
+        />
+      ) : null}
+
+      {enablingPinSetup ? (
+        <PinDialog
+          mode="gate"
+          onUnlocked={() => void confirmEnablePinAfterSetup()}
+          onCancel={() => setEnablingPinSetup(false)}
         />
       ) : null}
     </main>

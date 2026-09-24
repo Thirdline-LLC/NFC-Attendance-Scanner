@@ -1,7 +1,7 @@
 import Dexie from 'dexie';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as attendanceStore from '@/data/attendance-store';
@@ -21,6 +21,8 @@ import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
 import * as attendanceExport from '@/lib/attendance-export';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
 import { schoolYearStart } from '@/lib/attendance-metrics';
+import { OperatorLockProvider } from '@/lock/OperatorLockProvider';
+import { LockedRoute } from '@/lock/LockedRoute';
 import { DashboardPage } from './DashboardPage';
 
 const DATABASE_NAME = 'attendance-scanner-local';
@@ -35,10 +37,18 @@ function secondsAgo(seconds: number): string {
   return new Date(startedAt - seconds * 1000).toISOString();
 }
 
+/**
+ * `DashboardPage` only ever mounts inside `AppRouter`'s one
+ * `OperatorLockProvider`, behind a `LockedRoute` that has already unlocked
+ * it — so the wrapper here matches that, rather than leaving `useOperatorLock`
+ * to throw.
+ */
 function renderPage() {
   return render(
     <MemoryRouter>
-      <DashboardPage />
+      <OperatorLockProvider initiallyUnlocked>
+        <DashboardPage />
+      </OperatorLockProvider>
     </MemoryRouter>,
   );
 }
@@ -453,6 +463,228 @@ describe('DashboardPage teacher PIN', () => {
 
     expect(screen.queryByTestId('dialog-pin')).toBeNull();
     expect(await verifyOperatorPin('2468')).toEqual({ status: 'ok' });
+  });
+});
+
+describe('DashboardPage "Require teacher PIN" switch', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('is hidden until a PIN has ever been set', async () => {
+    await seedTwoSessions();
+    renderPage();
+
+    await screen.findByTestId('dashboard');
+    expect(screen.queryByTestId('switch-pin-required')).toBeNull();
+  });
+
+  it('shows on once a PIN exists, checked by default', async () => {
+    await setOperatorPin('2468');
+    await seedTwoSessions();
+    renderPage();
+
+    const toggle = await screen.findByTestId('switch-pin-required');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(await attendanceStore.getPinRequired()).toBe(true);
+  });
+
+  it('requires the current PIN to turn off; a wrong PIN leaves it on', async () => {
+    await setOperatorPin('2468');
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('switch-pin-required'));
+    await user.type(await screen.findByTestId('input-pin'), '0000');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    expect((await screen.findByTestId('text-pin-error')).textContent).toBe(
+      'That PIN is not right.',
+    );
+    expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(await attendanceStore.getPinRequired()).toBe(true);
+
+    await user.type(screen.getByTestId('input-pin'), '2468');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    );
+    expect(screen.queryByTestId('dialog-pin')).toBeNull();
+    expect(await attendanceStore.getPinRequired()).toBe(false);
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('list-activity')).getAllByRole('listitem')[0].textContent,
+      ).toContain('PIN turned off'),
+    );
+  });
+
+  it('turns back on with no PIN prompt, and the hash is unchanged', async () => {
+    await setOperatorPin('2468');
+    await attendanceStore.setPinRequired(false);
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByTestId('switch-pin-required');
+    // Two independent reads settle here: `DashboardPage`'s own load (which
+    // gates the switch's visibility) and the lock context's own read of the
+    // same setting (which gates its checked state) — wait for both rather
+    // than assuming they land in the same tick.
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    );
+
+    await user.click(screen.getByTestId('switch-pin-required'));
+
+    expect(screen.queryByTestId('dialog-pin')).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'true',
+      ),
+    );
+    expect(await attendanceStore.getPinRequired()).toBe(true);
+    // The setting toggled off and on again without ever touching the hash.
+    expect(await verifyOperatorPin('2468')).toEqual({ status: 'ok' });
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('list-activity')).getAllByRole('listitem')[0].textContent,
+      ).toContain('PIN turned on'),
+    );
+  });
+
+  it('turning on with no PIN ever set opens the set-PIN flow instead of silently enabling', async () => {
+    // The edge case: the requirement is off and no PIN exists behind it —
+    // not reachable by turning the switch off (that needs a PIN to begin
+    // with), but a device could still land here, and the recovery path is
+    // the same form a fresh install's locked-route gate falls back to.
+    await attendanceStore.setPinRequired(false);
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByTestId('switch-pin-required');
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    );
+    await user.click(screen.getByTestId('switch-pin-required'));
+
+    expect((await screen.findByTestId('text-pin-title')).textContent).toBe(
+      'Set a teacher PIN',
+    );
+    await user.type(screen.getByTestId('input-pin'), '9999');
+    await user.type(screen.getByTestId('input-pin-confirm'), '9999');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'true',
+      ),
+    );
+    expect(await verifyOperatorPin('9999')).toEqual({ status: 'ok' });
+    expect(await attendanceStore.getPinRequired()).toBe(true);
+  });
+
+  it('logs the switch with no student data in either direction', async () => {
+    await setOperatorPin('2468');
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('switch-pin-required'));
+    await user.type(await screen.findByTestId('input-pin'), '2468');
+    await user.click(screen.getByTestId('button-pin-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    );
+    await user.click(screen.getByTestId('switch-pin-required'));
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'true',
+      ),
+    );
+
+    const entries = await attendanceStore.listActivity();
+    const disabled = entries.find((entry) => entry.kind === 'pin-disabled');
+    const enabled = entries.find((entry) => entry.kind === 'pin-enabled');
+    expect(disabled).toBeTruthy();
+    expect(enabled).toBeTruthy();
+    expect(Object.keys(disabled as object).sort()).toEqual(['at', 'id', 'kind']);
+    expect(Object.keys(enabled as object).sort()).toEqual(['at', 'id', 'kind']);
+    expect(JSON.stringify(entries)).not.toContain('2468');
+  });
+
+  it('updates the live gate for the whole app immediately, without a reload', async () => {
+    // The bug this guards against: writing the setting straight to the store
+    // persists it, but the app's one `OperatorLockProvider` — the thing
+    // `LockedRoute`, the idle relock and `RelockOnScanner` all actually read
+    // — would not know until it remounted. This mounts a second locked
+    // screen in the *same* provider, alongside the dashboard, and proves the
+    // toggle reaches it without a remount.
+    await setOperatorPin('2468');
+    await seedTwoSessions();
+    const user = userEvent.setup();
+
+    function Other() {
+      return <div data-testid="other-content">Other locked screen</div>;
+    }
+    function NavToOther() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => navigate('/other')}>
+          go elsewhere
+        </button>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <OperatorLockProvider initiallyUnlocked>
+          <NavToOther />
+          <Routes>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route
+              path="/other"
+              element={
+                <LockedRoute>
+                  <Other />
+                </LockedRoute>
+              }
+            />
+          </Routes>
+        </OperatorLockProvider>
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByTestId('switch-pin-required'));
+    await user.type(await screen.findByTestId('input-pin'), '2468');
+    await user.click(screen.getByTestId('button-pin-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    );
+
+    await user.click(screen.getByText('go elsewhere'));
+    expect(await screen.findByTestId('other-content')).toBeTruthy();
+    expect(screen.queryByTestId('dialog-pin')).toBeNull();
   });
 });
 
