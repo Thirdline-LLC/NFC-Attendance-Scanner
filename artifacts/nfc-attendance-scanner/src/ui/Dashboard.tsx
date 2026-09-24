@@ -75,6 +75,12 @@ type DashboardProps = {
   /** Opens the body switcher: create a body, or attach to a different one. */
   onChangeBody?: () => void;
   /**
+   * Opens the 08b vocabulary admin screen (saved type labels and custom
+   * field definitions). Optional: without it the body card shows no link to
+   * it, the same way `onChangeBody` gates the card itself.
+   */
+  onManageVocabulary?: () => void;
+  /**
    * Switches the figures above between the active body and that body plus
    * its descendants. Omitted in presentational tests that only render numbers.
    */
@@ -125,6 +131,7 @@ export function Dashboard({
   activeBody,
   activeBodyLabel,
   onChangeBody,
+  onManageVocabulary,
   onMetricsScopeChange,
   retention,
 }: DashboardProps) {
@@ -261,6 +268,7 @@ export function Dashboard({
             body={activeBody}
             label={activeBodyLabel}
             onChangeBody={onChangeBody}
+            onManageVocabulary={onManageVocabulary}
           />
         ) : null}
 
@@ -716,10 +724,12 @@ function BodyCard({
   body,
   label,
   onChangeBody,
+  onManageVocabulary,
 }: {
   body: AttendanceBody;
   label?: string;
   onChangeBody: () => void;
+  onManageVocabulary?: () => void;
 }) {
   return (
     <Card eyebrow="Active body" icon={<Layers aria-hidden="true" size={16} />}>
@@ -738,15 +748,28 @@ function BodyCard({
         and history — switching never deletes another body's data. Export stays
         this body only.
       </p>
-      <button
-        type="button"
-        onClick={onChangeBody}
-        className="mt-4 flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-        data-testid="button-change-body"
-      >
-        <Layers aria-hidden="true" size={14} />
-        Change body…
-      </button>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onChangeBody}
+          className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+          data-testid="button-change-body"
+        >
+          <Layers aria-hidden="true" size={14} />
+          Change body…
+        </button>
+        {onManageVocabulary ? (
+          <button
+            type="button"
+            onClick={onManageVocabulary}
+            className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/.68)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+            data-testid="button-manage-vocabulary"
+          >
+            <Layers aria-hidden="true" size={14} />
+            Body vocabulary…
+          </button>
+        ) : null}
+      </div>
     </Card>
   );
 }

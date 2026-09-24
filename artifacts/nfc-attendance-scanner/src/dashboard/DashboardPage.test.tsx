@@ -6,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as attendanceStore from '@/data/attendance-store';
 import {
+  addBodyFieldDef,
+  addBodyTypeDef,
   addPerson,
   createBody,
   getActiveBody,
+  listBodies,
   recordActivity,
   recordSessionTap,
   setActiveBody,
@@ -721,5 +724,202 @@ describe('DashboardPage retention', () => {
     );
     expect(screen.getByTestId('button-purge-history').hasAttribute('disabled')).toBe(true);
     expect(screen.getByTestId('button-remove-alumni').hasAttribute('disabled')).toBe(true);
+  });
+});
+
+describe('DashboardPage body vocabulary', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('offers the saved vocabulary as suggestions when creating a body', async () => {
+    await addBodyTypeDef('Branch');
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+
+    const options = Array.from(
+      document.querySelectorAll('#body-type-suggestions option'),
+    ).map((option) => option.getAttribute('value'));
+    expect(options).toContain('club');
+    expect(options).toContain('Branch');
+  });
+
+  it('blocks creating a body until a required custom field is filled, then saves it', async () => {
+    await addBodyFieldDef({
+      label: 'Advisor email',
+      appliesToTypeLabel: 'Section',
+      required: true,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.type(await screen.findByTestId('input-body-name'), 'Debate');
+    await user.type(screen.getByTestId('input-body-type'), 'Section');
+
+    const createButton = await screen.findByTestId('button-body-create');
+    expect(createButton.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('text-create-fields-missing').textContent).toContain(
+      'Advisor email',
+    );
+
+    await user.type(
+      screen.getByTestId('input-create-field-Advisor email'),
+      'advisor@stjohnschs.org',
+    );
+    expect(createButton.hasAttribute('disabled')).toBe(false);
+    await user.click(createButton);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-active-body').textContent).toContain('Debate'),
+    );
+    const created = (await listBodies()).find((body) => body.name === 'Debate');
+    expect(created?.customFields).toEqual({ 'Advisor email': 'advisor@stjohnschs.org' });
+  });
+
+  it('edits an existing body’s custom fields from the structure editor', async () => {
+    await addBodyFieldDef({ label: 'Room', appliesToTypeLabel: 'club', required: false });
+    const root = await getActiveBody();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.selectOptions(
+      await screen.findByTestId('select-structure-body'),
+      String(root.id),
+    );
+    await user.type(screen.getByTestId('input-structure-field-Room'), '204');
+    await user.click(screen.getByTestId('button-structure-save-fields'));
+
+    await waitFor(async () => {
+      const saved = (await listBodies()).find((body) => body.id === root.id);
+      expect(saved?.customFields).toEqual({ Room: '204' });
+    });
+  });
+
+  it('blocks changing a body onto a type with a required field it does not have', async () => {
+    await addBodyFieldDef({ label: 'Advisor', appliesToTypeLabel: 'team', required: true });
+    const root = await getActiveBody();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.selectOptions(
+      await screen.findByTestId('select-structure-body'),
+      String(root.id),
+    );
+    await user.clear(screen.getByTestId('input-structure-type'));
+    await user.type(screen.getByTestId('input-structure-type'), 'team');
+
+    const renameButton = screen.getByTestId('button-structure-rename');
+    expect(renameButton.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('text-structure-rename-blocked').textContent).toContain('Advisor');
+
+    // The rename button unblocks once the draft has a value: `renameBody`
+    // takes the draft's field values along with the type change and
+    // validates+writes both atomically, so a single click here is enough —
+    // no separate "Save custom fields" round trip has to land first.
+    await user.type(screen.getByTestId('input-structure-field-Advisor'), 'a@b.org');
+    expect(renameButton.hasAttribute('disabled')).toBe(false);
+    await user.click(renameButton);
+
+    await waitFor(async () => {
+      const saved = (await listBodies()).find((body) => body.id === root.id);
+      expect(saved?.typeLabel).toBe('team');
+      expect(saved?.customFields).toEqual({ Advisor: 'a@b.org' });
+    });
+  });
+
+  it('reloads bodies after a field-def label rename, so a later custom-field save does not overwrite the migrated key', async () => {
+    const field = await addBodyFieldDef({
+      label: 'Advisor',
+      appliesToTypeLabel: 'club',
+      required: false,
+    });
+    const root = await getActiveBody();
+    await attendanceStore.updateBodyCustomFields(root.id as number, { Advisor: 'a@b.org' });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-manage-vocabulary'));
+    const labelInput = await screen.findByTestId(`input-body-field-label-${field.id}`);
+    await user.clear(labelInput);
+    // Casing-only, so `updateBodyFieldDef` still migrates the stored key
+    // (see the vocab test for that) — this test is about the page's own
+    // `bodies` state, not the store.
+    await user.type(labelInput, 'advisor');
+    await user.click(screen.getByTestId(`button-body-field-save-${field.id}`));
+    await waitFor(() => expect(screen.getByDisplayValue('advisor')).toBeTruthy());
+    await user.click(screen.getByTestId('button-body-vocabulary-close'));
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.selectOptions(
+      await screen.findByTestId('select-structure-body'),
+      String(root.id),
+    );
+
+    // A stale `bodies` array (customFields still keyed "Advisor") would show
+    // this input blank instead of the value that now lives under "advisor".
+    expect(
+      (screen.getByTestId('input-structure-field-advisor') as HTMLInputElement).value,
+    ).toBe('a@b.org');
+  });
+
+  it('manages the vocabulary from the admin dialog: add, rename, and delete a type', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-manage-vocabulary'));
+    await screen.findByTestId('dialog-body-vocabulary');
+
+    await user.type(screen.getByTestId('input-body-type-new'), 'Branch');
+    await user.click(screen.getByTestId('button-body-type-add'));
+
+    const addedInput = await screen.findByDisplayValue('Branch');
+    const addedId = (addedInput.getAttribute('data-testid') ?? '').replace(
+      'input-body-type-',
+      '',
+    );
+
+    await user.clear(addedInput);
+    await user.type(addedInput, 'Division');
+    await user.click(screen.getByTestId(`button-body-type-save-${addedId}`));
+
+    // A type-def rename can rewrite bodies' own `typeLabel`, so it reloads
+    // through the same page-wide `load()` a body switch uses (see
+    // `refreshVocab`) — slower than the vocabulary lists updating, and the
+    // delete button below stays disabled (`isWorking`) until it resolves.
+    // Waiting on the display value alone can win that race under load.
+    const deleteButton = screen.getByTestId(`button-body-type-delete-${addedId}`);
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Division')).toBeTruthy();
+      expect(deleteButton.hasAttribute('disabled')).toBe(false);
+    });
+
+    await user.click(deleteButton);
+
+    await waitFor(() => expect(screen.queryByDisplayValue('Division')).toBeNull());
+  });
+
+  it('adds a custom-field definition from the admin dialog', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-manage-vocabulary'));
+    await user.type(screen.getByTestId('input-body-field-new-label'), 'Advisor email');
+    await user.type(screen.getByTestId('input-body-field-new-type'), 'club');
+    await user.click(screen.getByTestId('checkbox-body-field-new-required'));
+    await user.click(screen.getByTestId('button-body-field-add'));
+
+    await screen.findByTestId('list-body-fields');
+    expect(screen.getByDisplayValue('Advisor email')).toBeTruthy();
   });
 });

@@ -8,6 +8,13 @@ import {
   nextSiblingSortOrder,
   wouldCycle,
 } from '@/data/body-hierarchy';
+import {
+  compareBySortOrder,
+  missingRequiredFields,
+  nextVocabSortOrder,
+  sameLabel,
+  sanitizeCustomFields,
+} from '@/data/body-vocabulary';
 
 export type Person = {
   id?: number;
@@ -96,6 +103,45 @@ export class BodyHierarchyError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'BodyHierarchyError';
+  }
+}
+
+/**
+ * The admin's saved vocabulary for `AttendanceBody.typeLabel` (08b). A
+ * suggestion list, not a closed enum — `typeLabel` on a body stays free
+ * text either way (see `createBody`/`renameBody`).
+ */
+export type BodyTypeDef = {
+  id?: number;
+  label: string;
+  /** Display order in the admin list and the create-form datalist. */
+  sortOrder?: number;
+};
+
+/**
+ * A custom field the admin wants collected on bodies of one type label.
+ * `AttendanceBody.customFields` already had a home in 08a; this is what
+ * decides which keys the UI offers for a given `typeLabel`, and whether
+ * leaving one blank is allowed. Matched to a body by `appliesToTypeLabel`
+ * against `typeLabel`, trimmed and case-insensitive (see `body-vocabulary.ts`)
+ * — the two are free text kept in step by the UI, not a foreign key.
+ */
+export type BodyFieldDef = {
+  id?: number;
+  label: string;
+  appliesToTypeLabel: string;
+  required: boolean;
+  sortOrder?: number;
+};
+
+/**
+ * A vocabulary write that would break it (an empty or duplicate label, a
+ * required custom field left blank).
+ */
+export class BodyVocabError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BodyVocabError';
   }
 }
 
@@ -293,6 +339,43 @@ database
       await table.update(body.id, { parentId: null, sortOrder: index });
     }
   });
+// `BodyTypeDef` and `BodyFieldDef` (08b): the admin's saved vocabulary and
+// which custom fields apply to which type label. Neither existed before —
+// `typeLabel` was always free text with no saved list of what had been typed.
+// Seeded from what the device already has: every distinct `typeLabel` already
+// on a body becomes a vocabulary entry, first-appearance order, so an
+// upgraded device's picker is not emptier than the bodies already on it.
+// `bodyFields` starts empty; nothing on disk before this version can imply a
+// field definition.
+database
+  .version(9)
+  .stores({
+    scans: 'uid, scannedAt',
+    persons: '++id, &[bodyId+cardUid], lastName, gradYear, enrolledAt, bodyId',
+    taps: '++id, uid, scannedAt, personId, sessionId, bodyId',
+    settings: 'key',
+    activity: '++id, at, kind',
+    bodies: '++id, parentId, createdAt, sortOrder',
+    bodyTypes: '++id, sortOrder',
+    // `required` is a boolean and is deliberately not indexed — IndexedDB has
+    // no boolean key type, the same reason the v3 `counted` index never held
+    // an entry (see the v4 upgrader above). Callers filter it in memory.
+    bodyFields: '++id, appliesToTypeLabel, sortOrder',
+  })
+  .upgrade(async (transaction) => {
+    const bodies = (await transaction.table('bodies').toArray()) as AttendanceBody[];
+    bodies.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+    const seen = new Set<string>();
+    let sortOrder = 0;
+    for (const body of bodies) {
+      const label = body.typeLabel.trim();
+      const key = label.toLowerCase();
+      if (!label || seen.has(key)) continue;
+      seen.add(key);
+      await transaction.table('bodyTypes').add({ label, sortOrder });
+      sortOrder += 1;
+    }
+  });
 // Pre-enrollment rows from a v1/v2 database. Nothing writes here any more —
 // the table is kept so `clearAllAttendanceHistory` can still purge what an
 // upgraded database carried up, and so the schema versions stay replayable.
@@ -306,6 +389,8 @@ const settingsTable = database.table<{ key: string; value: string }, string>(
 );
 const activityTable = database.table<ActivityEntry, number>('activity');
 const bodiesTable = database.table<AttendanceBody, number>('bodies');
+const bodyTypesTable = database.table<BodyTypeDef, number>('bodyTypes');
+const bodyFieldsTable = database.table<BodyFieldDef, number>('bodyFields');
 
 // A brand-new install never runs the v7 `.upgrade()` above — Dexie only
 // upgrades a database that already existed at an earlier version. `populate`
@@ -323,6 +408,7 @@ database.on('populate', async () => {
     sortOrder: 0,
   });
   await settingsTable.put({ key: ACTIVE_BODY_ID_KEY, value: String(bodyId) });
+  await bodyTypesTable.add({ label: 'club', sortOrder: 0 });
 });
 
 /**
@@ -634,9 +720,27 @@ export type CreateBodyInput = {
 };
 
 /**
+ * Adds `label` to the saved vocabulary if no entry already matches it
+ * case-insensitively (see `sameLabel`). Runs inside the caller's transaction,
+ * which must declare `bodyTypesTable`. This is how a one-off label typed at
+ * create or rename ends up in the admin's list (08b) without a separate save
+ * step.
+ */
+async function ensureBodyType(label: string): Promise<void> {
+  const existing = await bodyTypesTable.toArray();
+  if (existing.some((def) => sameLabel(def.label, label))) return;
+  await bodyTypesTable.add({
+    label,
+    sortOrder: nextVocabSortOrder(existing),
+  });
+}
+
+/**
  * Creates a root or a child. Does not attach the device to it — call
  * `setActiveBody` too. Does not copy roster or taps from the parent (D-T2:
- * membership is explicit per body). Depth is not capped.
+ * membership is explicit per body). Depth is not capped. A `typeLabel` not
+ * already in the saved vocabulary is added to it (08b) — the vocabulary is a
+ * record of labels in use, not a closed set the admin must pre-declare.
  */
 export async function createBody(input: CreateBodyInput): Promise<AttendanceBody> {
   const name = input.name.trim();
@@ -645,23 +749,43 @@ export async function createBody(input: CreateBodyInput): Promise<AttendanceBody
     throw new BodyHierarchyError('A body needs a name and a type label.');
   }
   const parentId = input.parentId ?? null;
+  const customFields = input.customFields ?? {};
 
-  return database.transaction('rw', bodiesTable, async () => {
-    const bodies = await bodiesTable.toArray();
-    if (parentId !== null && !bodies.some((body) => body.id === parentId)) {
-      throw new BodyHierarchyError(`No attendance body has id ${parentId}.`);
-    }
-    const body: Omit<AttendanceBody, 'id'> = {
-      name,
-      typeLabel,
-      createdAt: new Date().toISOString(),
-      parentId,
-      sortOrder: nextSiblingSortOrder(bodies, parentId),
-      ...(input.customFields ? { customFields: { ...input.customFields } } : {}),
-    };
-    const id = await bodiesTable.add({ ...body });
-    return { ...body, id };
-  });
+  return database.transaction(
+    'rw',
+    bodiesTable,
+    bodyTypesTable,
+    bodyFieldsTable,
+    async () => {
+      const bodies = await bodiesTable.toArray();
+      if (parentId !== null && !bodies.some((body) => body.id === parentId)) {
+        throw new BodyHierarchyError(`No attendance body has id ${parentId}.`);
+      }
+      const fieldDefs = await bodyFieldsTable.toArray();
+      // Restricted to this type's own field defs before the required check:
+      // a value the UI collected while a different type label was drafted
+      // must not sneak in, or count toward satisfying this type's own
+      // required fields.
+      const sanitizedFields = sanitizeCustomFields(typeLabel, fieldDefs, customFields);
+      const missing = missingRequiredFields(typeLabel, fieldDefs, sanitizedFields);
+      if (missing.length > 0) {
+        throw new BodyVocabError(
+          `${missing.map((field) => field.label).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required for a ${typeLabel}.`,
+        );
+      }
+      const body: Omit<AttendanceBody, 'id'> = {
+        name,
+        typeLabel,
+        createdAt: new Date().toISOString(),
+        parentId,
+        sortOrder: nextSiblingSortOrder(bodies, parentId),
+        ...(Object.keys(sanitizedFields).length > 0 ? { customFields: sanitizedFields } : {}),
+      };
+      const id = await bodiesTable.add({ ...body });
+      await ensureBodyType(typeLabel);
+      return { ...body, id };
+    },
+  );
 }
 
 /**
@@ -680,22 +804,69 @@ export async function setActiveBody(bodyId: number): Promise<void> {
   await writeSetting(ACTIVE_BODY_ID_KEY, String(bodyId));
 }
 
-/** Renames a body and/or its type label. Does not move roster rows or taps. */
+/**
+ * Renames a body and/or its type label. Does not move roster rows or taps.
+ * A `typeLabel` this body did not already have is added to the saved
+ * vocabulary the same way `createBody` adds one (08b) — only when it
+ * actually changes, so renaming a body's `name` alone never resurrects a
+ * vocabulary entry the admin deleted. Refuses to change `typeLabel` onto one
+ * that leaves a required field (for the new label) blank — the same rule
+ * `createBody` and `updateBodyCustomFields` enforce, checked here too since a
+ * type change can retarget which fields are required without customFields
+ * itself being touched.
+ *
+ * `customFields`, when given, is merged over the body's saved fields and
+ * validated *and written* in the same transaction as the type change — a
+ * type change that needs a new required field is one atomic write, not a
+ * "save the field under the old type, then rename" two-step a caller has to
+ * sequence for itself (and a UI has to keep its own save button disabled
+ * across).
+ */
 export async function renameBody(
   bodyId: number,
-  input: { name: string; typeLabel: string },
+  input: { name: string; typeLabel: string; customFields?: Record<string, string> },
 ): Promise<AttendanceBody> {
   const name = input.name.trim();
   const typeLabel = input.typeLabel.trim();
   if (!name || !typeLabel) {
     throw new BodyHierarchyError('A body needs a name and a type label.');
   }
-  const existing = await bodiesTable.get(bodyId);
-  if (!existing) {
-    throw new BodyHierarchyError(`No attendance body has id ${bodyId}.`);
-  }
-  await bodiesTable.update(bodyId, { name, typeLabel });
-  return { ...existing, name, typeLabel };
+  return database.transaction(
+    'rw',
+    bodiesTable,
+    bodyTypesTable,
+    bodyFieldsTable,
+    async () => {
+      const existing = await bodiesTable.get(bodyId);
+      if (!existing) {
+        throw new BodyHierarchyError(`No attendance body has id ${bodyId}.`);
+      }
+      const typeChanged = !sameLabel(existing.typeLabel, typeLabel);
+      const fieldDefs = await bodyFieldsTable.toArray();
+      const changes: Partial<AttendanceBody> = { name, typeLabel };
+      let customFields = existing.customFields;
+      if (input.customFields) {
+        customFields = sanitizeCustomFields(typeLabel, fieldDefs, {
+          ...(existing.customFields ?? {}),
+          ...input.customFields,
+        });
+        changes.customFields = customFields;
+      }
+      if (typeChanged) {
+        const missing = missingRequiredFields(typeLabel, fieldDefs, customFields ?? {});
+        if (missing.length > 0) {
+          throw new BodyVocabError(
+            `${missing.map((field) => field.label).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required for a ${typeLabel} — fill it in before changing the type.`,
+          );
+        }
+      }
+      await bodiesTable.update(bodyId, changes);
+      if (typeChanged) {
+        await ensureBodyType(typeLabel);
+      }
+      return { ...existing, ...changes };
+    },
+  );
 }
 
 /**
@@ -765,6 +936,233 @@ export async function restoreBody(bodyId: number): Promise<void> {
   }
   if (!isArchived(body)) return;
   await bodiesTable.update(bodyId, { archivedAt: null });
+}
+
+/** The admin's saved type-label vocabulary (08b), in `sortOrder`. */
+export async function listBodyTypeDefs(): Promise<BodyTypeDef[]> {
+  return (await bodyTypesTable.toArray()).sort(compareBySortOrder);
+}
+
+/**
+ * Adds a vocabulary entry the admin typed directly (as opposed to the
+ * one-off label `createBody`/`renameBody` add on the fly). Refuses a label
+ * that already matches one on the list case-insensitively — the whole point
+ * of the list is one entry per label a teacher would recognize as the same
+ * word.
+ */
+export async function addBodyTypeDef(label: string): Promise<BodyTypeDef> {
+  const trimmed = label.trim();
+  if (!trimmed) {
+    throw new BodyVocabError('A body type needs a label.');
+  }
+  return database.transaction('rw', bodyTypesTable, async () => {
+    const existing = await bodyTypesTable.toArray();
+    if (existing.some((def) => sameLabel(def.label, trimmed))) {
+      throw new BodyVocabError(`"${trimmed}" is already in the vocabulary.`);
+    }
+    const def: Omit<BodyTypeDef, 'id'> = {
+      label: trimmed,
+      sortOrder: nextVocabSortOrder(existing),
+    };
+    const id = await bodyTypesTable.add({ ...def });
+    return { ...def, id };
+  });
+}
+
+/**
+ * Renames a vocabulary entry, and rewrites every body and field definition
+ * that used the old label so neither silently falls off the vocabulary or
+ * stops matching its fields. One transaction over all three tables so a
+ * failure part-way cannot leave a body pointing at a label nothing owns
+ * any more.
+ */
+export async function renameBodyTypeDef(id: number, label: string): Promise<BodyTypeDef> {
+  const trimmed = label.trim();
+  if (!trimmed) {
+    throw new BodyVocabError('A body type needs a label.');
+  }
+  return database.transaction(
+    'rw',
+    bodyTypesTable,
+    bodiesTable,
+    bodyFieldsTable,
+    async () => {
+      const existing = await bodyTypesTable.get(id);
+      if (!existing) {
+        throw new BodyVocabError(`No body type has id ${id}.`);
+      }
+      const others = (await bodyTypesTable.toArray()).filter((def) => def.id !== id);
+      if (others.some((def) => sameLabel(def.label, trimmed))) {
+        throw new BodyVocabError(`"${trimmed}" is already in the vocabulary.`);
+      }
+      const oldLabel = existing.label;
+      await bodyTypesTable.update(id, { label: trimmed });
+
+      // Exact comparison, not `sameLabel`: a casing-only change ("club" ->
+      // "Club") still needs every body and field def rewritten to the new
+      // spelling, or they silently keep the old one while the vocabulary
+      // entry itself has moved on.
+      if (oldLabel !== trimmed) {
+        const bodies = await bodiesTable.toArray();
+        for (const body of bodies) {
+          if (body.id !== undefined && sameLabel(body.typeLabel, oldLabel)) {
+            await bodiesTable.update(body.id, { typeLabel: trimmed });
+          }
+        }
+        const fieldDefs = await bodyFieldsTable.toArray();
+        for (const def of fieldDefs) {
+          if (def.id !== undefined && sameLabel(def.appliesToTypeLabel, oldLabel)) {
+            await bodyFieldsTable.update(def.id, { appliesToTypeLabel: trimmed });
+          }
+        }
+      }
+
+      return { ...existing, label: trimmed };
+    },
+  );
+}
+
+/**
+ * Removes a vocabulary entry. Bodies already carrying that label keep it —
+ * `typeLabel` is free text, not a foreign key — and field definitions for it
+ * still apply to them; only the datalist suggestion and the admin list
+ * shrink.
+ */
+export async function deleteBodyTypeDef(id: number): Promise<void> {
+  await bodyTypesTable.delete(id);
+}
+
+/** Every custom-field definition (08b), in `sortOrder`. */
+export async function listBodyFieldDefs(): Promise<BodyFieldDef[]> {
+  return (await bodyFieldsTable.toArray()).sort(compareBySortOrder);
+}
+
+export type BodyFieldDefInput = {
+  label: string;
+  appliesToTypeLabel: string;
+  required: boolean;
+};
+
+/**
+ * True when two field defs would be the same field on the same type label —
+ * `sameLabel` on both `label` and `appliesToTypeLabel`. Two field defs with
+ * the same label on *different* type labels are fine; one label on the same
+ * type twice is not, because `AttendanceBody.customFields` is keyed by
+ * label, so the second def could never have a value of its own.
+ */
+function sameField(
+  a: { label: string; appliesToTypeLabel: string },
+  b: { label: string; appliesToTypeLabel: string },
+): boolean {
+  return sameLabel(a.label, b.label) && sameLabel(a.appliesToTypeLabel, b.appliesToTypeLabel);
+}
+
+/** Adds a custom-field definition for one type label. */
+export async function addBodyFieldDef(input: BodyFieldDefInput): Promise<BodyFieldDef> {
+  const label = input.label.trim();
+  const appliesToTypeLabel = input.appliesToTypeLabel.trim();
+  if (!label || !appliesToTypeLabel) {
+    throw new BodyVocabError('A custom field needs a label and a body type.');
+  }
+  return database.transaction('rw', bodyFieldsTable, async () => {
+    const existing = await bodyFieldsTable.toArray();
+    if (existing.some((def) => sameField(def, { label, appliesToTypeLabel }))) {
+      throw new BodyVocabError(`"${label}" is already a field on ${appliesToTypeLabel}.`);
+    }
+    const def: Omit<BodyFieldDef, 'id'> = {
+      label,
+      appliesToTypeLabel,
+      required: input.required,
+      sortOrder: nextVocabSortOrder(existing),
+    };
+    const id = await bodyFieldsTable.add({ ...def });
+    return { ...def, id };
+  });
+}
+
+/**
+ * Renames a field definition, moves it to another type label, or toggles
+ * `required`. A label change rewrites the matching key in `customFields` on
+ * every body of the field's (old) type that has a value under the old
+ * label — `customFields` is keyed by label, so an unrewritten key would
+ * strand that value where nothing can show or edit it again.
+ */
+export async function updateBodyFieldDef(
+  id: number,
+  input: BodyFieldDefInput,
+): Promise<BodyFieldDef> {
+  const label = input.label.trim();
+  const appliesToTypeLabel = input.appliesToTypeLabel.trim();
+  if (!label || !appliesToTypeLabel) {
+    throw new BodyVocabError('A custom field needs a label and a body type.');
+  }
+  return database.transaction('rw', bodyFieldsTable, bodiesTable, async () => {
+    const existing = await bodyFieldsTable.get(id);
+    if (!existing) {
+      throw new BodyVocabError(`No custom field has id ${id}.`);
+    }
+    const others = (await bodyFieldsTable.toArray()).filter((def) => def.id !== id);
+    if (others.some((def) => sameField(def, { label, appliesToTypeLabel }))) {
+      throw new BodyVocabError(`"${label}" is already a field on ${appliesToTypeLabel}.`);
+    }
+    const changes = { label, appliesToTypeLabel, required: input.required };
+    await bodyFieldsTable.update(id, changes);
+
+    // Exact comparison, not `sameLabel`: `customFields` keys are
+    // case-sensitive, so a casing-only rename ("Advisor" -> "advisor") still
+    // has to migrate the stored key or the old-cased value is stranded under
+    // a key nothing reads or shows any more.
+    if (label !== existing.label) {
+      const bodies = await bodiesTable.toArray();
+      for (const body of bodies) {
+        if (body.id === undefined) continue;
+        if (!sameLabel(body.typeLabel, existing.appliesToTypeLabel)) continue;
+        const fields = body.customFields;
+        if (!fields || !(existing.label in fields)) continue;
+        const { [existing.label]: value, ...rest } = fields;
+        await bodiesTable.update(body.id, { customFields: { ...rest, [label]: value } });
+      }
+    }
+
+    return { ...existing, ...changes };
+  });
+}
+
+export async function deleteBodyFieldDef(id: number): Promise<void> {
+  await bodyFieldsTable.delete(id);
+}
+
+/**
+ * Writes a body's custom-field values (08a stored the bag; this is the 08b
+ * write path with the required-field rule behind it). Refuses to save while
+ * a field the vocabulary marks required, for this body's own `typeLabel`, is
+ * missing or blank — the same rule the editor UI disables its save button
+ * on, enforced here too since the UI is not the only caller.
+ */
+export async function updateBodyCustomFields(
+  bodyId: number,
+  customFields: Record<string, string>,
+): Promise<AttendanceBody> {
+  return database.transaction('rw', bodiesTable, bodyFieldsTable, async () => {
+    const body = await bodiesTable.get(bodyId);
+    if (!body) {
+      throw new BodyHierarchyError(`No attendance body has id ${bodyId}.`);
+    }
+    const fieldDefs = await bodyFieldsTable.toArray();
+    const missing = missingRequiredFields(body.typeLabel, fieldDefs, customFields);
+    if (missing.length > 0) {
+      throw new BodyVocabError(
+        `${missing.map((field) => field.label).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required for a ${body.typeLabel}.`,
+      );
+    }
+    const trimmed = Object.fromEntries(
+      Object.entries(customFields)
+        .map(([key, value]) => [key, value.trim()] as const)
+        .filter(([, value]) => value.length > 0),
+    );
+    await bodiesTable.update(bodyId, { customFields: trimmed });
+    return { ...body, customFields: trimmed };
+  });
 }
 
 /**
