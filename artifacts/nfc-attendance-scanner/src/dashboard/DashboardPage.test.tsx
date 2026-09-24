@@ -654,6 +654,101 @@ describe('DashboardPage "Require teacher PIN" switch', () => {
     expect(kinds).not.toContain('pin-disabled');
   });
 
+  describe('after the PIN goes missing', () => {
+    /**
+     * Opens the turn-off dialog, then really removes the stored PIN (as a
+     * cleared site-data store would) before submitting, so the dialog gets
+     * a genuine 'unset' verdict and the Dashboard shows the missing-PIN alert.
+     */
+    async function reachMissingPinAlert(user: ReturnType<typeof userEvent.setup>) {
+      await setOperatorPin('2468');
+      await seedTwoSessions();
+      renderPage();
+      await user.click(await screen.findByTestId('switch-pin-required'));
+      await screen.findByTestId('input-pin');
+      await attendanceStore.writeSetting('operator-pin', '');
+      await user.type(screen.getByTestId('input-pin'), '2468');
+      await user.click(screen.getByTestId('button-pin-submit'));
+      await screen.findByTestId('text-pin-required-error');
+      expect(screen.queryByTestId('dialog-pin')).toBeNull();
+      expect(screen.queryByTestId('switch-pin-required')).toBeNull();
+    }
+
+    it('the alert\'s Set PIN opens the set-PIN form, closes on success, and brings the switch back', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+
+      await user.click(screen.getByTestId('button-pin-error-set-pin'));
+      await waitFor(() =>
+        expect(screen.getByTestId('text-pin-title').textContent).toBe('Set a teacher PIN'),
+      );
+      await user.type(screen.getByTestId('input-pin'), '1357');
+      await user.type(screen.getByTestId('input-pin-confirm'), '1357');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+      expect(screen.queryByTestId('text-pin-required-error')).toBeNull();
+      expect((await screen.findByTestId('text-pin-changed')).textContent).toBe(
+        'Teacher PIN set.',
+      );
+      const toggle = await screen.findByTestId('switch-pin-required');
+      expect(toggle.getAttribute('aria-checked')).toBe('true');
+      expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
+      // The requirement never changed, so only the set is logged.
+      expect(await attendanceStore.getPinRequired()).toBe(true);
+      const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+      expect(kinds).toContain('pin-set');
+      expect(kinds).not.toContain('pin-enabled');
+      expect(kinds).not.toContain('pin-disabled');
+    });
+
+    it('Change PIN with no PIN left falls back to setting one and closes when done', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+
+      await user.click(screen.getByTestId('button-change-pin'));
+      // Opening another dialog clears the stale alert.
+      expect(screen.queryByTestId('text-pin-required-error')).toBeNull();
+      await user.type(await screen.findByTestId('input-pin-current'), '2468');
+      await user.type(screen.getByTestId('input-pin'), '1357');
+      await user.type(screen.getByTestId('input-pin-confirm'), '1357');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      // No PIN to change: the dialog switches to setting one.
+      await waitFor(() =>
+        expect(screen.getByTestId('text-pin-title').textContent).toBe('Set a teacher PIN'),
+      );
+      await user.type(screen.getByTestId('input-pin'), '1357');
+      await user.type(screen.getByTestId('input-pin-confirm'), '1357');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+      expect((await screen.findByTestId('text-pin-changed')).textContent).toBe(
+        'Teacher PIN set.',
+      );
+      expect(await screen.findByTestId('switch-pin-required')).toBeTruthy();
+      expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
+    });
+
+    it('Dismiss clears the alert', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+
+      await user.click(screen.getByTestId('button-pin-error-dismiss'));
+      expect(screen.queryByTestId('text-pin-required-error')).toBeNull();
+    });
+
+    it('opening another dialog (body vocabulary) clears the alert', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+
+      await user.click(screen.getByTestId('button-manage-vocabulary'));
+      await waitFor(() =>
+        expect(screen.queryByTestId('text-pin-required-error')).toBeNull(),
+      );
+    });
+  });
+
   it('shows an error and logs nothing when a direct turn-on cannot be saved', async () => {
     await setOperatorPin('2468');
     await attendanceStore.setPinRequired(false);
