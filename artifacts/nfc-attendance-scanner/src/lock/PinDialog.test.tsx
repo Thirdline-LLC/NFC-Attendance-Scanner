@@ -348,6 +348,8 @@ describe('PinDialog', () => {
       'A teacher PIN was set on this device in the meantime. Enter it to continue.',
     );
     expect(screen.getByTestId('text-pin-title').textContent).toBe('Change the teacher PIN');
+    // The old current-PIN guess is cleared so the retry starts clean.
+    expect((screen.getByTestId('input-pin-current') as HTMLInputElement).value).toBe('');
     expect(onChanged).not.toHaveBeenCalled();
     expect(await verifyOperatorPin('9753')).toEqual({ status: 'ok' });
   });

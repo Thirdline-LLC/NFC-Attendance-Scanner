@@ -350,6 +350,7 @@ export function PinDialog(props: PinDialogProps) {
         // Someone set a PIN while this set form was open. Nothing was
         // overwritten; ask for that PIN instead. Change mode goes back to its
         // own form, since only it can finish a change.
+        setCurrent('');
         setPin('');
         setConfirm('');
         setPhase(props.mode === 'change' ? 'change' : 'unlock');

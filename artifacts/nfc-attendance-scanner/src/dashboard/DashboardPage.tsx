@@ -218,7 +218,9 @@ export function DashboardPage() {
     };
   }, [metricsScope, metricsBundle, metrics, activeBody, bodies]);
 
-  const load = useCallback(async () => {
+  // `scope` overrides the state for a caller that just changed it: the
+  // `load` it holds was made before that change landed.
+  const load = useCallback(async (scope: 'body' | 'subtree' = metricsScope) => {
     setIsLoading(true);
     setLoadFailed(false);
     try {
@@ -257,7 +259,7 @@ export function DashboardPage() {
       const bodyPersons = subtreePersons.filter((person) => person.bodyId === body.id);
       const bundle = { bodyTaps, bodyPersons, subtreeTaps, subtreePersons, target };
       setMetricsBundle(bundle);
-      setMetrics(metricsFromBundle(metricsScope, bundle, now));
+      setMetrics(metricsFromBundle(scope, bundle, now));
       // Export writes the active body only. Subtree workbook export is 08c.
       setHistory({ taps: bodyTaps, persons: bodyPersons });
       setActivity(recent);
@@ -456,10 +458,10 @@ export function DashboardPage() {
   useEffect(() => {
     if (!focusAfterSetPin || settingMissingPin) return;
     const target = document.querySelector<HTMLElement>(`[data-testid="${focusAfterSetPin}"]`);
-    if (target) {
-      target.focus();
-      setFocusAfterSetPin(null);
-    }
+    // One try only: a target that is not on screen now (the page mid-reload)
+    // must not pull focus later, on some unrelated re-render.
+    target?.focus();
+    setFocusAfterSetPin(null);
   }, [focusAfterSetPin, settingMissingPin, hasPin]);
 
   const cancelSettingMissingPin = useCallback(() => {
@@ -653,14 +655,29 @@ export function DashboardPage() {
     async (input: Required<CreateClassWithPeriodsInput>) => {
       setBodyWorking(true);
       setBodyError(null);
+      let created: ClassWithPeriods;
       try {
-        const created = await createClassWithPeriods(input);
-        await setActiveBody(created.parent.id as number);
-        setClassSetup(created);
-        setMetricsScope('subtree');
-        await load();
+        created = await createClassWithPeriods(input);
       } catch (error) {
         setBodyError(bodyFailure(error, "This device couldn't create that class. Try again."));
+        setBodyWorking(false);
+        return;
+      }
+      // The class exists from here on: a failure to attach must not read as
+      // a failed create (a retry would make a second class).
+      setClassSetup(created);
+      try {
+        await setActiveBody(created.parent.id as number);
+        setMetricsScope('subtree');
+        await load('subtree');
+      } catch (error) {
+        setBodyError(
+          bodyFailure(
+            error,
+            `${created.parent.name} was created, but this device couldn't switch to it. Pick it in Change body.`,
+          ),
+        );
+        await load().catch(() => undefined);
       } finally {
         setBodyWorking(false);
       }
