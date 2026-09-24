@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
-import { formatBodySubtitle, subtreeBodyIds } from '@/data/body-hierarchy';
+import { formatBodySubtitle, isArchived, subtreeBodyIds } from '@/data/body-hierarchy';
 import {
   ACTIVITY_LOG_CAP,
   BodyHierarchyError,
@@ -10,6 +10,7 @@ import {
   addBodyTypeDef,
   archiveBody,
   createBody,
+  createClassWithPeriods,
   deleteBodyFieldDef,
   deleteBodyTypeDef,
   getActiveBody,
@@ -38,6 +39,8 @@ import {
   type AttendanceBody,
   type BodyFieldDef,
   type BodyTypeDef,
+  type ClassWithPeriods,
+  type CreateClassWithPeriodsInput,
   type HistoryPurge,
   type Person,
   type TapRecord,
@@ -45,6 +48,7 @@ import {
 import { deriveGrade, exportAttendanceWorkbook } from '@/lib/attendance-export';
 import {
   computeDashboardMetrics,
+  computePeriodBreakdown,
   computeRollupDashboardMetrics,
   schoolYearStart,
   type DashboardMetrics,
@@ -167,6 +171,9 @@ export function DashboardPage() {
   const [bodies, setBodies] = useState<AttendanceBody[]>([]);
   const [bodyWorking, setBodyWorking] = useState(false);
   const [bodyError, setBodyError] = useState<string | null>(null);
+  // A class just created from the switcher (Design 09 §1): while set, the
+  // switcher shows the "Add students to each period" step for it.
+  const [classSetup, setClassSetup] = useState<ClassWithPeriods | null>(null);
   // The admin's saved type-label vocabulary and field defs (08b). Loaded
   // with everything else and refreshed after any write that could change
   // them, including a rename cascade that moves bodies onto a new label.
@@ -186,7 +193,34 @@ export function DashboardPage() {
     target: number;
   } | null>(null);
 
-  const load = useCallback(async () => {
+  // The class view's per-period table (Design 09 §2), from the same subtree
+  // rows the roll-up figures were computed from. Only built for the subtree
+  // scope; the column header follows the children's type label.
+  const periodBreakdown = useMemo(() => {
+    if (metricsScope !== 'subtree' || !metricsBundle || !metrics || activeBody?.id === undefined) {
+      return undefined;
+    }
+    const parentId = activeBody.id;
+    const children = bodies.filter((body) => body.parentId === parentId);
+    if (children.length === 0) return undefined;
+    const live = children.filter((body) => !isArchived(body));
+    const labels = new Set((live.length > 0 ? live : children).map((body) => body.typeLabel.trim().toLowerCase()));
+    const childLabel = labels.size === 1 ? [...labels][0] : 'child';
+    return {
+      childLabel,
+      rows: computePeriodBreakdown(
+        parentId,
+        bodies,
+        metricsBundle.subtreeTaps,
+        metricsBundle.subtreePersons,
+        metrics.computedAt,
+      ),
+    };
+  }, [metricsScope, metricsBundle, metrics, activeBody, bodies]);
+
+  // `scope` overrides the state for a caller that just changed it: the
+  // `load` it holds was made before that change landed.
+  const load = useCallback(async (scope: 'body' | 'subtree' = metricsScope) => {
     setIsLoading(true);
     setLoadFailed(false);
     try {
@@ -225,7 +259,7 @@ export function DashboardPage() {
       const bodyPersons = subtreePersons.filter((person) => person.bodyId === body.id);
       const bundle = { bodyTaps, bodyPersons, subtreeTaps, subtreePersons, target };
       setMetricsBundle(bundle);
-      setMetrics(metricsFromBundle(metricsScope, bundle, now));
+      setMetrics(metricsFromBundle(scope, bundle, now));
       // Export writes the active body only. Subtree workbook export is 08c.
       setHistory({ taps: bodyTaps, persons: bodyPersons });
       setActivity(recent);
@@ -412,12 +446,42 @@ export function DashboardPage() {
     if (anyDialogOpen) setPinError(null);
   }, [anyDialogOpen]);
 
-  /** The missing-PIN alert's "Set PIN" finished: a PIN exists again. */
-  const finishSettingMissingPin = useCallback(() => {
+  /**
+   * Where the keyboard goes once the missing-PIN "Set PIN" dialog closes.
+   * The alert's own button, which opened it, unmounted when the dialog
+   * opened, so PinDialog's hand-back finds nothing to return to. Focused
+   * from an effect because the switch only renders once `hasPin` is true.
+   */
+  const [focusAfterSetPin, setFocusAfterSetPin] = useState<
+    'button-change-pin' | 'switch-pin-required' | null
+  >(null);
+  useEffect(() => {
+    if (!focusAfterSetPin || settingMissingPin) return;
+    const target = document.querySelector<HTMLElement>(`[data-testid="${focusAfterSetPin}"]`);
+    // One try only: a target that is not on screen now (the page mid-reload)
+    // must not pull focus later, on some unrelated re-render.
+    target?.focus();
+    setFocusAfterSetPin(null);
+  }, [focusAfterSetPin, settingMissingPin, hasPin]);
+
+  const cancelSettingMissingPin = useCallback(() => {
+    setSettingMissingPin(false);
+    setFocusAfterSetPin('button-change-pin');
+  }, []);
+
+  /**
+   * The missing-PIN alert's "Set PIN" finished: a PIN exists again. If one
+   * had appeared meanwhile (set from another window), the dialog asked for it
+   * instead of setting a new one — and the notice says that, not "set".
+   */
+  const finishSettingMissingPin = useCallback((outcome?: 'set' | 'unlocked') => {
     setSettingMissingPin(false);
     setHasPin(true);
     setPinError(null);
-    setPinNotice('Teacher PIN set.');
+    setPinNotice(
+      outcome === 'unlocked' ? 'A teacher PIN is already set on this device.' : 'Teacher PIN set.',
+    );
+    setFocusAfterSetPin('switch-pin-required');
     // The set form logged its own row; re-read only the log.
     void listActivity()
       .then(setActivity)
@@ -580,6 +644,51 @@ export function DashboardPage() {
     },
     [load],
   );
+
+  /**
+   * Same attach rule as `createAndSwitchBody`: the device moves to what was
+   * just created — here the class itself, which is where the per-period
+   * roll-up lives. The figures switch to the class-wide view for the same
+   * reason. The switcher stays open on the template step.
+   */
+  const createClassAndSwitch = useCallback(
+    async (input: Required<CreateClassWithPeriodsInput>) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      let created: ClassWithPeriods;
+      try {
+        created = await createClassWithPeriods(input);
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't create that class. Try again."));
+        setBodyWorking(false);
+        return;
+      }
+      // The class exists from here on: a failure to attach must not read as
+      // a failed create (a retry would make a second class).
+      setClassSetup(created);
+      try {
+        await setActiveBody(created.parent.id as number);
+        setMetricsScope('subtree');
+        await load('subtree');
+      } catch (error) {
+        setBodyError(
+          bodyFailure(
+            error,
+            `${created.parent.name} was created, but this device couldn't switch to it. Pick it in Change body.`,
+          ),
+        );
+        await load().catch(() => undefined);
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [load],
+  );
+
+  const closeBodySwitcher = useCallback(() => {
+    setSwitchingBody(false);
+    setClassSetup(null);
+  }, []);
 
   const refreshBodies = useCallback(async () => {
     setBodies(await listBodies());
@@ -914,6 +1023,7 @@ export function DashboardPage() {
               onChangeBody={() => void openBodySwitcher()}
               onManageVocabulary={openVocabDialog}
               onMetricsScopeChange={changeMetricsScope}
+              periodBreakdown={periodBreakdown}
               onChangePin={() => {
                 setPinNotice(null);
                 setChangingPin(true);
@@ -1017,12 +1127,14 @@ export function DashboardPage() {
           fieldDefs={fieldDefs}
           onSelect={(bodyId) => void selectBody(bodyId)}
           onCreate={(input) => void createAndSwitchBody(input)}
+          onCreateClass={(input) => void createClassAndSwitch(input)}
+          classSetup={classSetup}
           onRename={(input) => void renameSelectedBody(input)}
           onReparent={(input) => void moveSelectedBody(input)}
           onArchive={(bodyId) => void archiveSelectedBody(bodyId)}
           onRestore={(bodyId) => void restoreSelectedBody(bodyId)}
           onSaveCustomFields={(input) => void saveBodyCustomFields(input)}
-          onCancel={() => setSwitchingBody(false)}
+          onCancel={closeBodySwitcher}
         />
       ) : null}
 
@@ -1086,7 +1198,7 @@ export function DashboardPage() {
         <PinDialog
           mode="gate"
           onUnlocked={finishSettingMissingPin}
-          onCancel={() => setSettingMissingPin(false)}
+          onCancel={cancelSettingMissingPin}
         />
       ) : null}
     </main>

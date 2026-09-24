@@ -15,6 +15,12 @@ import {
   sameLabel,
   sanitizeCustomFields,
 } from '@/data/body-vocabulary';
+import {
+  DEFAULT_CLASS_TYPE_LABEL,
+  DEFAULT_PERIOD_TYPE_LABEL,
+  classSetupIssues,
+  firstClassSetupIssue,
+} from '@/data/class-with-periods';
 
 export type Person = {
   id?: number;
@@ -803,6 +809,95 @@ export async function createBody(input: CreateBodyInput): Promise<AttendanceBody
       const id = await bodiesTable.add({ ...body });
       await ensureBodyType(typeLabel);
       return { ...body, id };
+    },
+  );
+}
+
+export type CreateClassWithPeriodsInput = {
+  className: string;
+  /** Defaults to "class". Free text, like any `typeLabel`. */
+  parentTypeLabel?: string;
+  /** Defaults to "period". Free text, like any `typeLabel`. */
+  childTypeLabel?: string;
+  /** One child per entry, in this order. 1 to `MAX_CLASS_PERIODS`. */
+  periodNames: readonly string[];
+};
+
+export type ClassWithPeriods = {
+  parent: AttendanceBody;
+  /** In `sortOrder`, which is the order the names were given in. */
+  periods: AttendanceBody[];
+};
+
+/**
+ * Design 09 §1: a new root plus one child per period, in one transaction —
+ * either the whole class exists afterwards or none of it does. Same rules as
+ * `createBody` for each node (trimmed non-empty name and label, required
+ * custom fields enforced, labels added to the 08b vocabulary), plus: 1 to 10
+ * periods, and no two periods in the class with the same name. Root names are
+ * not required to be unique, matching `createBody`.
+ *
+ * Like `createBody`, this does not attach the device to anything and writes
+ * no activity row; the caller decides where the device points.
+ */
+export async function createClassWithPeriods(
+  input: CreateClassWithPeriodsInput,
+): Promise<ClassWithPeriods> {
+  const draft = {
+    className: input.className,
+    parentTypeLabel: input.parentTypeLabel ?? DEFAULT_CLASS_TYPE_LABEL,
+    childTypeLabel: input.childTypeLabel ?? DEFAULT_PERIOD_TYPE_LABEL,
+    periodNames: input.periodNames,
+  };
+  const problem = firstClassSetupIssue(classSetupIssues(draft));
+  if (problem) throw new BodyHierarchyError(problem);
+  const className = draft.className.trim();
+  const parentTypeLabel = draft.parentTypeLabel.trim();
+  const childTypeLabel = draft.childTypeLabel.trim();
+  const periodNames = draft.periodNames.map((name) => name.trim());
+
+  return database.transaction(
+    'rw',
+    bodiesTable,
+    bodyTypesTable,
+    bodyFieldsTable,
+    async () => {
+      const fieldDefs = await bodyFieldsTable.toArray();
+      // This flow collects no custom fields, so a type label that requires
+      // one cannot be created here. Refused before any write.
+      for (const label of [parentTypeLabel, childTypeLabel]) {
+        const missing = missingRequiredFields(label, fieldDefs, {});
+        if (missing.length > 0) {
+          throw new BodyVocabError(
+            `${missing.map((field) => field.label).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required for a ${label}. Create it as a single body instead, or change the type label.`,
+          );
+        }
+      }
+      const bodies = await bodiesTable.toArray();
+      const createdAt = new Date().toISOString();
+      const parentRow: Omit<AttendanceBody, 'id'> = {
+        name: className,
+        typeLabel: parentTypeLabel,
+        createdAt,
+        parentId: null,
+        sortOrder: nextSiblingSortOrder(bodies, null),
+      };
+      const parentId = await bodiesTable.add({ ...parentRow });
+      const periods: AttendanceBody[] = [];
+      for (const [index, name] of periodNames.entries()) {
+        const row: Omit<AttendanceBody, 'id'> = {
+          name,
+          typeLabel: childTypeLabel,
+          createdAt,
+          parentId,
+          sortOrder: index,
+        };
+        const id = await bodiesTable.add({ ...row });
+        periods.push({ ...row, id });
+      }
+      await ensureBodyType(parentTypeLabel);
+      await ensureBodyType(childTypeLabel);
+      return { parent: { ...parentRow, id: parentId }, periods };
     },
   );
 }

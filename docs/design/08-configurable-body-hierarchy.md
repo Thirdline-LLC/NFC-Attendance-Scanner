@@ -87,8 +87,9 @@ Subtree workbook export, `Body Path` / `Parent Body` columns, and multi-body pac
 ## UI (08a)
 
 - **Body switcher** (dashboard, still behind the teacher PIN route): tree ordered by `sortOrder`, search across name / type label / path, indented rows, path on nested nodes. Create a root or a child. Rename, reparent, archive, restore. Archived rows cannot be selected. Soft depth warning on create.
+  - *Amended by [Design 09](09-multi-period-classes-and-range-export.md) §1–2 (slice 3):* parents render as collapsible groups (`English 11 · 5 periods`, non-archived children counted, disclosure button with `aria-expanded`), children indented in `sortOrder`, all groups open by default; collapse state is component state only. A search still lists matches flat with their paths. "Add a body" offers **Single body** (the form above, unchanged) or **Class with periods** (Design 09 §1).
 - **Desk:** subtitle is `name · typeLabel` for a root and `Parent › Child · typeLabel` for a nested body. No body control on the scanner.
-- **Dashboard:** toggle “This body” / “This body + descendants.” The roll-up states the email-then-card rule. Unknown cards say they are summed per body. The active-body card uses generic copy.
+- **Dashboard:** toggle “This body” / “This body + descendants.” The roll-up states the email-then-card rule. Unknown cards say they are summed per body. The active-body card uses generic copy. *Design 09 §2 (slice 3):* with the subtree toggle on a body that has children, a per-child breakdown table follows the roll-up.
 
 ## FERPA
 

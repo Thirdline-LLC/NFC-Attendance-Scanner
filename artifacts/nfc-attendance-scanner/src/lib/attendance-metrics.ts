@@ -5,6 +5,12 @@ import {
 } from '@/lib/attendance-export';
 import { formatSessionDate } from '@/lib/session-formatting';
 import {
+  compareSiblingOrder,
+  isArchived,
+  subtreeBodyIds,
+  type BodyNode,
+} from '@/data/body-hierarchy';
+import {
   indexRoster,
   resolveTapPerson,
   type RosterIndex,
@@ -544,4 +550,63 @@ function computeRollupSessionAttendance(
   });
 
   return sessions.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+}
+
+/** One row of the class view's per-period table (Design 09 §2). */
+export type PeriodBreakdownRow = {
+  bodyId: number;
+  name: string;
+  archived: boolean;
+  /** Sessions held this school year. */
+  meetingsHeld: number;
+  /** Distinct enrolled students present at least once this school year. */
+  uniquePresent: number;
+  enrolled: number;
+  /**
+   * Average students present per meeting as a share of the roster, 0–100+.
+   * `null` when there is no roster or no meeting yet to divide by.
+   */
+  averageAttendancePercent: number | null;
+};
+
+/**
+ * One row per direct child of `parentId`, in `sortOrder`, each computed the
+ * way the "This body + descendants" figures are — the child plus its own
+ * descendants, with the Design 08 roll-up identity — so the rows use the same
+ * rules as the totals above them. Archived children are kept (their history
+ * is still in the roll-up) and flagged. Year to date, like every figure on
+ * the dashboard. `taps`/`persons` may be the whole subtree's; each row takes
+ * only its own bodies' rows.
+ */
+export function computePeriodBreakdown(
+  parentId: number,
+  bodies: readonly BodyNode[],
+  taps: readonly TapRecord[],
+  persons: readonly Person[],
+  now: string,
+): PeriodBreakdownRow[] {
+  const children = bodies
+    .filter((body) => body.id !== undefined && body.parentId === parentId)
+    .sort(compareSiblingOrder);
+  return children.map((child) => {
+    const ids = new Set(subtreeBodyIds(child.id as number, bodies));
+    const metrics = computeRollupDashboardMetrics(
+      taps.filter((tap) => tap.bodyId !== undefined && ids.has(tap.bodyId)),
+      persons.filter((person) => person.bodyId !== undefined && ids.has(person.bodyId)),
+      now,
+    );
+    const { ytd, enrolledStudents } = metrics;
+    return {
+      bodyId: child.id as number,
+      name: child.name,
+      archived: isArchived(child),
+      meetingsHeld: ytd.sessionsCount,
+      uniquePresent: ytd.uniqueStudents,
+      enrolled: enrolledStudents,
+      averageAttendancePercent:
+        enrolledStudents > 0 && ytd.hasSessions
+          ? (ytd.averageAttendance / enrolledStudents) * 100
+          : null,
+    };
+  });
 }

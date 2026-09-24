@@ -4,6 +4,7 @@ import { indexRoster } from '@/lib/tap-identity';
 import {
   DEFAULT_ATTENDANCE_TARGET,
   computeDashboardMetrics,
+  computePeriodBreakdown,
   computeRollupDashboardMetrics,
   computeSessionAttendance,
   computeYtdSummary,
@@ -516,5 +517,74 @@ describe('subtree roll-up metrics', () => {
     const rolled = computeRollupDashboardMetrics(taps, [known], NOW);
     expect(rolled.ytd.uniqueStudents).toBe(0);
     expect(rolled.unidentified.cardCount).toBe(1);
+  });
+});
+
+describe('computePeriodBreakdown', () => {
+  const created = at('2026-08-20');
+  const bodies = [
+    { id: 10, name: 'English 11', typeLabel: 'class', createdAt: created, parentId: null },
+    { id: 12, name: 'Period 3', typeLabel: 'period', createdAt: created, parentId: 10, sortOrder: 1 },
+    { id: 11, name: 'Period 1', typeLabel: 'period', createdAt: created, parentId: 10, sortOrder: 0 },
+  ];
+  const enrolled = (id: number, bodyId: number, name: string): Person => ({
+    id,
+    bodyId,
+    cardUid: `04000000000${id}0`,
+    firstName: name,
+    lastName: 'Student',
+    gradYear: 2028,
+    email: `${name.toLowerCase()}@example.com`,
+    enrolledAt: at('2026-08-20'),
+  });
+  // Period 1: four enrolled. Period 3: two enrolled, one of them never taps.
+  const p1 = [1, 2, 3, 4].map((id) => enrolled(id, 11, `P1s${id}`));
+  const p3 = [enrolled(5, 12, 'P3a'), enrolled(6, 12, 'P3b')];
+  const t = (sessionId: string, who: Person, day: string): TapRecord => ({
+    ...tap(sessionId, who.cardUid as string, at(day), who.id as number),
+    bodyId: who.bodyId,
+  });
+  const taps = [
+    // Period 1 meets twice: 3 present, then 2 present (one repeat).
+    t('p1-a', p1[0], '2026-09-01'),
+    t('p1-a', p1[1], '2026-09-01'),
+    t('p1-a', p1[2], '2026-09-01'),
+    t('p1-b', p1[0], '2026-09-02'),
+    t('p1-b', p1[3], '2026-09-02'),
+    // Period 3 meets once: 1 present.
+    t('p3-a', p3[0], '2026-09-01'),
+    // Last school year: not counted.
+    t('p3-old', p3[1], '2026-03-01'),
+  ];
+
+  it('gives each period its meetings, unique present, and average attendance %, in sortOrder', () => {
+    const rows = computePeriodBreakdown(10, bodies, taps, [...p1, ...p3], NOW);
+    expect(rows).toEqual([
+      {
+        bodyId: 11,
+        name: 'Period 1',
+        archived: false,
+        meetingsHeld: 2,
+        uniquePresent: 4,
+        enrolled: 4,
+        // (3 + 2) / 2 = 2.5 per meeting of 4 enrolled.
+        averageAttendancePercent: 62.5,
+      },
+      {
+        bodyId: 12,
+        name: 'Period 3',
+        archived: false,
+        meetingsHeld: 1,
+        uniquePresent: 1,
+        enrolled: 2,
+        averageAttendancePercent: 50,
+      },
+    ]);
+  });
+
+  it('has no percentage for a period with no roster or no meetings', () => {
+    const rows = computePeriodBreakdown(10, bodies, [], p1, NOW);
+    expect(rows.map((row) => row.averageAttendancePercent)).toEqual([null, null]);
+    expect(rows[1].enrolled).toBe(0);
   });
 });

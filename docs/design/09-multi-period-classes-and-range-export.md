@@ -1,6 +1,6 @@
 # Design 09 — Multi-period classes, date-range export, and class-wide roll-up
 
-**Status:** Spec 2026-09-24 (docs only, no implementation in this PR)  
+**Status:** Spec 2026-09-24 · Build-order step 3 (§1 setup flow, §2 tree + per-period breakdown) implemented on `feat/d09-class-with-periods`  
 **Baseline:** [Design 02](02-attendance-bodies-sessions-taps.md) (D-T2), [Design 05](05-pin-and-roles.md), [Design 06](06-export-and-sor.md), [Design 08](08-configurable-body-hierarchy.md) (08a/08b shipped, 08c deferred).  
 **Amends:** Designs 02, 05, 06, 08 (see [Amendments](#amendments-to-existing-designs)). Amendments land in the implementing slices, not in this PR.
 
@@ -115,7 +115,12 @@ Each step is one implementation slice (one Claude Code Sonnet session), then Rev
 
 1. Roster **Download template** button (in progress).
 2. **Require teacher PIN** on/off switch (queued).
-3. **Class with periods** setup screen + collapsible tree + per-period breakdown on the dashboard.
+3. **Class with periods** setup screen + collapsible tree + per-period breakdown on the dashboard. **Implemented** (`feat/d09-class-with-periods`). Choices made there:
+   - `createClassWithPeriods` (attendance-store) writes the parent and all periods in one Dexie transaction; no schema bump. Like `createBody` it writes **no activity row** and does not require root names to be unique. A type label with a *required* 08b custom field is refused, since the flow collects none.
+   - Like **Create and switch**, the device attaches to the new **class** (the parent), and the dashboard figures switch to "This body + descendants" so the per-period table shows.
+   - Follow-up step: **Download template** per period (the Students page xlsx template, pre-filled with that period; not logged, as on the Students page) and **Skip for now / Done**. Per-period *upload* is not in this slice; import stays on the Students page for the active body.
+   - Breakdown columns: meetings held, unique present (of enrolled), average attendance % = average students present per meeting ÷ that period's roster, year to date, computed with the roll-up rules over each child's own subtree. Archived children stay in the table, marked; the parent row's count excludes them.
+   - Optional `BodyFieldDef` "Period"/"Room" seeding was not done.
 4. **Scanner period switcher** + Design 08 amendment.
 5. **Date-range export dialog** with Summary and By meeting sheets + Design 06 amendment.
 6. **Class-wide export** (08c export half) with Period column and Summary by period + Design 06/08 amendments.
@@ -129,7 +134,7 @@ Step 5 precedes 6 because 6 reuses its dialog and Summary builder.
 | **02 Bodies, sessions, taps (D-T2)** | Switching the active body is PIN-gated (dashboard only); the desk never flips bodies mid-queue. | A sibling-only period switcher on the scanner may change `activeBodyId` without the PIN (unless the per-device setting requires it). The no-flip-mid-queue rule is kept: switching is disabled while any tap is pending. Sessions stay per body; taps after a switch join the new body's session (slice 4). |
 | **05 PIN & roles** | PIN always guards teacher pages. | PIN may be toggled off by a teacher (slice 2). Scanner period switching is not a teacher action and does not require the PIN, with an optional per-device "require PIN to switch" setting (slice 4). Protection-toggle rule: turning either protection off requires the current PIN; turning it on does not; every change is logged without PII. Note: while the PIN is off, anyone at the device can run range and class-wide exports. |
 | **06 Export & SoR** | Session export and all-history export (+ Activity sheet) for the active body; no date filter. | Adds range export with Summary and By meeting sheets; Activity sheet only on All time (slice 5). Adds subtree scope with Period column and Summary by period (slice 6). |
-| **08 Body hierarchy** | "No body control on the scanner." Export and retention stay on the active body; subtree workbook is 08c. | Allows a sibling-only period switcher on the scanner (slice 4). Moves the subtree-export half of 08c into Design 09 (slice 6); import half stays 08c. |
+| **08 Body hierarchy** | "No body control on the scanner." Export and retention stay on the active body; subtree workbook is 08c. | Picker renders parents as collapsible groups and offers the Class with periods preset; dashboard adds the per-period table (slice 3, landed in Design 08 UI). Allows a sibling-only period switcher on the scanner (slice 4). Moves the subtree-export half of 08c into Design 09 (slice 6); import half stays 08c. |
 
 ## Conflicts and edge cases
 

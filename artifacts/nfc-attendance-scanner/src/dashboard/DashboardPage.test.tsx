@@ -20,6 +20,7 @@ import {
 import * as operatorPin from '@/data/operator-pin';
 import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
 import * as attendanceExport from '@/lib/attendance-export';
+import * as rosterTemplate from '@/lib/roster-template';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
 import { schoolYearStart } from '@/lib/attendance-metrics';
 import { OperatorLockProvider } from '@/lock/OperatorLockProvider';
@@ -693,6 +694,8 @@ describe('DashboardPage "Require teacher PIN" switch', () => {
       );
       const toggle = await screen.findByTestId('switch-pin-required');
       expect(toggle.getAttribute('aria-checked')).toBe('true');
+      // The alert's button is gone; the keyboard lands on the switch it brought back.
+      await waitFor(() => expect(document.activeElement).toBe(toggle));
       expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
       // The requirement never changed, so only the set is logged.
       expect(await attendanceStore.getPinRequired()).toBe(true);
@@ -728,6 +731,78 @@ describe('DashboardPage "Require teacher PIN" switch', () => {
       );
       expect(await screen.findByTestId('switch-pin-required')).toBeTruthy();
       expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
+      // Setting a PIN is not flipping the requirement: still on, and neither
+      // direction of the switch was logged.
+      expect(await attendanceStore.getPinRequired()).toBe(true);
+      const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+      expect(kinds).not.toContain('pin-enabled');
+      expect(kinds).not.toContain('pin-disabled');
+    });
+
+    it('cancelling Set PIN returns focus to Change PIN', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+
+      await user.click(screen.getByTestId('button-pin-error-set-pin'));
+      await screen.findByTestId('text-pin-title');
+      await user.click(screen.getByTestId('button-pin-cancel'));
+
+      expect(screen.queryByTestId('dialog-pin')).toBeNull();
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByTestId('button-change-pin')),
+      );
+    });
+
+    it('a PIN set elsewhere before Set PIN is pressed is asked for, not reported as set', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+      // Another window sets a PIN while the alert is still up.
+      await setOperatorPin('9753');
+
+      await user.click(screen.getByTestId('button-pin-error-set-pin'));
+      await waitFor(() =>
+        expect(screen.getByTestId('text-pin-title').textContent).toBe('Enter the teacher PIN'),
+      );
+      await user.type(screen.getByTestId('input-pin'), '9753');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+      expect((await screen.findByTestId('text-pin-changed')).textContent).toBe(
+        'A teacher PIN is already set on this device.',
+      );
+      expect(await attendanceStore.getPinRequired()).toBe(true);
+      const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+      expect(kinds).not.toContain('pin-set');
+    });
+
+    it('a PIN set elsewhere while the set form is open is named, and asked for', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+
+      await user.click(screen.getByTestId('button-pin-error-set-pin'));
+      await waitFor(() =>
+        expect(screen.getByTestId('text-pin-title').textContent).toBe('Set a teacher PIN'),
+      );
+      await setOperatorPin('9753');
+      await user.type(screen.getByTestId('input-pin'), '1357');
+      await user.type(screen.getByTestId('input-pin-confirm'), '1357');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      expect((await screen.findByTestId('text-pin-error')).textContent).toBe(
+        'A teacher PIN was set on this device in the meantime. Enter it to continue.',
+      );
+      expect(screen.getByTestId('text-pin-title').textContent).toBe('Enter the teacher PIN');
+      // Nothing was overwritten.
+      expect(await verifyOperatorPin('9753')).toEqual({ status: 'ok' });
+
+      await user.type(screen.getByTestId('input-pin'), '9753');
+      await user.click(screen.getByTestId('button-pin-submit'));
+      await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+      expect((await screen.findByTestId('text-pin-changed')).textContent).toBe(
+        'A teacher PIN is already set on this device.',
+      );
+      const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+      expect(kinds).not.toContain('pin-set');
     });
 
     it('Dismiss clears the alert', async () => {
@@ -914,6 +989,115 @@ describe('DashboardPage attendance body', () => {
       ),
     );
     expect(screen.getByTestId('text-active-body').textContent).toContain('section');
+  });
+
+  it('creates a class with periods, attaches to the class, and offers per-period templates', async () => {
+    const delivered = vi
+      .spyOn(rosterTemplate, 'deliverRosterTemplateWorkbook')
+      .mockResolvedValue({ filename: 'tapin-roster-template-period-3.xlsx', delivery: 'download' });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.click(await screen.findByTestId('button-add-mode-class'));
+    await user.type(screen.getByTestId('input-class-name'), 'English 11');
+    await user.click(screen.getByTestId('button-period-count-down'));
+    await user.click(screen.getByTestId('button-period-count-down'));
+    await user.click(screen.getByTestId('button-class-create'));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Add students to each period' }),
+    ).toBeTruthy();
+    const active = await getActiveBody();
+    expect(active.name).toBe('English 11');
+    const periods = (await listBodies()).filter((body) => body.parentId === active.id);
+    expect(periods.map((body) => body.name)).toEqual(['Period 1', 'Period 2', 'Period 3']);
+
+    await user.click(screen.getByRole('button', { name: 'Download template for Period 3' }));
+    expect(delivered).toHaveBeenCalledWith(expect.objectContaining({ id: periods[2].id }));
+    await user.click(await screen.findByRole('button', { name: 'Done' }));
+    expect(screen.queryByTestId('dialog-body-switcher')).toBeNull();
+    // Focus goes back to the button that opened the switcher.
+    expect(document.activeElement).toBe(screen.getByTestId('button-change-body'));
+    await waitFor(() =>
+      expect(screen.getByTestId('text-active-body').textContent).toContain('English 11'),
+    );
+    // The class-wide view is on straight away, with a row per period.
+    expect(screen.getByTestId('button-metrics-subtree').getAttribute('aria-pressed')).toBe('true');
+    const table = screen.getByTestId('table-period-breakdown');
+    expect(within(table).getAllByRole('rowheader').map((cell) => cell.textContent)).toEqual([
+      'Period 1',
+      'Period 2',
+      'Period 3',
+    ]);
+    // Template downloads are not logged, as on the Students page; creating is not either.
+    expect(await attendanceStore.listActivity()).toEqual([]);
+
+    // Reopened, the class sits in the tree as a group.
+    await user.click(screen.getByTestId('button-change-body'));
+    expect((await screen.findByTestId(`button-body-${active.id}`)).textContent).toContain(
+      'English 11 · 3 periods',
+    );
+  });
+
+  it('shows a per-period breakdown on the class view', async () => {
+    const seniorYear = currentSeniorGradYear(new Date().toISOString());
+    const { parent, periods } = await attendanceStore.createClassWithPeriods({
+      className: 'English 11',
+      periodNames: ['Period 1', 'Period 3'],
+    });
+    const [first, third] = periods;
+    // Period 1: two students; one meeting with both, one with one.
+    await setActiveBody(first.id as number);
+    const [a, b] = await Promise.all(
+      ['a', 'b'].map((suffix, index) =>
+        addPerson({
+          cardUid: `04000000000A${index}0`,
+          firstName: `Student${suffix}`,
+          lastName: 'One',
+          gradYear: seniorYear,
+          email: `p1-${suffix}@example.com`,
+          enrolledAt: secondsAgo(200),
+        }),
+      ),
+    );
+    await recordSessionTap({ sessionId: 'p1-a', uid: a.cardUid, scannedAt: secondsAgo(120), personId: a.id });
+    await recordSessionTap({ sessionId: 'p1-a', uid: b.cardUid, scannedAt: secondsAgo(119), personId: b.id });
+    await recordSessionTap({ sessionId: 'p1-b', uid: a.cardUid, scannedAt: secondsAgo(60), personId: a.id });
+    // Period 3: one student enrolled, no meetings yet.
+    await setActiveBody(third.id as number);
+    await addPerson({
+      cardUid: '04000000000C00',
+      firstName: 'Studentc',
+      lastName: 'Three',
+      gradYear: seniorYear,
+      email: 'p3-c@example.com',
+      enrolledAt: secondsAgo(200),
+    });
+    await setActiveBody(parent.id as number);
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('dashboard');
+    // "This body" alone: the class itself has no taps, and no table.
+    expect(screen.queryByTestId('table-period-breakdown')).toBeNull();
+
+    await user.click(screen.getByTestId('button-metrics-subtree'));
+    const table = await screen.findByTestId('table-period-breakdown');
+    const headers = within(table)
+      .getAllByRole('columnheader')
+      .map((cell) => cell.textContent);
+    expect(headers).toEqual(['Period', 'Meetings held', 'Unique present', 'Avg attendance']);
+
+    const firstRow = within(screen.getByTestId(`row-period-${first.id}`)).getAllByRole('cell');
+    expect(within(screen.getByTestId(`row-period-${first.id}`)).getByRole('rowheader').textContent).toBe('Period 1');
+    // 2 meetings; both students present at least once; (2 + 1) / 2 = 1.5 of 2 = 75%.
+    expect(firstRow.map((cell) => cell.textContent)).toEqual(['2', '2 of 2', '75%']);
+    const thirdRow = within(screen.getByTestId(`row-period-${third.id}`)).getAllByRole('cell');
+    expect(thirdRow.map((cell) => cell.textContent)).toEqual(['0', '0 of 1', '— no meetings yet']);
+
+    await user.click(screen.getByTestId('button-metrics-this-body'));
+    expect(screen.queryByTestId('table-period-breakdown')).toBeNull();
   });
 
   it('shows a child body with its path and still switches to it', async () => {
