@@ -29,7 +29,7 @@ Results: `added` | `updated` | `unchanged` | `refused` (line number + reason). *
 {
   "v": 1,
   "body": { "name": "Robotics", "typeLabel": "club" },
-  "members": [{ "first_name": "Avery", "last_name": "Chen", "grad_year": 2028, "email": "achen28@stjohnschs.org" }],
+  "members": [{ "first_name": "Avery", "last_name": "Chen", "grad_year": 2028, "email": "avery.chen@example.com" }],
   "signature": { "alg": "ed25519", "keyId": "thirdline-roster-1", "sig": "…" }
 }
 ```

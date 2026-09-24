@@ -9,7 +9,9 @@ import {
   parseInstallAppUpdateRequest,
   parseSaveRequest,
   resolveBundledAsset,
+  contentMatchesExtension,
   saveDialogFilter,
+  saveDialogTitle,
 } from './validation';
 
 /** A filename of exactly the shape `buildAttendanceWorkbook` produces. */
@@ -364,5 +366,38 @@ describe('parseDownloadVerifiedAssetRequest', () => {
     ['a payload with no fields', {}],
   ])('refuses %s', (_case, payload) => {
     expect(parseDownloadVerifiedAssetRequest(payload)).toBeNull();
+  });
+});
+
+describe('saveDialogTitle', () => {
+  it('names each file type the desktop app saves', () => {
+    expect(saveDialogTitle('tapin-roster-template-robotics.xlsx')).toBe('Save roster template');
+    expect(saveDialogTitle('tapin-roster-template-robotics.csv')).toBe('Save roster template');
+    expect(saveDialogTitle('roster-2026-09-15-20260915T210000Z.xlsx')).toBe('Save roster export');
+    expect(saveDialogTitle('attendance-2026-09-15-20260915T170000Z.xlsx')).toBe(
+      'Save attendance export',
+    );
+  });
+});
+
+describe('contentMatchesExtension', () => {
+  const zip = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+  const csv = new TextEncoder().encode('first_name,last_name\n');
+
+  it('requires the zip header for .xlsx', () => {
+    expect(contentMatchesExtension('roster-2026-09-15-20260915T210000Z.xlsx', zip)).toBe(true);
+    expect(contentMatchesExtension('roster-2026-09-15-20260915T210000Z.xlsx', csv)).toBe(false);
+    expect(contentMatchesExtension('roster-2026-09-15-20260915T210000Z.xlsx', new Uint8Array())).toBe(
+      false,
+    );
+  });
+
+  it('refuses zip bytes under a .csv name', () => {
+    expect(contentMatchesExtension('tapin-roster-template-robotics.csv', csv)).toBe(true);
+    expect(contentMatchesExtension('tapin-roster-template-robotics.csv', zip)).toBe(false);
+  });
+
+  it('refuses any other extension', () => {
+    expect(contentMatchesExtension('notes.txt', csv)).toBe(false);
   });
 });

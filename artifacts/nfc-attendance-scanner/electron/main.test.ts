@@ -92,8 +92,11 @@ import fs from 'node:fs/promises';
 const writeFile = vi.mocked(fs.writeFile);
 const stat = vi.mocked(fs.stat);
 
-/** Well-formed base64: length a multiple of four, alphabet respected. */
+/** Well-formed base64: length a multiple of four, alphabet respected. Opens with the zip header, as every xlsx does. */
 const VALID_BASE64 = 'UEsDBBQAAAAIAA==';
+
+/** Plain CSV text (the template's header row), base64-encoded. */
+const CSV_BASE64 = 'Zmlyc3RfbmFtZSxsYXN0X25hbWUsZ3JhZF95ZWFyLGVtYWlsLGJvZHlfbmFtZSxib2R5X3R5cGUK';
 
 function saveWorkbook(payload: unknown) {
   const handler = ipcHandlers.get('attendance:save-workbook');
@@ -144,7 +147,7 @@ describe('the attendance:save-workbook handler', () => {
 
     const result = await saveWorkbook({
       filename: 'tapin-roster-template-robotics-club.csv',
-      base64: VALID_BASE64,
+      base64: CSV_BASE64,
     });
 
     const [options] = dialogMock.showSaveDialog.mock.calls[0];
@@ -208,5 +211,77 @@ describe('the attendance:save-workbook handler', () => {
       status: 'failed',
       message: 'The export request was malformed.',
     });
+  });
+});
+
+describe('the attendance:save-workbook handler: contents must match the extension', () => {
+  it('rejects an .xlsx whose bytes are not a zip, before the Save dialog opens', async () => {
+    const result = await saveWorkbook({
+      filename: 'tapin-roster-template-robotics-club.xlsx',
+      base64: CSV_BASE64,
+    });
+
+    expect(dialogMock.showSaveDialog).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'failed',
+      message: "The file's contents do not match its file type.",
+    });
+  });
+
+  it('rejects a .csv carrying zip (xlsx) bytes, before the Save dialog opens', async () => {
+    const result = await saveWorkbook({
+      filename: 'tapin-roster-template-robotics-club.csv',
+      base64: VALID_BASE64,
+    });
+
+    expect(dialogMock.showSaveDialog).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'failed',
+      message: "The file's contents do not match its file type.",
+    });
+  });
+
+  it('rejects an attendance export whose bytes are not a zip', async () => {
+    const result = await saveWorkbook({
+      filename: 'attendance-2026-09-15-20260915T170000Z.xlsx',
+      base64: CSV_BASE64,
+    });
+
+    expect(dialogMock.showSaveDialog).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'failed' });
+  });
+
+  it('writes exactly the decoded bytes once the contents match', async () => {
+    dialogMock.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/Users/teacher/Desktop/tapin-roster-template-robotics-club.csv',
+    });
+
+    await saveWorkbook({
+      filename: 'tapin-roster-template-robotics-club.csv',
+      base64: CSV_BASE64,
+    });
+
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    const [, written] = writeFile.mock.calls[0];
+    expect(Buffer.from(written as Buffer).equals(Buffer.from(CSV_BASE64, 'base64'))).toBe(true);
+  });
+});
+
+describe('the attendance:save-workbook handler: Save dialog title', () => {
+  it.each([
+    ['tapin-roster-template-robotics-club.xlsx', VALID_BASE64, 'Save roster template'],
+    ['tapin-roster-template-robotics-club.csv', CSV_BASE64, 'Save roster template'],
+    ['roster-2026-09-15-20260915T210000Z.xlsx', VALID_BASE64, 'Save roster export'],
+    ['attendance-2026-09-15-20260915T170000Z.xlsx', VALID_BASE64, 'Save attendance export'],
+  ])('titles the dialog for %s as "%s"', async (filename, base64, title) => {
+    dialogMock.showSaveDialog.mockResolvedValue({ canceled: true, filePath: undefined });
+
+    await saveWorkbook({ filename, base64 });
+
+    const [options] = dialogMock.showSaveDialog.mock.calls[0];
+    expect(options.title).toBe(title);
   });
 });
