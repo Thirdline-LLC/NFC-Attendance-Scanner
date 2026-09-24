@@ -1022,6 +1022,14 @@ describe('DashboardPage attendance body', () => {
     await waitFor(() =>
       expect(screen.getByTestId('text-active-body').textContent).toContain('English 11'),
     );
+    // The class-wide view is on straight away, with a row per period.
+    expect(screen.getByTestId('button-metrics-subtree').getAttribute('aria-pressed')).toBe('true');
+    const table = screen.getByTestId('table-period-breakdown');
+    expect(within(table).getAllByRole('rowheader').map((cell) => cell.textContent)).toEqual([
+      'Period 1',
+      'Period 2',
+      'Period 3',
+    ]);
     // Template downloads are not logged, as on the Students page; creating is not either.
     expect(await attendanceStore.listActivity()).toEqual([]);
 

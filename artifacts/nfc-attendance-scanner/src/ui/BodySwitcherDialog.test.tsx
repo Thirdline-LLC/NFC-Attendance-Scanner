@@ -80,11 +80,10 @@ describe('BodySwitcherDialog tree', () => {
     const toggle = screen.getByTestId('button-toggle-body-2');
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(toggle.getAttribute('aria-controls')).toBe('body-children-2');
-    expect(toggle.getAttribute('aria-label')).toBe('Collapse English 11');
+    expect(toggle.getAttribute('aria-label')).toBe('English 11: 5 periods');
 
     await user.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(toggle.getAttribute('aria-label')).toBe('Expand English 11');
     expect(document.getElementById('body-children-2')?.hidden).toBe(true);
     expect(screen.queryByRole('button', { name: /Period 3/ })).toBeNull();
 

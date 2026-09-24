@@ -666,7 +666,7 @@ function BodyTreeList({
             onClick={() => toggle(body.id as number)}
             aria-expanded={open}
             aria-controls={groupId}
-            aria-label={`${open ? 'Collapse' : 'Expand'} ${body.name}`}
+            aria-label={`${body.name}: ${childCountLabel(children.map((child) => child.body))}`}
             className="flex w-11 shrink-0 items-center justify-center rounded-xl border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
             data-testid={`button-toggle-body-${body.id}`}
           >
@@ -747,7 +747,6 @@ function BodyTreeList({
           {isGroup ? (
             <ul
               id={`body-children-${row.body.id}`}
-              role="group"
               aria-label={`${row.body.name}: ${childCountLabel(children.map((child) => child.body))}`}
               hidden={collapsed.has(row.body.id as number)}
               className={`grid gap-2 border-l-2 border-[hsl(var(--primary)/.35)] pl-3 ${nested ? '' : 'ml-[1.375rem]'}`}

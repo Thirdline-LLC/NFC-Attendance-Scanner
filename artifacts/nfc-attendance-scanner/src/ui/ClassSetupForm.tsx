@@ -226,11 +226,14 @@ export function ClassSetupForm({
             value={parentTypeLabel}
             onChange={(event) => setParentTypeLabel(event.target.value)}
             aria-invalid={issues.parentTypeLabel ? true : undefined}
+            aria-describedby={issues.parentTypeLabel ? `${idBase}-parent-type-error` : undefined}
             className={`mt-1.5 ${INPUT_CLASS}`}
             data-testid="input-class-type-label"
           />
           {issues.parentTypeLabel ? (
-            <span className={`block ${FIELD_ERROR_CLASS}`}>{issues.parentTypeLabel}</span>
+            <span id={`${idBase}-parent-type-error`} className={`block ${FIELD_ERROR_CLASS}`}>
+              {issues.parentTypeLabel}
+            </span>
           ) : null}
         </label>
         <label htmlFor={`${idBase}-child-type`} className="block">
@@ -242,11 +245,14 @@ export function ClassSetupForm({
             value={childTypeLabel}
             onChange={(event) => setChildTypeLabel(event.target.value)}
             aria-invalid={issues.childTypeLabel ? true : undefined}
+            aria-describedby={issues.childTypeLabel ? `${idBase}-child-type-error` : undefined}
             className={`mt-1.5 ${INPUT_CLASS}`}
             data-testid="input-period-type-label"
           />
           {issues.childTypeLabel ? (
-            <span className={`block ${FIELD_ERROR_CLASS}`}>{issues.childTypeLabel}</span>
+            <span id={`${idBase}-child-type-error`} className={`block ${FIELD_ERROR_CLASS}`}>
+              {issues.childTypeLabel}
+            </span>
           ) : null}
         </label>
       </div>
