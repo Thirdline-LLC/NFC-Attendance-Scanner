@@ -92,6 +92,63 @@ describe('buildRosterTemplateWorkbook', () => {
     expect(filename).toBe('tapin-roster-template-roster.xlsx');
   });
 
+  it('caps the filename slug at 64 characters so it always fits the desktop save allowlist', () => {
+    const longName: AttendanceBody = {
+      ...ACTIVE_BODY,
+      name: 'a'.repeat(200),
+    };
+    const { filename } = buildRosterTemplateWorkbook(longName);
+
+    expect(filename).toMatch(/^tapin-roster-template-[a-z0-9-]{1,64}\.xlsx$/);
+  });
+
+  it.each([
+    ['=SUM(A1:A9)', 'starts with ='],
+    ['+1+1', 'starts with +'],
+    ['-2+2', 'starts with -'],
+    ['@SUM(A1)', 'starts with @'],
+    ['\tRobotics', 'starts with a tab'],
+    ['\rRobotics', 'starts with a carriage return'],
+  ])('blanks the Body Name cell when it %s, rather than evaluating as a formula', (name) => {
+    const body: AttendanceBody = { ...ACTIVE_BODY, name };
+    const { workbook } = buildRosterTemplateWorkbook(body);
+    const [row] = XLSX.utils.sheet_to_json<Record<string, string>>(
+      workbook.Sheets[ROSTER_SHEET_NAME],
+      { defval: '' },
+    );
+
+    expect(row['Body Name']).toBe('');
+  });
+
+  it('blanks the Body Type cell when the type label looks like a formula', () => {
+    const body: AttendanceBody = { ...ACTIVE_BODY, typeLabel: '=cmd|/c calc' };
+    const { workbook } = buildRosterTemplateWorkbook(body);
+    const [row] = XLSX.utils.sheet_to_json<Record<string, string>>(
+      workbook.Sheets[ROSTER_SHEET_NAME],
+      { defval: '' },
+    );
+
+    expect(row['Body Type']).toBe('');
+  });
+
+  it('leaves an ordinary body name alone', () => {
+    const { workbook } = buildRosterTemplateWorkbook(ACTIVE_BODY);
+    const [row] = XLSX.utils.sheet_to_json<Record<string, string>>(
+      workbook.Sheets[ROSTER_SHEET_NAME],
+      { defval: '' },
+    );
+
+    expect(row['Body Name']).toBe('Robotics Club');
+  });
+
+  it('tells the teacher to delete the entire example row, not just its email', () => {
+    const { workbook } = buildRosterTemplateWorkbook(ACTIVE_BODY);
+    const instructions = XLSX.utils.sheet_to_csv(workbook.Sheets[INSTRUCTIONS_SHEET_NAME]);
+
+    expect(instructions).toContain('Delete the entire example row');
+    expect(instructions).toContain('Clearing only the email');
+  });
+
   it('ships an Instructions sheet the importer never reads', () => {
     const { workbook } = buildRosterTemplateWorkbook(ACTIVE_BODY);
 
@@ -194,6 +251,14 @@ describe('buildRosterTemplateCsv', () => {
     const { filename } = buildRosterTemplateCsv();
     expect(filename).toBe('tapin-roster-template-roster.csv');
   });
+
+  it('blanks the body_name field rather than writing a formula a spreadsheet would evaluate', () => {
+    const body: AttendanceBody = { ...ACTIVE_BODY, name: '=SUM(A1:A9)' };
+    const { text } = buildRosterTemplateCsv(body);
+    const [, dataLine] = text.split('\n');
+
+    expect(dataLine.trim()).toBe('Avery,Chen,2028,avery.chen@example.com,,Club');
+  });
 });
 
 describe('delivering the templates', () => {
@@ -212,6 +277,8 @@ describe('delivering the templates', () => {
     expect(request.filename).toBe('tapin-roster-template-robotics-club.xlsx');
     expect(request.format ?? 'xlsx').toBe('xlsx');
     expect(request.workbook.SheetNames).toEqual([ROSTER_SHEET_NAME, INSTRUCTIONS_SHEET_NAME]);
+    // A template's share sheet must not claim to be an attendance export.
+    expect(request.shareTitle).toBe('Roster template');
   });
 
   it('delivers the CSV template through deliverWorkbook in csv format', async () => {
@@ -220,5 +287,6 @@ describe('delivering the templates', () => {
     const [request] = vi.mocked(delivery.deliverWorkbook).mock.calls[0];
     expect(request.filename).toBe('tapin-roster-template-robotics-club.csv');
     expect(request.format).toBe('csv');
+    expect(request.shareTitle).toBe('Roster template');
   });
 });

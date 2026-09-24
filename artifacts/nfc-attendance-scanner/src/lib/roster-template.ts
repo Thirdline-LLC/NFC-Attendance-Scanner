@@ -47,6 +47,30 @@ const CSV_TEMPLATE_COLUMNS = [
 type TemplateRow = Record<(typeof TEMPLATE_COLUMNS)[number], string>;
 
 /**
+ * A leading `= + - @` — checked after trimming ordinary surrounding space, so
+ * " =SUM(A1)" is still caught — or a *literal* leading tab or CR — checked
+ * before trimming, since `trim()` would consume exactly the byte that makes
+ * it dangerous — is how a spreadsheet application decides a cell is a formula
+ * to evaluate rather than text to display. A body name a teacher typed is
+ * trusted content, but the template writes it into a cell without asking, so
+ * this is checked defensively rather than assumed safe.
+ */
+function looksLikeSpreadsheetFormula(value: string): boolean {
+  return /^[=+\-@]/.test(value.trim()) || value.startsWith('\t') || value.startsWith('\r');
+}
+
+/**
+ * The body field for the example row, or blank when the value could be read
+ * as a spreadsheet formula. Blanking rather than prefixing with `'` — the
+ * usual escape — because a prefixed value would no longer match the body on
+ * re-import, tripping the mismatch refusal for a body name that is entirely
+ * legitimate.
+ */
+function safeBodyField(value: string): string {
+  return looksLikeSpreadsheetFormula(value) ? '' : value;
+}
+
+/**
  * One row of clearly-example data. The email is an `example.com` address on
  * purpose: it is not a school address, so an import left with this row still
  * in it is refused on that row rather than silently creating a fake student.
@@ -57,21 +81,28 @@ function exampleRow(body?: AttendanceBody | null): TemplateRow {
     'Last Name': 'Chen',
     'Graduation Year': '2028',
     Email: 'avery.chen@example.com',
-    'Body Name': body?.name ?? '',
-    'Body Type': body?.typeLabel ?? '',
+    'Body Name': safeBodyField(body?.name ?? ''),
+    'Body Type': safeBodyField(body?.typeLabel ?? ''),
   };
 }
+
+/** The longest slug `bodySlug` will produce, matching the desktop save allowlist. */
+const MAX_SLUG_LENGTH = 64;
 
 /**
  * The active body's name, folded into a filename-safe slug, or a generic
  * fallback when there is no active body (or its name is punctuation only).
+ * Capped at `MAX_SLUG_LENGTH` so the filename it produces always fits the
+ * desktop save allowlist, however long the body name.
  */
 function bodySlug(body?: AttendanceBody | null): string {
   const slug = (body?.name ?? '')
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_SLUG_LENGTH)
+    .replace(/-+$/g, '');
   return slug || 'roster';
 }
 
@@ -97,8 +128,9 @@ const INSTRUCTIONS_LINES = [
   '  Body Name: Body Name, body_name',
   '  Body Type: Body Type, body_type',
   '',
-  'Delete the example row (Avery Chen) before importing — its email is not',
-  'a real address, so it will be refused on its own if you leave it in.',
+  'Delete the entire example row (Avery Chen) before importing — do not just',
+  'clear its email. Clearing only the email leaves a real-looking name and',
+  'graduation year behind, which would import Avery Chen as a real student.',
   '',
   'There is no card column. Cards are never set by import; each one binds',
   'the first time it is tapped at the scanner.',
@@ -175,7 +207,10 @@ export function buildRosterTemplateCsv(body?: AttendanceBody | null): RosterTemp
 export async function deliverRosterTemplateWorkbook(
   body?: AttendanceBody | null,
 ): Promise<DeliveredExport> {
-  return deliverWorkbook(buildRosterTemplateWorkbook(body));
+  return deliverWorkbook({
+    ...buildRosterTemplateWorkbook(body),
+    shareTitle: 'Roster template',
+  });
 }
 
 /**
@@ -191,5 +226,6 @@ export async function deliverRosterTemplateCsv(
     filename: templateFilename(body, 'csv'),
     workbook: csvTemplateWorkbook(body),
     format: 'csv',
+    shareTitle: 'Roster template',
   });
 }

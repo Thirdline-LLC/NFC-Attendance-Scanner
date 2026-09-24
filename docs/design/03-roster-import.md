@@ -47,7 +47,7 @@ never be refused for a mismatch. The xlsx template also ships an `Instructions` 
 
 ```csv
 first_name,last_name,grad_year,email,body_name,body_type
-Avery,Chen,2028,achen28@stjohnschs.org,Robotics,club
+Avery,Chen,2028,avery.chen@example.com,Robotics,club
 ```
 
 ## UI flow

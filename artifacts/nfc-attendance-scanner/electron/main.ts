@@ -28,6 +28,7 @@ import {
   parseInstallAppUpdateRequest,
   parseSaveRequest,
   resolveBundledAsset,
+  saveDialogFilter,
 } from './validation';
 
 // esbuild emits CommonJS for both Electron entry points (a sandboxed preload
@@ -222,7 +223,7 @@ function saveDialogOptions(filename: string) {
   return {
     title: 'Save attendance export',
     defaultPath: path.join(app.getPath('documents'), filename),
-    filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }],
+    filters: [saveDialogFilter(filename)],
     properties: ['createDirectory' as const, 'showOverwriteConfirmation' as const],
   };
 }

@@ -23,6 +23,13 @@ export type DeliverableWorkbook = {
    * function's three delivery routes rather than duplicating them for text.
    */
   format?: 'xlsx' | 'csv';
+  /**
+   * The Capacitor share sheet's title, and the word used in its prefilled
+   * text. Defaults to `'Attendance export'`, the only kind this function
+   * originally delivered; a roster export or template names itself instead so
+   * the share sheet does not call a roster a piece of attendance data.
+   */
+  shareTitle?: string;
 };
 
 /**
@@ -104,6 +111,7 @@ export async function deliverWorkbook({
   filename,
   workbook,
   format = 'xlsx',
+  shareTitle = 'Attendance export',
 }: DeliverableWorkbook): Promise<DeliveredExport> {
   // Checked before Capacitor: the desktop bridge is the more specific shell,
   // and `Capacitor.isNativePlatform()` is false inside Electron anyway.
@@ -150,10 +158,10 @@ export async function deliverWorkbook({
   try {
     if ((await Share.canShare()).value) {
       await Share.share({
-        title: 'Attendance export',
+        title: shareTitle,
         // `text` is what a mail or messaging target prefills; the file is the
         // payload either way.
-        text: `Attendance export ${filename}`,
+        text: `${shareTitle} ${filename}`,
         files: [uri],
       });
     }
