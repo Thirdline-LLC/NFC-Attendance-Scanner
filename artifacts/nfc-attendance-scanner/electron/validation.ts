@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import type { WorkbookSaveRequest } from '../src/platform/desktop-bridge';
+import { UPDATE_REPO_NAME, UPDATE_REPO_OWNER } from '../src/update/repo-config';
 
 /**
  * The rules the main process applies to anything the renderer sends it.
@@ -84,19 +85,34 @@ export function resolveBundledAsset(
 }
 
 /**
- * A GitHub REST API Release-asset URL, and nothing else (Plan 07).
+ * A Release asset URL for this public repo, and nothing else (Plan 07).
  *
- * `downloadVerifiedAsset` fetches whatever URL the renderer hands it, so this
- * is what keeps that from becoming an arbitrary-URL fetch on the operator's
- * behalf: only `https://api.github.com/repos/<owner>/<repo>/releases/assets/<id>`
- * is accepted, matching the `apiUrl` shape `@workspace/update` parses off a
- * release. `browser_download_url`s and anything on another host are refused.
+ * The renderer names the asset. This is what keeps that from becoming an
+ * arbitrary-URL fetch: either the GitHub API asset URL `@workspace/update`
+ * parses as `apiUrl`, or the public `browser_download_url` on
+ * `github.com/<owner>/<repo>/releases/download/…` for the same repo. The
+ * browser URL is what a classroom of Macs should use for the disk image —
+ * it is the release CDN, not the 60-request REST budget. Any other host,
+ * repo, or `..` segment is refused.
  */
-const GITHUB_RELEASE_ASSET_URL =
-  /^https:\/\/api\.github\.com\/repos\/[\w.-]+\/[\w.-]+\/releases\/assets\/\d+$/;
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const GITHUB_OWNER = escapeRegex(UPDATE_REPO_OWNER);
+const GITHUB_REPO = escapeRegex(UPDATE_REPO_NAME);
+
+const GITHUB_API_ASSET = new RegExp(
+  `^https://api\\.github\\.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/assets/\\d+$`,
+);
+const GITHUB_BROWSER_ASSET = new RegExp(
+  `^https://github\\.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/[^/?#]+/[^/?#]+$`,
+);
 
 export function isGithubReleaseAssetUrl(url: unknown): url is string {
-  return typeof url === 'string' && GITHUB_RELEASE_ASSET_URL.test(url);
+  if (typeof url !== 'string') return false;
+  if (url.includes('..') || /%2e%2e/i.test(url)) return false;
+  return GITHUB_API_ASSET.test(url) || GITHUB_BROWSER_ASSET.test(url);
 }
 
 /**
@@ -108,7 +124,19 @@ export function isGithubReleaseAssetUrl(url: unknown): url is string {
  * already parsed — the same allowlist-not-sanitiser approach as
  * `parseSaveRequest`.
  */
-const INSTALLER_FILENAME = /^[\w.-]+\.(dmg|apk)$/;
+/**
+ * electron-builder names the school disk image
+ * `SJC Attendance-<version>-arm64.dmg` — spaces allowed, path separators and
+ * `..` not. The bytes are never written under this name outside a directory
+ * the main process created.
+ */
+function isSafeInstallerName(name: string): boolean {
+  if (name.length === 0 || name.length > 180) return false;
+  if (name.includes('..') || name.includes('/') || name.includes('\\') || name.includes('\0')) {
+    return false;
+  }
+  return /^[\w .()-]+\.(dmg|apk)$/.test(name);
+}
 
 export type DownloadVerifiedAssetRequest = {
   assetUrl: string;
@@ -132,9 +160,23 @@ export function parseDownloadVerifiedAssetRequest(
     if (typeof suggestedName !== 'string' || !suggestedName.endsWith('.nfc-theme')) {
       return null;
     }
-  } else if (typeof suggestedName !== 'string' || !INSTALLER_FILENAME.test(suggestedName)) {
+  } else if (typeof suggestedName !== 'string' || !isSafeInstallerName(suggestedName)) {
     return null;
   }
 
   return { assetUrl, sha256Url, suggestedName, isTheme };
+}
+
+/** The in-place install IPC. Same asset rules as a non-theme download. */
+export function parseInstallAppUpdateRequest(
+  payload: unknown,
+): DownloadVerifiedAssetRequest | null {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+  const { assetUrl, sha256Url, suggestedName } = payload as Record<string, unknown>;
+  return parseDownloadVerifiedAssetRequest({
+    assetUrl,
+    sha256Url,
+    suggestedName,
+    isTheme: false,
+  });
 }

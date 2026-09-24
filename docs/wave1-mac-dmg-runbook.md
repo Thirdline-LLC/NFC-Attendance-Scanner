@@ -91,11 +91,16 @@ shasum -a 256 "artifacts/nfc-attendance-scanner/dist/desktop/SJC Attendance-<ver
    Expect no matches that wire an in-app feed. **Never** add `electron-updater`
    or Capacitor Live Update for Wave 1.
 
-#### Private-repo download note
+#### Public-repo download note
 
-The repo is **private**. A Release asset is not a public anonymous URL.
-Operators need GitHub org access (or a person with access downloads and
-AirDrops / USBs the DMG). Say that explicitly in the Release notes.
+The repo is **public** (`Thirdline-LLC/NFC-Attendance-Scanner`). A Release
+asset can be downloaded with no token. The macOS app's Check for updates
+path does that itself: verify SHA-256, replace the installed `.app`, relaunch.
+See [plans/07-update-checker.md](plans/07-update-checker.md). Do not delete
+the existing `v1.0.0` release when publishing a newer one.
+
+`electron-updater` is still forbidden. `publish: null` stays. The in-place
+swap is this repo's own helper, not an update feed.
 
 ---
 

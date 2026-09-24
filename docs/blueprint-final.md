@@ -149,12 +149,12 @@ Schema + SJC sample: `docs/design/04-theme-system.md`.
 
 | What | How |
 |---|---|
-| App binary | GitHub Release APK/DMG + SHA-256; MDM / sideload / `adb install -r` (same app id + signing key preserves IndexedDB) |
+| App binary | GitHub Release APK/DMG + SHA-256. On macOS, a teacher-confirmed check downloads the public arm64 DMG, verifies SHA-256, and replaces the installed `.app` in place (same bundle id — IndexedDB stays). Android remains sideload / `adb install -r`. |
 | Theme | Same Release, `themes/*.nfc-theme` + `.sha256` |
 | Roster | Human import from SoR / pack — not from Releases |
 | Attendance taps | **Never** synced between devices |
 
-Optional in-app “Check for update” may read **public release metadata** and download installers/themes only. D1: no Live Update auto-swap of the running binary without an explicit packaging decision later.
+Each device pulls public Releases on its own. There is no central update server and no upload of the student database. D1 still forbids Live Update and `electron-updater`. The macOS replace is a confirmed local swap, not an update feed (`publish: null` stays).
 
 ## 10. Roles (unchanged spirit)
 

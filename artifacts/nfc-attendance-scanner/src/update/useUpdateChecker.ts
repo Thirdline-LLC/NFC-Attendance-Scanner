@@ -1,11 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useReducer, useState } from 'react';
 import { loadThemePack } from '@workspace/themes';
 import {
   decideAppUpdate,
   decideThemeUpdate,
   fetchLatestRelease,
+  initialUpdateInstallState,
   isNewerVersion,
+  reduceUpdateInstall,
   type AppUpdateDecision,
+  type HostArch,
   type ThemeUpdateDecision,
   type UpdateErrorKind,
 } from '@workspace/update';
@@ -71,44 +74,85 @@ function describeDownloadFailure(
 export function useUpdateChecker() {
   const { active, isCustom, installPack } = useTheme();
   const [state, setState] = useState<CheckState>({ status: 'idle' });
+  const [installState, dispatchInstall] = useReducer(
+    reduceUpdateInstall,
+    initialUpdateInstallState(),
+  );
   const [lastChecked, setLastChecked] = useState<string | null>(() => readLastChecked());
   const [appNotice, setAppNotice] = useState<InstallNotice>(null);
   const [themeNotice, setThemeNotice] = useState<InstallNotice>(null);
-  const [appBusy, setAppBusy] = useState(false);
   const [themeBusy, setThemeBusy] = useState(false);
 
   const target = buildTarget();
   const currentVersion = appVersion();
   const desktop = getDesktopBridge();
+  const hostArch: HostArch | undefined =
+    target === 'electron' ? (desktop?.hostArch === 'x64' ? 'x64' : 'arm64') : undefined;
+
+  useEffect(() => {
+    if (!desktop?.onUpdateProgress) return undefined;
+    return desktop.onUpdateProgress((progress) => {
+      if (progress.phase === 'downloading') dispatchInstall({ type: 'confirm' });
+      else if (progress.phase === 'installing') dispatchInstall({ type: 'installing' });
+      else dispatchInstall({ type: 'relaunching' });
+    });
+  }, [desktop]);
 
   const check = useCallback(async () => {
+    if (
+      installState.phase === 'downloading' ||
+      installState.phase === 'installing' ||
+      installState.phase === 'relaunching'
+    ) {
+      return;
+    }
+    dispatchInstall({ type: 'check' });
     setState({ status: 'checking' });
     setAppNotice(null);
     setThemeNotice(null);
 
-    const result = await fetchLatestRelease(UPDATE_REPO_OWNER, UPDATE_REPO_NAME, {
-      fetchImpl: (url, init) => fetch(url, init),
-    });
+    try {
+      const result = await fetchLatestRelease(UPDATE_REPO_OWNER, UPDATE_REPO_NAME, {
+        fetchImpl: (url, init) => fetch(url, init),
+      });
 
-    if (!result.ok) {
-      setState({ status: 'error', message: result.message, kind: result.error });
-      return;
+      if (!result.ok) {
+        dispatchInstall({ type: 'failed', message: result.message });
+        setState({ status: 'error', message: result.message, kind: result.error });
+        return;
+      }
+
+      const app = decideAppUpdate(currentVersion, target, result.value, hostArch);
+      const theme = isCustom
+        ? decideThemeUpdate(active.meta.id, active.meta.version, result.value)
+        : ({ available: false, reason: 'default-theme' } as const);
+
+      if (app.available) dispatchInstall({ type: 'available', version: app.latestVersion });
+      else if (app.reason === 'up-to-date') dispatchInstall({ type: 'up-to-date' });
+      else dispatchInstall({ type: 'settled' });
+
+      const now = new Date().toISOString();
+      writeLastChecked(now);
+      setLastChecked(now);
+      setState({ status: 'checked', app, theme });
+    } catch {
+      const message = 'Could not reach GitHub. Check the network connection.';
+      dispatchInstall({ type: 'failed', message });
+      setState({ status: 'error', message, kind: 'offline' });
     }
+  }, [
+    currentVersion,
+    target,
+    hostArch,
+    isCustom,
+    active.meta.id,
+    active.meta.version,
+    installState.phase,
+  ]);
 
-    const app = decideAppUpdate(currentVersion, target, result.value);
-    const theme = isCustom
-      ? decideThemeUpdate(active.meta.id, active.meta.version, result.value)
-      : ({ available: false, reason: 'default-theme' } as const);
-
-    const now = new Date().toISOString();
-    writeLastChecked(now);
-    setLastChecked(now);
-    setState({ status: 'checked', app, theme });
-  }, [currentVersion, target, isCustom, active.meta.id, active.meta.version]);
-
-  const downloadApp = useCallback(async () => {
-    if (state.status !== 'checked' || !state.app.available || !desktop) return;
-    const { asset, sidecarAsset, latestVersion } = state.app;
+  const installApp = useCallback(async () => {
+    if (state.status !== 'checked' || !state.app.available || !desktop?.installAppUpdate) return;
+    const { asset, sidecarAsset } = state.app;
     if (!sidecarAsset) {
       setAppNotice({
         kind: 'err',
@@ -117,30 +161,24 @@ export function useUpdateChecker() {
       return;
     }
 
-    setAppBusy(true);
+    dispatchInstall({ type: 'confirm' });
     setAppNotice(null);
     try {
-      const result = await desktop.downloadVerifiedAsset({
-        assetUrl: asset.apiUrl,
-        sha256Url: sidecarAsset.apiUrl,
+      const result = await desktop.installAppUpdate({
+        assetUrl: asset.browserDownloadUrl || asset.apiUrl,
+        sha256Url: sidecarAsset.browserDownloadUrl || sidecarAsset.apiUrl,
         suggestedName: asset.name,
-        isTheme: false,
       });
       if (!result.ok) {
-        setAppNotice({ kind: 'err', text: describeDownloadFailure(result.reason) });
+        dispatchInstall({ type: 'failed', message: result.message });
+        setAppNotice({ kind: 'err', text: result.message });
         return;
       }
-      if (result.kind !== 'app') {
-        setAppNotice({ kind: 'err', text: 'Unexpected response from the desktop shell.' });
-        return;
-      }
-      await desktop.revealWorkbook(result.path);
-      setAppNotice({
-        kind: 'ok',
-        text: `Downloaded and verified v${latestVersion}. Revealed in Finder — open it to install; this app does not replace itself.`,
-      });
-    } finally {
-      setAppBusy(false);
+      dispatchInstall({ type: 'relaunching' });
+    } catch {
+      const text = 'The update could not be installed. Nothing was changed.';
+      dispatchInstall({ type: 'failed', message: text });
+      setAppNotice({ kind: 'err', text });
     }
   }, [state, desktop]);
 
@@ -208,8 +246,14 @@ export function useUpdateChecker() {
     }
   }, [desktop]);
 
+  const appBusy =
+    installState.phase === 'downloading' ||
+    installState.phase === 'installing' ||
+    installState.phase === 'relaunching';
+
   return {
     state,
+    installState,
     lastChecked,
     check,
     target,
@@ -217,9 +261,10 @@ export function useUpdateChecker() {
     releasesUrl: RELEASES_PAGE_URL,
     activeTheme: { id: active.meta.id, version: active.meta.version, isCustom },
     canVerifiedInstall: Boolean(desktop),
+    canInPlaceInstall: Boolean(desktop?.installAppUpdate) && target === 'electron',
     appBusy,
     appNotice,
-    downloadApp,
+    installApp,
     themeBusy,
     themeNotice,
     installTheme,

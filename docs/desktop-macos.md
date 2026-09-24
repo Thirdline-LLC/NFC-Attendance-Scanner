@@ -4,8 +4,9 @@ The same React app, Cap-managed for Wave 1 Mac distribute (Cap-compatible
 desktop packaging → `.dmg` with a normal `.app`). Cap has no first-party
 macOS; this guide documents the Cap-compatible packaging path in use today
 (Electron runtime under Cap ownership — not a “keep Electron shell” lock).
-It needs no Replit, no website, no server, no Mac App Store, and no internet
-connection after installation.
+It needs no Replit, no website, no server, and no Mac App Store. After
+installation the only network use is a teacher-initiated check of public
+GitHub Releases (the app binary and theme packs — never student records).
 
 > **A macOS build must be produced on macOS.** electron-builder can only make
 > an `.icns`, sign with a Developer ID certificate, or notarize on a Mac. The
@@ -21,7 +22,10 @@ connection after installation.
 > `package:mac:universal` or `package:mac:both` on that machine). Upload the
 > `.dmg` and its SHA-256 to a **GitHub Release** by hand. `publish: null` in
 > `electron-builder.yml` **stays**; never add `electron-updater`, Live Update,
-> or any in-app update feed (Must #11). Origin hard gate: preserve
+> or any in-app update feed (Must #11). A teacher can still check that public
+> Release and, on macOS, replace the installed `.app` in place — that is our
+> own helper, not an update feed. See
+> [`docs/plans/07-update-checker.md`](plans/07-update-checker.md). Origin hard gate: preserve
 > `app://attendance` **or** export-then-reinstall before cutover. Shell lock:
 > [`docs/decisions/2026-09-22-wave1-mac-shell-d1.md`](decisions/2026-09-22-wave1-mac-shell-d1.md).
 > Operator checklist: [`docs/wave1-mac-dmg-runbook.md`](wave1-mac-dmg-runbook.md).
@@ -96,8 +100,10 @@ denied outright; and the main process sends a restrictive
 its own policy.
 
 Verified in the renderer: `window.require`, `window.process`, `window.module`
-and `window.Buffer` are all undefined, and `window.attendanceDesktop` has
-exactly three keys — `platform`, `saveWorkbook`, `revealWorkbook`.
+and `window.Buffer` are all undefined, and `window.attendanceDesktop` exposes the export verbs plus the update
+verbs (`downloadVerifiedAsset` for theme packs, `installAppUpdate` and
+`onUpdateProgress` for the macOS in-place replace, `openReleasesPage`). It
+does not expose `require`, `fs`, or a way to name an arbitrary path.
 
 The CSP is provably live: it has no `unsafe-eval`, which is why a debugger's
 `executeJavaScript` is refused by the page.
@@ -398,14 +404,16 @@ verification on the M2:
    `electron-updater` would make the app check a feed at runtime and break
    Must #11 (no automatic updates). Must #11's "no network path for updates"
    half is superseded by D-T3 (`docs/decisions/2026-09-23-tapin-pilot-decisions.md`):
-   a teacher-initiated, PIN-gated "Check for updates" is allowed to read
-   Release metadata and — on this desktop build only — download and verify an
-   asset in the main process before handing it to the operator. It is still
-   never automatic and never an in-place binary swap; see
+   a teacher-initiated, PIN-gated "Check for updates" reads Release metadata
+   and — on this desktop build — downloads the arm64 `.dmg`, verifies
+   SHA-256, replaces the installed `.app` (the bundle this process is running
+   from, usually `/Applications/SJC Attendance.app`), and relaunches. It does
+   not run unless the teacher presses Check for updates and then Install and
+   relaunch. It is not `electron-updater`. See
    `docs/plans/07-update-checker.md` and `docs/update-token-ops.md`.
-4. **Private repo:** recipients need GitHub access (org member or a release
-   asset URL shared to someone who can download). Do not assume an anonymous
-   public download link. Document who may download in the release notes.
+4. **Public repo:** `Thirdline-LLC/NFC-Attendance-Scanner` is public. Devices
+   download Release assets with no token. A private-repo token is only needed
+   if the repository is made private again; see `docs/update-token-ops.md`.
 
 Short operator runbook: [wave1-mac-dmg-runbook.md](wave1-mac-dmg-runbook.md).
 

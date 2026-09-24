@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FORBIDDEN_THEME_FIELDS } from '@workspace/themes';
+import { renderInPlaceHelperScript, renderInPlaceSwapScript } from '../src/in-place-helper';
 import { fetchLatestRelease } from '../src/releases-client';
 import type { FetchLike } from '../src/types';
 
@@ -65,6 +66,16 @@ describe('no student data crosses the update-checker network path', () => {
       for (const field of FORBIDDEN_THEME_FIELDS) {
         expect(serialized).not.toContain(field.toLowerCase());
       }
+    }
+  });
+
+  it('the in-place helper does not upload anything and does not name student fields', () => {
+    const script = `${renderInPlaceHelperScript()}\n${renderInPlaceSwapScript()}`.toLowerCase();
+    expect(script).not.toMatch(/\b(curl|wget|fetch|nc)\b/);
+    // Word boundaries: "pin" is a forbidden field name, and it also sits
+    // inside the product name "tapin", which is not a student record.
+    for (const field of FORBIDDEN_THEME_FIELDS) {
+      expect(script).not.toMatch(new RegExp(`\\b${field.toLowerCase()}\\b`));
     }
   });
 });

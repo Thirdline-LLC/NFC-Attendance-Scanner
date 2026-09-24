@@ -2,16 +2,21 @@
 
 **Plan:** [plans/07-update-checker.md](plans/07-update-checker.md) · **Design:** [design/07-update-checker.md](design/07-update-checker.md)
 
-The Dashboard's "Check for updates" card reads `Thirdline-LLC/NFC-Attendance-Scanner`
-on GitHub Releases (`lib/update`'s `fetchLatestRelease`, and — on the macOS
-build only — the download-and-verify IPC handler in `electron/main.ts`).
+The Dashboard's "Check for updates" card reads the public repo
+`Thirdline-LLC/NFC-Attendance-Scanner` on GitHub Releases (`lib/update`'s
+`fetchLatestRelease`, and — on the macOS build — the in-place install IPC in
+`electron/main.ts`). Metadata is one REST call. The disk image and its
+`.sha256` file are fetched from the public release download URL (the release
+CDN), not uploaded anywhere. The student database never leaves the Mac.
 
 ## While the repo is public
 
-No token is needed. `fetchLatestRelease` and the asset-download handler both
-work anonymously; GitHub just rate-limits unauthenticated requests to 60/hour
-per IP, shared by every kiosk behind the same school NAT. A "GitHub is
-rate-limiting this network" message in the card means that, not a bug.
+No token is needed. `fetchLatestRelease` works anonymously. GitHub
+rate-limits unauthenticated REST calls to 60/hour per IP, shared by every
+kiosk behind the same school NAT — that budget is the metadata check, not
+the disk image. A "GitHub is rate-limiting this network" message in the card
+means that, not a bug. Many devices can still download the public `.dmg`
+from the release URL after a successful check.
 
 ## If the repo goes private
 
