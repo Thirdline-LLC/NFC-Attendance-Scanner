@@ -47,13 +47,16 @@ never be refused for a mismatch. The xlsx template also ships an `Instructions` 
 
 ```csv
 first_name,last_name,grad_year,email,body_name,body_type
-Avery,Chen,2028 (example),avery.chen@example.com,Robotics,club
-Jordan,Lee,2027 (example),jordan.lee@example.com,Robotics,club
+Avery,Chen,2028 (example),avery.chen@example.com,,
+Jordan,Lee,2027 (example),jordan.lee@example.com,,
 ```
 
 The static file's example rows carry `(example)` in the graduation year so the importer refuses
 them even if a teacher clears only the email (which would otherwise derive a school address and
-import the sample as a real student). `templates/README.md` says to delete them entirely.
+import the sample as a real student), and leave `body_name`/`body_type` blank so they never trip
+the whole-file body check — the rest of the file still imports into any active body. The in-app
+template's example row uses the same `(example)` year. `templates/README.md` says to delete the
+examples entirely.
 
 ## UI flow
 

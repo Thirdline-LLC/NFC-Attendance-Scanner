@@ -162,8 +162,8 @@ describe('buildRosterTemplateWorkbook', () => {
     // with Instructions present — proving the extra sheet is inert to it.
     const parsed = parseRosterWorkbook(workbook, ACTIVE_BODY);
     expect(parsed.entries).toEqual([]);
-    // The lone example row is refused (not silently accepted), because its
-    // email is not a school address.
+    // The lone example row is refused (not silently accepted): its
+    // "(example)" graduation year is not a four-digit year.
     expect(parsed.rejected).toHaveLength(1);
   });
 
@@ -257,7 +257,7 @@ describe('buildRosterTemplateCsv', () => {
     const { text } = buildRosterTemplateCsv(body);
     const [, dataLine] = text.split('\n');
 
-    expect(dataLine.trim()).toBe('Avery,Chen,2028,avery.chen@example.com,,Club');
+    expect(dataLine.trim()).toBe('Avery,Chen,2028 (example),avery.chen@example.com,,Club');
   });
 });
 
@@ -288,5 +288,38 @@ describe('delivering the templates', () => {
     expect(request.filename).toBe('tapin-roster-template-robotics-club.csv');
     expect(request.format).toBe('csv');
     expect(request.shareTitle).toBe('Roster template');
+  });
+});
+
+describe('the in-app example row is refused even with only its email cleared', () => {
+  it('xlsx: clearing just the Email cell imports nobody', () => {
+    const { workbook } = buildRosterTemplateWorkbook(ACTIVE_BODY);
+    const sheet = workbook.Sheets[ROSTER_SHEET_NAME];
+    const [row] = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: '' });
+    expect(row['Graduation Year']).toBe('2028 (example)');
+    workbook.Sheets[ROSTER_SHEET_NAME] = XLSX.utils.json_to_sheet([{ ...row, Email: '' }]);
+
+    const parsed = parseRosterWorkbook(workbook, ACTIVE_BODY);
+    expect(parsed.entries).toEqual([]);
+    expect(parsed.rejected).toHaveLength(1);
+    expect(parsed.rejected[0].reason).toMatch(/not a four-digit year/);
+  });
+
+  it('csv: clearing just the email field imports nobody', () => {
+    const { text } = buildRosterTemplateCsv(ACTIVE_BODY);
+    const [header, dataLine] = text.trim().split('\n');
+    const fields = dataLine.split(',');
+    fields[3] = '';
+
+    const parsed = parseRosterCsvText(`${header}\n${fields.join(',')}\n`, ACTIVE_BODY);
+    expect(parsed.entries).toEqual([]);
+    expect(parsed.rejected).toHaveLength(1);
+    expect(parsed.rejected[0].reason).toMatch(/not a four-digit year/);
+  });
+
+  it('the Instructions sheet explains the "(example)" year', () => {
+    const { workbook } = buildRosterTemplateWorkbook(ACTIVE_BODY);
+    const instructions = XLSX.utils.sheet_to_csv(workbook.Sheets[INSTRUCTIONS_SHEET_NAME]);
+    expect(instructions).toContain('2028 (example)');
   });
 });

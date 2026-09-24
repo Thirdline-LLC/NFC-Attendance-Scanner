@@ -17,6 +17,7 @@ import {
   setActiveBody,
   type BoundPerson,
 } from '@/data/attendance-store';
+import * as operatorPin from '@/data/operator-pin';
 import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
 import * as attendanceExport from '@/lib/attendance-export';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
@@ -629,6 +630,82 @@ describe('DashboardPage "Require teacher PIN" switch', () => {
     expect(Object.keys(disabled as object).sort()).toEqual(['at', 'id', 'kind']);
     expect(Object.keys(enabled as object).sort()).toEqual(['at', 'id', 'kind']);
     expect(JSON.stringify(entries)).not.toContain('2468');
+  });
+
+  it('closes the turn-off dialog with a clear error if the PIN vanished meanwhile', async () => {
+    await setOperatorPin('2468');
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('switch-pin-required'));
+    await screen.findByTestId('input-pin');
+    // The PIN disappears between opening the dialog and submitting.
+    vi.spyOn(operatorPin, 'verifyOperatorPin').mockResolvedValueOnce({ status: 'unset' });
+    await user.type(screen.getByTestId('input-pin'), '2468');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+    expect((await screen.findByTestId('text-pin-required-error')).textContent).toMatch(
+      /no teacher PIN on this device anymore/,
+    );
+    expect(await attendanceStore.getPinRequired()).toBe(true);
+    const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+    expect(kinds).not.toContain('pin-disabled');
+  });
+
+  it('shows an error and logs nothing when a direct turn-on cannot be saved', async () => {
+    await setOperatorPin('2468');
+    await attendanceStore.setPinRequired(false);
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByTestId('switch-pin-required');
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    );
+    vi.spyOn(attendanceStore, 'setPinRequired').mockRejectedValueOnce(new Error('quota'));
+    await user.click(screen.getByTestId('switch-pin-required'));
+
+    expect((await screen.findByTestId('text-pin-required-error')).textContent).toMatch(
+      /Couldn't turn the teacher PIN back on/,
+    );
+    expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe('false');
+    expect(await attendanceStore.getPinRequired()).toBe(false);
+    const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+    expect(kinds).not.toContain('pin-enabled');
+  });
+
+  it('after set-PIN, logs pin-enabled only if turning the requirement on was saved', async () => {
+    await attendanceStore.setPinRequired(false);
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByTestId('switch-pin-required');
+    await waitFor(() =>
+      expect(screen.getByTestId('switch-pin-required').getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    );
+    await user.click(screen.getByTestId('switch-pin-required'));
+    await screen.findByTestId('input-pin-confirm');
+    vi.spyOn(attendanceStore, 'setPinRequired').mockRejectedValueOnce(new Error('quota'));
+    await user.type(screen.getByTestId('input-pin'), '9999');
+    await user.type(screen.getByTestId('input-pin-confirm'), '9999');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    expect((await screen.findByTestId('text-pin-required-error')).textContent).toMatch(
+      /Couldn't turn the teacher PIN back on/,
+    );
+    expect(await attendanceStore.getPinRequired()).toBe(false);
+    const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+    // The PIN itself was set (and logged by the set form); the requirement was not.
+    expect(kinds).toContain('pin-set');
+    expect(kinds).not.toContain('pin-enabled');
   });
 
   it('updates the live gate for the whole app immediately, without a reload', async () => {

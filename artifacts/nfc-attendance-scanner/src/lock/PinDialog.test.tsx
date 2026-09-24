@@ -245,4 +245,52 @@ describe('PinDialog', () => {
       'This device cannot secure a PIN — open the app from its installed or https address.',
     );
   });
+
+  describe('verify mode when the PIN vanished before submit', () => {
+    it('hands back to onPinMissing instead of turning into a set-PIN form', async () => {
+      await setOperatorPin('2468');
+      const onVerified = vi.fn();
+      const onPinMissing = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <PinDialog
+          mode="verify"
+          verify={async () => ({ status: 'unset' })}
+          onVerified={onVerified}
+          onPinMissing={onPinMissing}
+          onCancel={() => {}}
+        />,
+      );
+
+      await user.type(await screen.findByTestId('input-pin'), '2468');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      await waitFor(() => expect(onPinMissing).toHaveBeenCalledTimes(1));
+      expect(onVerified).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('input-pin-confirm')).toBeNull();
+    });
+
+    it('without onPinMissing, shows a clear message and stays out of the set phase', async () => {
+      await setOperatorPin('2468');
+      const onVerified = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <PinDialog
+          mode="verify"
+          verify={async () => ({ status: 'unset' })}
+          onVerified={onVerified}
+          onCancel={() => {}}
+        />,
+      );
+
+      await user.type(await screen.findByTestId('input-pin'), '2468');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      expect((await screen.findByTestId('text-pin-error')).textContent).toMatch(
+        /no teacher PIN on this device anymore/,
+      );
+      expect(screen.queryByTestId('input-pin-confirm')).toBeNull();
+      expect(onVerified).not.toHaveBeenCalled();
+    });
+  });
 });
