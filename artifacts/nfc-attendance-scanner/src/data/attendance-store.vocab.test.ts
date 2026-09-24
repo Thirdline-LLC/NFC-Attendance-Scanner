@@ -93,6 +93,47 @@ describe('body-type vocabulary', () => {
     expect((await listBodies()).find((b) => b.id === body.id)?.typeLabel).toBe('team');
   });
 
+  it('changes a type and its newly-required field in one atomic rename', async () => {
+    await addBodyFieldDef({
+      label: 'Advisor',
+      appliesToTypeLabel: 'team',
+      required: true,
+    });
+    const body = await createBody({ name: 'Robotics', typeLabel: 'club' });
+
+    // No prior `updateBodyCustomFields` call — the field value rides along
+    // with the type change in a single write.
+    const renamed = await renameBody(body.id as number, {
+      name: 'Robotics',
+      typeLabel: 'team',
+      customFields: { Advisor: 'a@b.org' },
+    });
+
+    expect(renamed.typeLabel).toBe('team');
+    expect(renamed.customFields).toEqual({ Advisor: 'a@b.org' });
+    const saved = (await listBodies()).find((b) => b.id === body.id);
+    expect(saved?.typeLabel).toBe('team');
+    expect(saved?.customFields).toEqual({ Advisor: 'a@b.org' });
+  });
+
+  it('still refuses an atomic rename that leaves a required field blank', async () => {
+    await addBodyFieldDef({
+      label: 'Advisor',
+      appliesToTypeLabel: 'team',
+      required: true,
+    });
+    const body = await createBody({ name: 'Robotics', typeLabel: 'club' });
+
+    await expect(
+      renameBody(body.id as number, {
+        name: 'Robotics',
+        typeLabel: 'team',
+        customFields: { Advisor: '  ' },
+      }),
+    ).rejects.toThrow(BodyVocabError);
+    expect((await listBodies()).find((b) => b.id === body.id)?.typeLabel).toBe('club');
+  });
+
   it('renaming a vocabulary entry rewrites every body and field def that used it', async () => {
     const typeDef = await addBodyTypeDef('Branch');
     const finance = await createBody({ name: 'Finance', typeLabel: 'Branch' });
@@ -110,6 +151,25 @@ describe('body-type vocabulary', () => {
     );
     const renamedFinance = (await listBodies()).find((b) => b.id === finance.id);
     expect(renamedFinance?.typeLabel).toBe('Division');
+  });
+
+  it('cascades a casing-only rename too, not just a spelling change', async () => {
+    const typeDef = await addBodyTypeDef('Branch');
+    const finance = await createBody({ name: 'Finance', typeLabel: 'Branch' });
+    const field = await addBodyFieldDef({
+      label: 'Budget code',
+      appliesToTypeLabel: 'Branch',
+      required: false,
+    });
+
+    await renameBodyTypeDef(typeDef.id as number, 'branch');
+
+    const fieldDefs = await listBodyFieldDefs();
+    expect(fieldDefs.find((def) => def.id === field.id)?.appliesToTypeLabel).toBe(
+      'branch',
+    );
+    const renamedFinance = (await listBodies()).find((b) => b.id === finance.id);
+    expect(renamedFinance?.typeLabel).toBe('branch');
   });
 
   it('refuses to rename a vocabulary entry onto an existing label', async () => {
@@ -222,6 +282,25 @@ describe('custom-field definitions', () => {
     });
     expect(bodies.find((b) => b.id === otherClub.id)?.customFields ?? {}).toEqual({});
     expect(bodies.find((b) => b.id === team.id)?.customFields ?? {}).toEqual({});
+  });
+
+  it('migrates the stored key on a casing-only field rename too, not just a spelling change', async () => {
+    const field = await addBodyFieldDef({
+      label: 'Advisor',
+      appliesToTypeLabel: 'club',
+      required: false,
+    });
+    const club = await createBody({ name: 'Robotics', typeLabel: 'club' });
+    await updateBodyCustomFields(club.id as number, { Advisor: 'a@b.org' });
+
+    await updateBodyFieldDef(field.id as number, {
+      label: 'advisor',
+      appliesToTypeLabel: 'club',
+      required: false,
+    });
+
+    const saved = (await listBodies()).find((b) => b.id === club.id);
+    expect(saved?.customFields).toEqual({ advisor: 'a@b.org' });
   });
 });
 

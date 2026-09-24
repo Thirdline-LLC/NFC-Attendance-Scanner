@@ -427,7 +427,12 @@ export function DashboardPage() {
   );
 
   const renameSelectedBody = useCallback(
-    async (input: { bodyId: number; name: string; typeLabel: string }) => {
+    async (input: {
+      bodyId: number;
+      name: string;
+      typeLabel: string;
+      customFields?: Record<string, string>;
+    }) => {
       setBodyWorking(true);
       setBodyError(null);
       try {
@@ -588,7 +593,12 @@ export function DashboardPage() {
       setVocabError(null);
       try {
         await updateBodyFieldDef(input.id, input);
-        await refreshVocab();
+        // A label change migrates the matching key in every body's
+        // `customFields` (see `updateBodyFieldDef`) — reload bodies too, not
+        // just the vocabulary lists, or a structure editor already open
+        // against the stale `bodies` state could save back over the
+        // migrated value under the old key.
+        await refreshVocab(true);
       } catch (error) {
         setVocabError(bodyFailure(error, "That field couldn't be saved. Try again."));
       } finally {

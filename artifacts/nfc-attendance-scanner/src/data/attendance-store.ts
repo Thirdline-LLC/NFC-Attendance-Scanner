@@ -810,14 +810,21 @@ export async function setActiveBody(bodyId: number): Promise<void> {
  * vocabulary the same way `createBody` adds one (08b) — only when it
  * actually changes, so renaming a body's `name` alone never resurrects a
  * vocabulary entry the admin deleted. Refuses to change `typeLabel` onto one
- * that leaves a required field (for the new label) blank in this body's own
- * `customFields` — the same rule `createBody` and `updateBodyCustomFields`
- * enforce, checked here too since a type change can retarget which fields
- * are required without customFields itself being touched.
+ * that leaves a required field (for the new label) blank — the same rule
+ * `createBody` and `updateBodyCustomFields` enforce, checked here too since a
+ * type change can retarget which fields are required without customFields
+ * itself being touched.
+ *
+ * `customFields`, when given, is merged over the body's saved fields and
+ * validated *and written* in the same transaction as the type change — a
+ * type change that needs a new required field is one atomic write, not a
+ * "save the field under the old type, then rename" two-step a caller has to
+ * sequence for itself (and a UI has to keep its own save button disabled
+ * across).
  */
 export async function renameBody(
   bodyId: number,
-  input: { name: string; typeLabel: string },
+  input: { name: string; typeLabel: string; customFields?: Record<string, string> },
 ): Promise<AttendanceBody> {
   const name = input.name.trim();
   const typeLabel = input.typeLabel.trim();
@@ -835,24 +842,29 @@ export async function renameBody(
         throw new BodyHierarchyError(`No attendance body has id ${bodyId}.`);
       }
       const typeChanged = !sameLabel(existing.typeLabel, typeLabel);
+      const fieldDefs = await bodyFieldsTable.toArray();
+      const changes: Partial<AttendanceBody> = { name, typeLabel };
+      let customFields = existing.customFields;
+      if (input.customFields) {
+        customFields = sanitizeCustomFields(typeLabel, fieldDefs, {
+          ...(existing.customFields ?? {}),
+          ...input.customFields,
+        });
+        changes.customFields = customFields;
+      }
       if (typeChanged) {
-        const fieldDefs = await bodyFieldsTable.toArray();
-        const missing = missingRequiredFields(
-          typeLabel,
-          fieldDefs,
-          existing.customFields ?? {},
-        );
+        const missing = missingRequiredFields(typeLabel, fieldDefs, customFields ?? {});
         if (missing.length > 0) {
           throw new BodyVocabError(
             `${missing.map((field) => field.label).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required for a ${typeLabel} — fill it in before changing the type.`,
           );
         }
       }
-      await bodiesTable.update(bodyId, { name, typeLabel });
+      await bodiesTable.update(bodyId, changes);
       if (typeChanged) {
         await ensureBodyType(typeLabel);
       }
-      return { ...existing, name, typeLabel };
+      return { ...existing, ...changes };
     },
   );
 }
@@ -986,7 +998,11 @@ export async function renameBodyTypeDef(id: number, label: string): Promise<Body
       const oldLabel = existing.label;
       await bodyTypesTable.update(id, { label: trimmed });
 
-      if (!sameLabel(oldLabel, trimmed)) {
+      // Exact comparison, not `sameLabel`: a casing-only change ("club" ->
+      // "Club") still needs every body and field def rewritten to the new
+      // spelling, or they silently keep the old one while the vocabulary
+      // entry itself has moved on.
+      if (oldLabel !== trimmed) {
         const bodies = await bodiesTable.toArray();
         for (const body of bodies) {
           if (body.id !== undefined && sameLabel(body.typeLabel, oldLabel)) {
@@ -1092,7 +1108,11 @@ export async function updateBodyFieldDef(
     const changes = { label, appliesToTypeLabel, required: input.required };
     await bodyFieldsTable.update(id, changes);
 
-    if (!sameLabel(label, existing.label)) {
+    // Exact comparison, not `sameLabel`: `customFields` keys are
+    // case-sensitive, so a casing-only rename ("Advisor" -> "advisor") still
+    // has to migrate the stored key or the old-cased value is stranded under
+    // a key nothing reads or shows any more.
+    if (label !== existing.label) {
       const bodies = await bodiesTable.toArray();
       for (const body of bodies) {
         if (body.id === undefined) continue;

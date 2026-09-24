@@ -36,7 +36,12 @@ type BodySwitcherDialogProps = {
     parentId: number | null;
     customFields: Record<string, string>;
   }) => void;
-  onRename: (input: { bodyId: number; name: string; typeLabel: string }) => void;
+  onRename: (input: {
+    bodyId: number;
+    name: string;
+    typeLabel: string;
+    customFields: Record<string, string>;
+  }) => void;
   onReparent: (input: { bodyId: number; parentId: number | null }) => void;
   onArchive: (bodyId: number) => void;
   onRestore: (bodyId: number) => void;
@@ -139,11 +144,10 @@ export function BodySwitcherDialog({
   const structureTypeChanging = structureBody
     ? !sameLabel(structureType, structureBody.typeLabel)
     : false;
-  // `renameBody` validates the body's *saved* `customFields`, not this
-  // draft — a required value typed here unblocks the button, but still has
-  // to go through "Save custom fields" before "Save name and type label"
-  // will actually succeed. The button only prevents the click that is
-  // certain to fail; it can't make an unsaved draft satisfy the store.
+  // `renameBody` takes this draft's `structureFieldValues` along with the
+  // rename and validates the merged result, so a required value typed here
+  // is enough on its own — no separate "Save custom fields" click needed
+  // first. The button still blocks the click that is certain to fail.
   const blocksRename = structureTypeChanging && missingStructureFields.length > 0;
 
   useEffect(() => {
@@ -426,6 +430,7 @@ export function BodySwitcherDialog({
                     bodyId: structureBody.id as number,
                     name: structureName.trim(),
                     typeLabel: structureType.trim(),
+                    customFields: structureFieldValues,
                   })
                 }
                 className="rounded-xl border border-[hsl(var(--border))] px-4 py-2.5 text-sm font-semibold text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:opacity-60"

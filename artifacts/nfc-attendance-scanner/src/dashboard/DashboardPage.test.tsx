@@ -823,22 +823,54 @@ describe('DashboardPage body vocabulary', () => {
     expect(renameButton.hasAttribute('disabled')).toBe(true);
     expect(screen.getByTestId('text-structure-rename-blocked').textContent).toContain('Advisor');
 
-    // The rename button unblocks once the draft has a value, but `renameBody`
-    // validates the body's *saved* customFields, so the value has to be saved
-    // first — the same two-step order the button's disabled state assumes.
+    // The rename button unblocks once the draft has a value: `renameBody`
+    // takes the draft's field values along with the type change and
+    // validates+writes both atomically, so a single click here is enough —
+    // no separate "Save custom fields" round trip has to land first.
     await user.type(screen.getByTestId('input-structure-field-Advisor'), 'a@b.org');
     expect(renameButton.hasAttribute('disabled')).toBe(false);
-    await user.click(screen.getByTestId('button-structure-save-fields'));
-    await waitFor(async () => {
-      const saved = (await listBodies()).find((body) => body.id === root.id);
-      expect(saved?.customFields).toEqual({ Advisor: 'a@b.org' });
-    });
+    await user.click(renameButton);
 
-    await user.click(screen.getByTestId('button-structure-rename'));
     await waitFor(async () => {
       const saved = (await listBodies()).find((body) => body.id === root.id);
       expect(saved?.typeLabel).toBe('team');
+      expect(saved?.customFields).toEqual({ Advisor: 'a@b.org' });
     });
+  });
+
+  it('reloads bodies after a field-def label rename, so a later custom-field save does not overwrite the migrated key', async () => {
+    const field = await addBodyFieldDef({
+      label: 'Advisor',
+      appliesToTypeLabel: 'club',
+      required: false,
+    });
+    const root = await getActiveBody();
+    await attendanceStore.updateBodyCustomFields(root.id as number, { Advisor: 'a@b.org' });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-manage-vocabulary'));
+    const labelInput = await screen.findByTestId(`input-body-field-label-${field.id}`);
+    await user.clear(labelInput);
+    // Casing-only, so `updateBodyFieldDef` still migrates the stored key
+    // (see the vocab test for that) — this test is about the page's own
+    // `bodies` state, not the store.
+    await user.type(labelInput, 'advisor');
+    await user.click(screen.getByTestId(`button-body-field-save-${field.id}`));
+    await waitFor(() => expect(screen.getByDisplayValue('advisor')).toBeTruthy());
+    await user.click(screen.getByTestId('button-body-vocabulary-close'));
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.selectOptions(
+      await screen.findByTestId('select-structure-body'),
+      String(root.id),
+    );
+
+    // A stale `bodies` array (customFields still keyed "Advisor") would show
+    // this input blank instead of the value that now lives under "advisor".
+    expect(
+      (screen.getByTestId('input-structure-field-advisor') as HTMLInputElement).value,
+    ).toBe('a@b.org');
   });
 
   it('manages the vocabulary from the admin dialog: add, rename, and delete a type', async () => {
@@ -861,9 +893,18 @@ describe('DashboardPage body vocabulary', () => {
     await user.type(addedInput, 'Division');
     await user.click(screen.getByTestId(`button-body-type-save-${addedId}`));
 
-    await waitFor(() => expect(screen.getByDisplayValue('Division')).toBeTruthy());
+    // A type-def rename can rewrite bodies' own `typeLabel`, so it reloads
+    // through the same page-wide `load()` a body switch uses (see
+    // `refreshVocab`) — slower than the vocabulary lists updating, and the
+    // delete button below stays disabled (`isWorking`) until it resolves.
+    // Waiting on the display value alone can win that race under load.
+    const deleteButton = screen.getByTestId(`button-body-type-delete-${addedId}`);
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Division')).toBeTruthy();
+      expect(deleteButton.hasAttribute('disabled')).toBe(false);
+    });
 
-    await user.click(screen.getByTestId(`button-body-type-delete-${addedId}`));
+    await user.click(deleteButton);
 
     await waitFor(() => expect(screen.queryByDisplayValue('Division')).toBeNull());
   });
