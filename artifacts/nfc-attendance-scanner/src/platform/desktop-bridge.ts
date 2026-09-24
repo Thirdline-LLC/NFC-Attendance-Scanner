@@ -39,6 +39,30 @@ export type WorkbookSaveResult =
   | { status: 'cancelled' }
   | { status: 'failed'; message: string };
 
+/** What the renderer asks the main process to fetch and verify (Plan 07). */
+export type DownloadVerifiedAssetRequest = {
+  /** The GitHub API asset URL — `apiUrl` off a parsed `ReleaseAsset`. */
+  assetUrl: string;
+  /** The matching `.sha256` sidecar's GitHub API asset URL. */
+  sha256Url: string;
+  /** The filename this becomes on disk (app installers) or is validated against (themes). */
+  suggestedName: string;
+  /** True for a `.nfc-theme` pack: verified text comes back, nothing is written to disk. */
+  isTheme: boolean;
+};
+
+/**
+ * Checksum failure refuses (D6, fail closed) before anything reaches the
+ * renderer at all — there is no "verified: false" bytes payload to mishandle.
+ */
+export type DownloadVerifiedAssetResult =
+  | { ok: true; kind: 'theme'; text: string }
+  | { ok: true; kind: 'app'; path: string; bytes: number }
+  | {
+      ok: false;
+      reason: 'invalid-request' | 'network' | 'http-error' | 'checksum' | 'write-failed';
+    };
+
 export type DesktopBridge = {
   /** Marks the shell, and lets a test build a convincing fake. */
   readonly platform: 'electron';
@@ -49,6 +73,16 @@ export type DesktopBridge = {
    * be used to go looking around the disk.
    */
   revealWorkbook(path: string): Promise<boolean>;
+  /**
+   * Downloads one Release asset and its checksum sidecar in the main process
+   * (Node has no CORS restriction; the renderer's own `fetch` does — see
+   * `electron/main.ts`), verifies it, and only then returns it.
+   */
+  downloadVerifiedAsset(
+    request: DownloadVerifiedAssetRequest,
+  ): Promise<DownloadVerifiedAssetResult>;
+  /** Opens the Release notes in the OS browser — the one allowed external navigation. */
+  openReleasesPage(): Promise<boolean>;
 };
 
 declare global {
@@ -72,6 +106,7 @@ export function getDesktopBridge(): DesktopBridge | undefined {
   if (!bridge) return undefined;
   if (bridge.platform !== 'electron') return undefined;
   if (typeof bridge.saveWorkbook !== 'function') return undefined;
+  if (typeof bridge.downloadVerifiedAsset !== 'function') return undefined;
 
   return bridge;
 }

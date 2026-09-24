@@ -2,8 +2,10 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  isGithubReleaseAssetUrl,
   isInsideDirectory,
   MAX_BASE64_LENGTH,
+  parseDownloadVerifiedAssetRequest,
   parseSaveRequest,
   resolveBundledAsset,
 } from './validation';
@@ -135,5 +137,115 @@ describe('resolveBundledAsset', () => {
     expect(resolveBundledAsset(renderer, '/roster')).toBe(
       path.join(renderer, 'roster'),
     );
+  });
+});
+
+describe('isGithubReleaseAssetUrl', () => {
+  it('accepts the shape @workspace/update parses as an asset.apiUrl', () => {
+    expect(
+      isGithubReleaseAssetUrl(
+        'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/12345',
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ['a browser_download_url instead of the API url', 'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.0/tapin.dmg'],
+    ['a different host entirely', 'https://evil.example.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/1'],
+    ['plain http, not https', 'http://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/1'],
+    ['a non-numeric asset id', 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/abc'],
+    ['a different api.github.com path entirely', 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/latest'],
+    ['a non-string value', 42],
+    ['null', null],
+  ])('refuses %s', (_case, url) => {
+    expect(isGithubReleaseAssetUrl(url)).toBe(false);
+  });
+});
+
+describe('parseDownloadVerifiedAssetRequest', () => {
+  const ASSET_URL =
+    'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/1';
+  const SIDECAR_URL =
+    'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/2';
+
+  it('accepts a well-formed app-installer request', () => {
+    expect(
+      parseDownloadVerifiedAssetRequest({
+        assetUrl: ASSET_URL,
+        sha256Url: SIDECAR_URL,
+        suggestedName: 'tapin.dmg',
+        isTheme: false,
+      }),
+    ).toEqual({
+      assetUrl: ASSET_URL,
+      sha256Url: SIDECAR_URL,
+      suggestedName: 'tapin.dmg',
+      isTheme: false,
+    });
+  });
+
+  it('accepts a well-formed theme-pack request', () => {
+    expect(
+      parseDownloadVerifiedAssetRequest({
+        assetUrl: ASSET_URL,
+        sha256Url: SIDECAR_URL,
+        suggestedName: 'tapin-sjc-v1.1.0.nfc-theme',
+        isTheme: true,
+      }),
+    ).toEqual({
+      assetUrl: ASSET_URL,
+      sha256Url: SIDECAR_URL,
+      suggestedName: 'tapin-sjc-v1.1.0.nfc-theme',
+      isTheme: true,
+    });
+  });
+
+  it('refuses an installer name that is not a .dmg or .apk', () => {
+    expect(
+      parseDownloadVerifiedAssetRequest({
+        assetUrl: ASSET_URL,
+        sha256Url: SIDECAR_URL,
+        suggestedName: 'tapin.sh',
+        isTheme: false,
+      }),
+    ).toBeNull();
+  });
+
+  it('refuses a theme request whose name is not a .nfc-theme', () => {
+    expect(
+      parseDownloadVerifiedAssetRequest({
+        assetUrl: ASSET_URL,
+        sha256Url: SIDECAR_URL,
+        suggestedName: 'tapin.dmg',
+        isTheme: true,
+      }),
+    ).toBeNull();
+  });
+
+  it('refuses a non-GitHub-API asset or sidecar url', () => {
+    expect(
+      parseDownloadVerifiedAssetRequest({
+        assetUrl: 'https://evil.example.com/payload',
+        sha256Url: SIDECAR_URL,
+        suggestedName: 'tapin.dmg',
+        isTheme: false,
+      }),
+    ).toBeNull();
+    expect(
+      parseDownloadVerifiedAssetRequest({
+        assetUrl: ASSET_URL,
+        sha256Url: 'https://evil.example.com/payload',
+        suggestedName: 'tapin.dmg',
+        isTheme: false,
+      }),
+    ).toBeNull();
+  });
+
+  it.each([
+    ['a null payload', null],
+    ['an array payload', []],
+    ['a payload with no fields', {}],
+  ])('refuses %s', (_case, payload) => {
+    expect(parseDownloadVerifiedAssetRequest(payload)).toBeNull();
   });
 });

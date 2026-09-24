@@ -11,7 +11,7 @@ reasoning rather than take it on trust. **None of the three binds this app.**
 
 | Regime | Applies? | Why |
 |---|---|---|
-| COPPA — 16 CFR 312, amended 2025, compliance due 2026-04-22 | No | It covers *commercial* online services that collect personal information from children **under 13**. St. John's is grades 9–12. The FTC's own FAQ (F.5) says an app that only interacts with information stored on the device and never transmitted is not "collecting" — and this app has no server and makes no network request at all. |
+| COPPA — 16 CFR 312, amended 2025, compliance due 2026-04-22 | No | It covers *commercial* online services that collect personal information from children **under 13**. St. John's is grades 9–12. The FTC's own FAQ (F.5) says an app that only interacts with information stored on the device and never transmitted is not "collecting" — and this app has no server and never transmits student or attendance information. (Plan 07 added an optional, PIN-gated check against GitHub Releases for app/theme updates; it exchanges version numbers and binary files only — see "What leaves the device" below.) |
 | FERPA — 34 CFR 99 | Probably not directly; the school should confirm | It binds institutions that receive funds under programs the U.S. Department of Education administers. Private K-12 schools generally do not, and receiving Title I equitable services through DCPS does not count. Most private schools adopt FERPA as policy regardless. |
 | DC Protecting Students Digital Privacy Act — D.C. Code § 38-831.01 ff | No | Its "educational institution" is a DC public school or public charter. |
 
@@ -90,17 +90,35 @@ without a key or a tap, and on reload.
 
 ## What leaves the device
 
-**Nothing, on its own.** The app has no server, no account system, and no
-analytics. Nothing in it initiates a network request: no `fetch`, no
-`XMLHttpRequest`, no `WebSocket`, no `sendBeacon` and no HTTP client is called
-anywhere in the source. Fonts are bundled rather than fetched, so the app makes
-zero network requests even at startup.
+**No student or attendance data, ever.** The app has no server, no account
+system, and no analytics. Nothing in the roster, session or tap-history code
+paths initiates a network request: no `fetch`, no `XMLHttpRequest`, no
+`WebSocket`, no `sendBeacon` and no HTTP client touches student data anywhere
+in the source. Fonts are bundled rather than fetched. On boot, and until a
+teacher chooses otherwise, the app makes zero network requests.
+
+**One deliberate exception (Plan 07): the update checker.** The Dashboard's
+"Check for updates" card — reachable only through the PIN-gated `/dashboard`
+route — reads **GitHub Releases** for this app: the current release's tag,
+its asset list (installer and theme-pack filenames, sizes, and their
+`.sha256` checksums), and the release page URL. That is the entire request:
+no student, roster, session, tap or PIN data is in it, and `lib/update`'s own
+tests assert as much on every request this code path can send (see
+`lib/update/__tests__/no-student-data.test.ts`). Downloading and verifying an
+asset's bytes (rather than just its metadata) happens only in the Electron
+desktop build's main process — not in the page the operator sees — because
+GitHub's release-asset CDN does not send CORS headers, so a browser-side
+`fetch` of the bytes is not possible at all; see
+`docs/update-token-ops.md` for exactly what that process sends. A verified
+theme pack is handed to Plan 04's existing loader unchanged; a verified app
+installer is written to Downloads for the operator to run themselves — this
+app never replaces its own binary.
 
 One precision, because the stronger claim would be false: the shipped bundle
 does *contain* a `fetch` call, in `@capacitor/core`'s HTTP plugin, which the
-native build pulls in for the file and share plugins. Nothing in this app calls
-it. The honest statement is that no code path here reaches the network, not
-that the bundle is incapable of it.
+native build pulls in for the file and share plugins. Nothing in this app
+calls it. The honest statement is that no code path touching student data
+reaches the network, not that the bundle is incapable of a network request.
 
 Both are verifiable — from `artifacts/nfc-attendance-scanner`:
 

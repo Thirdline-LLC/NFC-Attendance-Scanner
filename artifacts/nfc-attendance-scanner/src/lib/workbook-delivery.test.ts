@@ -268,6 +268,8 @@ describe('deliverWorkbook in the desktop app', () => {
       platform: 'electron',
       saveWorkbook,
       revealWorkbook: vi.fn().mockResolvedValue(true),
+      downloadVerifiedAsset: vi.fn().mockResolvedValue({ ok: false, reason: 'invalid-request' }),
+      openReleasesPage: vi.fn().mockResolvedValue(true),
     };
     window.attendanceDesktop = bridge;
     return bridge;
