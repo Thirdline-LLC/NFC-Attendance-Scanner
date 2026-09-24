@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Layers } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronRight, Layers } from 'lucide-react';
 import type { AttendanceBody, BodyFieldDef, BodyTypeDef } from '@/data/attendance-store';
 import {
   bodyDepth,
+  childCountLabel,
   depthWarning,
   flattenBodyTree,
   isArchived,
@@ -223,54 +224,16 @@ export function BodySwitcherDialog({
         </label>
 
         {visibleRows.length > 0 ? (
-          <ul className="mt-4 grid gap-2" data-testid="list-bodies">
-            {visibleRows.map((row) => {
-              const body = row.body;
-              const archived = isArchived(body);
-              const active = body.id === activeBodyId;
-              return (
-                <li key={body.id} className="flex items-stretch gap-2">
-                  <button
-                    type="button"
-                    onClick={() => body.id !== undefined && onSelect(body.id)}
-                    disabled={isWorking || active || archived || body.id === undefined}
-                    style={{ paddingLeft: `${12 + (row.depth - 1) * 14}px` }}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] py-2.5 pr-3 text-left text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-70"
-                    data-testid={`button-body-${body.id}`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate">
-                        {body.name}{' '}
-                        <span className="text-[hsl(var(--muted-foreground))]">· {body.typeLabel}</span>
-                        {archived ? (
-                          <span className="text-[hsl(var(--muted-foreground))]"> · Archived</span>
-                        ) : null}
-                      </span>
-                      {row.depth > 1 ? (
-                        <span className="mt-0.5 block truncate text-xs text-[hsl(var(--muted-foreground))]">
-                          {row.path}
-                        </span>
-                      ) : null}
-                    </span>
-                    {active ? (
-                      <Check aria-hidden="true" size={15} className="shrink-0 text-[hsl(var(--primary))]" />
-                    ) : null}
-                  </button>
-                  {archived && body.id !== undefined ? (
-                    <button
-                      type="button"
-                      onClick={() => onRestore(body.id as number)}
-                      disabled={isWorking}
-                      className="shrink-0 rounded-xl border border-[hsl(var(--border))] px-3 text-xs font-semibold text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:opacity-60"
-                      data-testid={`button-restore-body-${body.id}`}
-                    >
-                      Restore
-                    </button>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+          <BodyTreeList
+            rows={visibleRows}
+            // A search shows every match flat, so a hit inside a collapsed
+            // group is never hidden behind its parent.
+            grouped={query.trim().length === 0}
+            activeBodyId={activeBodyId}
+            isWorking={isWorking}
+            onSelect={onSelect}
+            onRestore={onRestore}
+          />
         ) : (
           <p className="mt-4 text-sm text-[hsl(var(--muted-foreground))]" data-testid="text-body-search-empty">
             No body matches that search.
@@ -549,6 +512,189 @@ export function BodySwitcherDialog({
         </button>
       </div>
     </div>
+  );
+}
+
+type BodyTreeListProps = {
+  rows: BodyTreeRow[];
+  /** True: parents are collapsible groups. False: a flat list of matches. */
+  grouped: boolean;
+  activeBodyId?: number;
+  isWorking: boolean;
+  onSelect: (bodyId: number) => void;
+  onRestore: (bodyId: number) => void;
+};
+
+/**
+ * The 08a tree as collapsible groups (Design 09 §2). A parent row reads
+ * `English 11 · 5 periods` and has its own disclosure button beside it;
+ * children sit indented beneath in `sortOrder`. Every group starts open.
+ * Which ones are closed is this component's state only — nothing is saved.
+ */
+function BodyTreeList({
+  rows,
+  grouped,
+  activeBodyId,
+  isWorking,
+  onSelect,
+  onRestore,
+}: BodyTreeListProps) {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set());
+
+  // Each row's direct children, read off the preorder walk: a row's parent
+  // is the nearest earlier row one level up.
+  const childrenOf = useMemo(() => {
+    const map = new Map<number | null, BodyTreeRow[]>();
+    const stack: BodyTreeRow[] = [];
+    for (const row of rows) {
+      while (stack.length >= row.depth) stack.pop();
+      const parentId = stack.length > 0 ? (stack[stack.length - 1].body.id ?? null) : null;
+      const list = map.get(parentId) ?? [];
+      list.push(row);
+      map.set(parentId, list);
+      stack.push(row);
+    }
+    return map;
+  }, [rows]);
+
+  // Whether any root has a disclosure button, so leaf roots can keep their
+  // names in the same column.
+  const hasAnyGroup =
+    grouped &&
+    (childrenOf.get(null) ?? []).some(
+      (row) => row.body.id !== undefined && (childrenOf.get(row.body.id)?.length ?? 0) > 0,
+    );
+
+  const toggle = (bodyId: number) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(bodyId)) next.delete(bodyId);
+      else next.add(bodyId);
+      return next;
+    });
+
+  const renderRow = (row: BodyTreeRow, children: BodyTreeRow[]) => {
+    const body = row.body;
+    const archived = isArchived(body);
+    const active = body.id === activeBodyId;
+    const isGroup = grouped && children.length > 0 && body.id !== undefined;
+    const open = isGroup && !collapsed.has(body.id as number);
+    const groupId = `body-children-${body.id}`;
+    const indent = grouped ? 0 : (row.depth - 1) * 14;
+    return (
+      <div className="flex items-stretch gap-2">
+        {isGroup ? (
+          <button
+            type="button"
+            onClick={() => toggle(body.id as number)}
+            aria-expanded={open}
+            aria-controls={groupId}
+            aria-label={`${open ? 'Collapse' : 'Expand'} ${body.name}`}
+            className="flex w-11 shrink-0 items-center justify-center rounded-xl border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+            data-testid={`button-toggle-body-${body.id}`}
+          >
+            <ChevronRight
+              aria-hidden="true"
+              size={16}
+              className={`transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
+            />
+          </button>
+        ) : grouped && row.depth === 1 && hasAnyGroup ? (
+          // Keeps root names in one column whether or not the root has children.
+          <span aria-hidden="true" className="w-11 shrink-0" />
+        ) : null}
+        <button
+          type="button"
+          onClick={() => body.id !== undefined && onSelect(body.id)}
+          disabled={isWorking || active || archived || body.id === undefined}
+          style={indent ? { paddingLeft: `${12 + indent}px` } : undefined}
+          className="flex min-h-11 min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] py-2.5 pl-3 pr-3 text-left text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-70"
+          data-testid={`button-body-${body.id}`}
+        >
+          <span className="min-w-0">
+            <span className="block truncate">
+              {body.name}{' '}
+              {isGroup ? (
+                <span
+                  className="text-[hsl(var(--muted-foreground))]"
+                  data-testid={`text-body-children-${body.id}`}
+                >
+                  · {childCountLabel(children.map((child) => child.body))}
+                </span>
+              ) : (
+                <span className="text-[hsl(var(--muted-foreground))]">· {body.typeLabel}</span>
+              )}
+              {archived ? (
+                <span className="text-[hsl(var(--muted-foreground))]"> · Archived</span>
+              ) : null}
+            </span>
+            {isGroup ? (
+              <span className="mt-0.5 block truncate text-xs text-[hsl(var(--muted-foreground))]">
+                {body.typeLabel}
+              </span>
+            ) : row.depth > 1 ? (
+              <span className="mt-0.5 block truncate text-xs text-[hsl(var(--muted-foreground))]">
+                {row.path}
+              </span>
+            ) : null}
+          </span>
+          {active ? (
+            <Check aria-hidden="true" size={15} className="shrink-0 text-[hsl(var(--primary))]" />
+          ) : null}
+        </button>
+        {archived && body.id !== undefined ? (
+          <button
+            type="button"
+            onClick={() => onRestore(body.id as number)}
+            disabled={isWorking}
+            className="min-h-11 shrink-0 rounded-xl border border-[hsl(var(--border))] px-3 text-xs font-semibold text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:opacity-60"
+            data-testid={`button-restore-body-${body.id}`}
+          >
+            Restore
+          </button>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderBranch = (parentId: number | null, nested: boolean): ReactNode => {
+    const branch = childrenOf.get(parentId) ?? [];
+    return branch.map((row) => {
+      const children = row.body.id === undefined ? [] : (childrenOf.get(row.body.id) ?? []);
+      const isGroup = children.length > 0 && row.body.id !== undefined;
+      return (
+        <li key={row.body.id} className="grid gap-2">
+          {renderRow(row, children)}
+          {isGroup ? (
+            <ul
+              id={`body-children-${row.body.id}`}
+              role="group"
+              aria-label={`${row.body.name}: ${childCountLabel(children.map((child) => child.body))}`}
+              hidden={collapsed.has(row.body.id as number)}
+              className={`grid gap-2 border-l-2 border-[hsl(var(--primary)/.35)] pl-3 ${nested ? '' : 'ml-[1.375rem]'}`}
+            >
+              {renderBranch(row.body.id as number, true)}
+            </ul>
+          ) : null}
+        </li>
+      );
+    });
+  };
+
+  if (!grouped) {
+    return (
+      <ul className="mt-4 grid gap-2" data-testid="list-bodies">
+        {rows.map((row) => (
+          <li key={row.body.id}>{renderRow(row, [])}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <ul className="mt-4 grid gap-2" data-testid="list-bodies">
+      {renderBranch(null, false)}
+    </ul>
   );
 }
 

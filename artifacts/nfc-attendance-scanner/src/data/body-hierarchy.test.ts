@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   SOFT_BODY_DEPTH,
+  childCountLabel,
   depthWarning,
   flattenBodyTree,
   formatBodySubtitle,
+  pluralizeTypeLabel,
   subtreeBodyIds,
   wouldCycle,
   type BodyNode,
@@ -75,5 +77,41 @@ describe('body tree', () => {
   it('warns past the soft depth and does not invent a hard cap', () => {
     expect(depthWarning(SOFT_BODY_DEPTH)).toBeNull();
     expect(depthWarning(SOFT_BODY_DEPTH + 1)).toMatch(/still work/);
+  });
+});
+
+describe('childCountLabel', () => {
+  const child = (id: number, typeLabel: string, archivedAt: string | null = null): BodyNode => ({
+    id,
+    name: `Row ${id}`,
+    typeLabel,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    parentId: 1,
+    archivedAt,
+  });
+
+  it('counts non-archived children and names them by their shared label', () => {
+    const children = [1, 2, 3, 4, 5].map((id) => child(id, 'period'));
+    expect(childCountLabel(children)).toBe('5 periods');
+    expect(childCountLabel([...children, child(6, 'period', '2026-09-02T00:00:00.000Z')])).toBe(
+      '5 periods',
+    );
+    expect(childCountLabel([child(1, 'period')])).toBe('1 period');
+  });
+
+  it('falls back to "children" when the labels differ or there are none left', () => {
+    expect(childCountLabel([child(1, 'period'), child(2, 'team')])).toBe('2 children');
+    expect(childCountLabel([child(1, 'period', '2026-09-02T00:00:00.000Z')])).toBe('0 children');
+  });
+
+  it('treats labels that differ only in case as one', () => {
+    expect(childCountLabel([child(1, 'Period'), child(2, 'period ')])).toBe('2 Periods');
+  });
+
+  it('pluralizes simply', () => {
+    expect(pluralizeTypeLabel('class')).toBe('classes');
+    expect(pluralizeTypeLabel('activity')).toBe('activities');
+    expect(pluralizeTypeLabel('day')).toBe('days');
+    expect(pluralizeTypeLabel('section')).toBe('sections');
   });
 });

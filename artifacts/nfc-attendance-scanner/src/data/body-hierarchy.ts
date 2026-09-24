@@ -176,3 +176,32 @@ export function depthWarning(depth: number): string | null {
   }
   return null;
 }
+
+/**
+ * A type label as a plural noun, simply: `period` → `periods`, `class` →
+ * `classes`, `activity` → `activities`. Labels are free text in any
+ * language, so this is a best effort for English, not a dictionary.
+ */
+export function pluralizeTypeLabel(label: string): string {
+  if (/(s|x|z|ch|sh)$/i.test(label)) return `${label}es`;
+  if (/[^aeiou]y$/i.test(label)) return `${label.slice(0, -1)}ies`;
+  return `${label}s`;
+}
+
+/**
+ * The count a parent row shows beside its name (Design 09 §2), e.g.
+ * `5 periods`. Counts non-archived children only. The word follows the
+ * children's own type label when they all share one; a mixed set reads
+ * `children`.
+ */
+export function childCountLabel(children: readonly BodyNode[]): string {
+  const live = children.filter((child) => !isArchived(child));
+  const labels = live.map((child) => child.typeLabel.trim());
+  const shared =
+    labels.length > 0 && labels.every((label) => label.toLowerCase() === labels[0].toLowerCase())
+      ? labels[0]
+      : null;
+  const count = live.length;
+  if (!shared) return `${count} ${count === 1 ? 'child' : 'children'}`;
+  return `${count} ${count === 1 ? shared : pluralizeTypeLabel(shared)}`;
+}
