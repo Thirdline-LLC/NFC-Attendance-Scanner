@@ -38,6 +38,30 @@ describe('findAppAsset', () => {
     const assets = [asset('tapin.dmg'), asset('tapin.apk')];
     expect(findAppAsset(assets, 'web')).toBeUndefined();
   });
+
+  it('prefers the arm64 disk image when both architectures were published', () => {
+    const assets = [
+      asset('SJC Attendance-1.0.1-x64.dmg'),
+      asset('SJC Attendance-1.0.1-arm64.dmg'),
+      asset('SJC Attendance-1.0.1-arm64.dmg.sha256'),
+    ];
+    expect(findAppAsset(assets, 'electron', 'arm64')?.name).toBe(
+      'SJC Attendance-1.0.1-arm64.dmg',
+    );
+    expect(findAppAsset(assets, 'electron', 'x64')?.name).toBe(
+      'SJC Attendance-1.0.1-x64.dmg',
+    );
+  });
+
+  it('refuses an x64-only disk image on an arm64 Mac', () => {
+    const assets = [asset('SJC Attendance-1.0.1-x64.dmg')];
+    expect(findAppAsset(assets, 'electron', 'arm64')).toBeUndefined();
+  });
+
+  it('accepts a single unscoped disk image for arm64', () => {
+    const assets = [asset('SJC Attendance-1.0.1.dmg')];
+    expect(findAppAsset(assets, 'electron', 'arm64')?.name).toBe('SJC Attendance-1.0.1.dmg');
+  });
 });
 
 describe('findThemeAsset', () => {
@@ -103,6 +127,27 @@ describe('decideAppUpdate', () => {
     expect(decideAppUpdate('1.0.0', 'electron', rel)).toEqual({
       available: false,
       reason: 'no-asset',
+    });
+  });
+
+  it('reports no-asset when the only disk image is the wrong architecture', () => {
+    const rel = release([asset('SJC Attendance-1.0.1-x64.dmg')], 'v1.0.1');
+    expect(decideAppUpdate('1.0.0', 'electron', rel, 'arm64')).toEqual({
+      available: false,
+      reason: 'no-asset',
+    });
+  });
+
+  it('points an arm64 Mac at the arm64 disk image and its sidecar', () => {
+    const dmg = 'SJC Attendance-1.0.1-arm64.dmg';
+    const rel = release([asset(dmg), asset(`${dmg}.sha256`), asset('SJC Attendance-1.0.1-x64.dmg')], 'v1.0.1');
+    const decision = decideAppUpdate('1.0.0', 'electron', rel, 'arm64');
+    expect(decision).toEqual({
+      available: true,
+      latestVersion: '1.0.1',
+      asset: asset(dmg),
+      sidecarAsset: asset(`${dmg}.sha256`),
+      releaseUrl: rel.htmlUrl,
     });
   });
 });

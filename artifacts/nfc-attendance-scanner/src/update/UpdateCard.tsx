@@ -34,31 +34,37 @@ function Notice({ notice, testId }: { notice: { kind: 'ok' | 'err'; text: string
  * panel — reachable only through `/dashboard`, which `LockedRoute` already
  * gates on the teacher PIN, so this needs no gate of its own.
  *
- * App and theme updates are kept visibly separate (design's own instruction):
- * one binary the operator installs themselves, one pack this app activates
- * through Plan 04's own loader. Verified download only runs on the Electron
- * shell — see `useUpdateChecker` for why the other two show a manual link
- * instead of quietly downloading nothing.
+ * App and theme updates are kept visibly separate: a macOS build replaces
+ * its own bundle after the teacher confirms, and a theme pack goes through
+ * Plan 04's loader. Other shells link to the Release page.
  */
 export function UpdateCard() {
   const {
     state,
+    installState,
     lastChecked,
     check,
     target,
     currentVersion,
     activeTheme,
     canVerifiedInstall,
+    canInPlaceInstall,
     appBusy,
     appNotice,
-    downloadApp,
+    installApp,
     themeBusy,
     themeNotice,
     installTheme,
     openManualLink,
   } = useUpdateChecker();
 
-  const checking = state.status === 'checking';
+  const checking = installState.phase === 'checking';
+  const showPhase =
+    installState.phase === 'checking' ||
+    installState.phase === 'up-to-date' ||
+    installState.phase === 'downloading' ||
+    installState.phase === 'installing' ||
+    installState.phase === 'relaunching';
 
   return (
     <div
@@ -73,14 +79,27 @@ export function UpdateCard() {
         <button
           type="button"
           onClick={() => void check()}
-          disabled={checking}
+          disabled={checking || appBusy}
           className={btnDefault}
           data-testid="button-check-updates"
         >
           <RefreshCw aria-hidden="true" size={13} className={checking ? 'animate-spin' : undefined} />
-          {checking ? 'Checking…' : 'Check for updates'}
+          {checking ? 'Checking for updates' : 'Check for updates'}
         </button>
       </div>
+
+      {showPhase ? (
+        <p className="mt-3 text-sm text-[hsl(var(--foreground))]" data-testid="text-update-phase">
+          {installState.label}
+        </p>
+      ) : null}
+
+      <p
+        className="mt-3 text-sm font-medium text-[hsl(var(--foreground))]"
+        data-testid="text-in-place-updater"
+      >
+        In-place updater
+      </p>
 
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[hsl(var(--muted-foreground))]">
         <dt>This app</dt>
@@ -136,16 +155,16 @@ export function UpdateCard() {
             </p>
             {state.app.available ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                {canVerifiedInstall ? (
+                {canInPlaceInstall ? (
                   <button
                     type="button"
-                    onClick={() => void downloadApp()}
+                    onClick={() => void installApp()}
                     disabled={appBusy}
                     className={btnPrimary}
-                    data-testid="button-download-app"
+                    data-testid="button-install-app"
                   >
                     <Download aria-hidden="true" size={13} />
-                    {appBusy ? 'Downloading…' : 'Download & verify'}
+                    {appBusy ? installState.label : 'Install and relaunch'}
                   </button>
                 ) : null}
                 <button
@@ -210,6 +229,12 @@ export function UpdateCard() {
           Verified in-app download is only available in the macOS app — GitHub's
           release files do not allow a browser to download and check them
           directly. Use the release page to get them here.
+        </p>
+      ) : null}
+      {canVerifiedInstall && !canInPlaceInstall && state.status === 'checked' && state.app.available ? (
+        <p className="mt-3 text-[10px] text-[hsl(var(--muted-foreground))]">
+          This copy cannot replace itself in place. Install SJC Attendance from
+          the release page, then check for updates from that app.
         </p>
       ) : null}
     </div>

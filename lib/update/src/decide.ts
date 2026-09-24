@@ -1,13 +1,9 @@
+import { selectInstallerName, type HostArch } from './app-bundle';
 import { isNewerVersion, stripVersionPrefix } from './version';
 import type { ReleaseAsset, ReleaseMetadata } from './types';
 
 export type AppTarget = 'web' | 'capacitor' | 'electron';
-
-const APP_ASSET_EXTENSION: Record<AppTarget, string | null> = {
-  web: null,
-  capacitor: '.apk',
-  electron: '.dmg',
-};
+export type { HostArch };
 
 function escapeForRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -21,11 +17,23 @@ export function findSidecarAsset(
   return assets.find((asset) => asset.name === `${forAssetName}.sha256`);
 }
 
-/** The installer asset for this build's shell — `null` for `web`, which has no installer to fetch. */
-export function findAppAsset(assets: ReleaseAsset[], target: AppTarget): ReleaseAsset | undefined {
-  const extension = APP_ASSET_EXTENSION[target];
-  if (!extension) return undefined;
-  return assets.find((asset) => asset.name.toLowerCase().endsWith(extension));
+/**
+ * The installer asset for this build's shell — `undefined` for `web`, which
+ * has no installer to fetch. Pass `arch` on macOS so an arm64 Mac does not
+ * pick an x64-only disk image when both were published.
+ */
+export function findAppAsset(
+  assets: ReleaseAsset[],
+  target: AppTarget,
+  arch?: HostArch,
+): ReleaseAsset | undefined {
+  const name = selectInstallerName(
+    assets.map((asset) => asset.name),
+    target,
+    arch,
+  );
+  if (!name) return undefined;
+  return assets.find((asset) => asset.name === name);
 }
 
 export type ThemeAssetMatch = {
@@ -74,10 +82,11 @@ export function decideAppUpdate(
   currentVersion: string,
   target: AppTarget,
   release: ReleaseMetadata,
+  arch?: HostArch,
 ): AppUpdateDecision {
   if (target === 'web') return { available: false, reason: 'not-applicable' };
 
-  const asset = findAppAsset(release.assets, target);
+  const asset = findAppAsset(release.assets, target, arch);
   if (!asset) return { available: false, reason: 'no-asset' };
 
   const latestVersion = stripVersionPrefix(release.tag);

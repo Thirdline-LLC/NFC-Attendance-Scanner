@@ -35,6 +35,14 @@ describe('parseSha256Sidecar', () => {
 });
 
 describe('verifySha256', () => {
+  it('accepts a sidecar written in uppercase hex', async () => {
+    const bytes = new TextEncoder().encode('tapin');
+    const digest = (await sha256Hex(bytes)).toUpperCase();
+    expect(await verifySha256(bytes, `${digest}  SJC Attendance-1.0.1-arm64.dmg\n`)).toEqual({
+      ok: true,
+    });
+  });
+
   it('accepts bytes that match the sidecar', async () => {
     const bytes = new TextEncoder().encode('tapin');
     const digest = await sha256Hex(bytes);

@@ -7,7 +7,7 @@ import { scanForForbiddenFields } from '../src/verify';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(__dirname, '../fixtures');
-const FIXTURE = join(FIXTURES, 'tapin-sjc-v1.0.0.nfc-theme');
+const FIXTURE = join(FIXTURES, 'tapin-sjc-v1.0.1.nfc-theme');
 
 describe('tapin-sjc packed fixture', () => {
   it('fixture file exists', () => {
@@ -18,6 +18,9 @@ describe('tapin-sjc packed fixture', () => {
     const json = readFileSync(FIXTURE, 'utf-8');
     const result = await loadThemePack(json);
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.pack.meta.version).toBe('1.0.1');
+    }
   });
 
   it('contains zero student/education record fields', () => {

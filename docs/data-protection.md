@@ -112,9 +112,11 @@ desktop build's main process — not in the page the operator sees — because
 GitHub's release-asset CDN does not send CORS headers, so a browser-side
 `fetch` of the bytes is not possible at all; see
 `docs/update-token-ops.md` for exactly what that process sends. A verified
-theme pack is handed to Plan 04's existing loader unchanged; a verified app
-installer is written to Downloads for the operator to run themselves — this
-app never replaces its own binary.
+theme pack is handed to Plan 04's existing loader unchanged. On the packaged
+macOS app, a verified disk image replaces the installed `.app` and the app
+relaunches — only after the teacher presses Check for updates and Install
+and relaunch. That swap does not read or upload the student database. The
+bytes downloaded are the public Release asset and its `.sha256` file.
 
 One precision, because the stronger claim would be false: the shipped bundle
 does *contain* a `fetch` call, in `@capacitor/core`'s HTTP plugin, which the

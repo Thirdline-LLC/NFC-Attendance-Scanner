@@ -4,6 +4,9 @@ import type {
   DesktopBridge,
   DownloadVerifiedAssetRequest,
   DownloadVerifiedAssetResult,
+  InstallAppUpdateRequest,
+  InstallAppUpdateResult,
+  UpdateProgressEvent,
   WorkbookSaveRequest,
   WorkbookSaveResult,
 } from '../src/platform/desktop-bridge';
@@ -23,6 +26,7 @@ import type {
  */
 const bridge: DesktopBridge = {
   platform: 'electron',
+  hostArch: process.arch === 'arm64' || process.arch === 'x64' ? process.arch : undefined,
 
   saveWorkbook(request: WorkbookSaveRequest): Promise<WorkbookSaveResult> {
     // Re-stated field by field rather than forwarded: whatever else the
@@ -46,6 +50,27 @@ const bridge: DesktopBridge = {
       suggestedName: String(request.suggestedName),
       isTheme: Boolean(request.isTheme),
     });
+  },
+
+  installAppUpdate(request: InstallAppUpdateRequest): Promise<InstallAppUpdateResult> {
+    return ipcRenderer.invoke('attendance:install-app-update', {
+      assetUrl: String(request.assetUrl),
+      sha256Url: String(request.sha256Url),
+      suggestedName: String(request.suggestedName),
+    });
+  },
+
+  onUpdateProgress(listener: (event: UpdateProgressEvent) => void): () => void {
+    const wrapped = (_event: unknown, payload: unknown) => {
+      if (typeof payload !== 'object' || payload === null) return;
+      const phase = (payload as { phase?: unknown }).phase;
+      if (phase !== 'downloading' && phase !== 'installing' && phase !== 'relaunching') return;
+      listener({ phase });
+    };
+    ipcRenderer.on('attendance:update-progress', wrapped);
+    return () => {
+      ipcRenderer.removeListener('attendance:update-progress', wrapped);
+    };
   },
 
   openReleasesPage(): Promise<boolean> {

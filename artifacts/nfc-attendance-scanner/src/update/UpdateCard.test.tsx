@@ -12,6 +12,19 @@ const installPack = vi.fn().mockResolvedValue(null);
  * tests about the update flow, not about Plan 04's own loader (which
  * `@workspace/themes` already covers).
  */
+vi.mock('@/platform/runtime', async () => {
+  const actual = await vi.importActual<typeof import('@/platform/runtime')>('@/platform/runtime');
+  return {
+    ...actual,
+    buildTarget: () => {
+      const override = (globalThis as { __TAPIN_BUILD_TARGET__?: string }).__TAPIN_BUILD_TARGET__;
+      return override === 'electron' || override === 'capacitor' ? override : actual.buildTarget();
+    },
+    appVersion: () =>
+      (globalThis as { __TAPIN_APP_VERSION__?: string }).__TAPIN_APP_VERSION__ ?? actual.appVersion(),
+  };
+});
+
 vi.mock('@/theme/ThemeProvider', () => ({
   useTheme: () => ({
     active: {
@@ -75,11 +88,20 @@ describe('UpdateCard', () => {
     localStorage.clear();
   });
 
+  it('shows this build as 1.0.1 with the in-place updater line', () => {
+    (globalThis as { __TAPIN_APP_VERSION__?: string }).__TAPIN_APP_VERSION__ = '1.0.1';
+    render(<UpdateCard />);
+    expect(screen.getByTestId('text-app-version').textContent).toBe('v1.0.1');
+    expect(screen.getByTestId('text-in-place-updater').textContent).toBe('In-place updater');
+  });
+
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     Reflect.deleteProperty(window, 'attendanceDesktop');
+    delete (globalThis as { __TAPIN_BUILD_TARGET__?: string }).__TAPIN_BUILD_TARGET__;
+    delete (globalThis as { __TAPIN_APP_VERSION__?: string }).__TAPIN_APP_VERSION__;
     installPack.mockClear();
   });
 
@@ -191,5 +213,189 @@ describe('UpdateCard', () => {
       ),
     );
     expect(installPack).toHaveBeenCalledWith(packJson);
+  });
+
+  it('shows "Checking for updates" and then "Up to date" when the release is not newer', async () => {
+    (globalThis as { __TAPIN_BUILD_TARGET__?: string }).__TAPIN_BUILD_TARGET__ = 'electron';
+    (globalThis as { __TAPIN_APP_VERSION__?: string }).__TAPIN_APP_VERSION__ = '1.0.0';
+    let resolveFetch: (value: unknown) => void = () => {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+      ),
+    );
+    installDesktopBridge({ hostArch: 'arm64' });
+    const user = userEvent.setup();
+    render(<UpdateCard />);
+
+    await user.click(screen.getByTestId('button-check-updates'));
+    await waitFor(() =>
+      expect(screen.getByTestId('text-update-phase').textContent).toBe('Checking for updates'),
+    );
+
+    resolveFetch({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        tag_name: 'v1.0.0',
+        html_url: 'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/tag/v1.0.0',
+        published_at: null,
+        assets: [
+          {
+            name: 'SJC Attendance-1.0.0-arm64.dmg',
+            url: 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/9',
+            browser_download_url:
+              'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.0/SJC%20Attendance-1.0.0-arm64.dmg',
+            size: 100,
+          },
+        ],
+      }),
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-update-phase').textContent).toBe('Up to date'),
+    );
+    expect(screen.getByTestId('text-app-update-status').textContent).toMatch(/Up to date/);
+  });
+
+  it('walks Downloading, Installing, and Relaunching, and shows a checksum error without crashing', async () => {
+    (globalThis as { __TAPIN_BUILD_TARGET__?: string }).__TAPIN_BUILD_TARGET__ = 'electron';
+    (globalThis as { __TAPIN_APP_VERSION__?: string }).__TAPIN_APP_VERSION__ = '1.0.0';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          tag_name: 'v1.0.1',
+          html_url: 'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/tag/v1.0.1',
+          published_at: null,
+          assets: [
+            {
+              name: 'SJC Attendance-1.0.1-arm64.dmg',
+              url: 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/11',
+              browser_download_url:
+                'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg',
+              size: 100,
+            },
+            {
+              name: 'SJC Attendance-1.0.1-arm64.dmg.sha256',
+              url: 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/12',
+              browser_download_url:
+                'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg.sha256',
+              size: 64,
+            },
+          ],
+        }),
+      }),
+    );
+
+    let listener: ((event: { phase: 'downloading' | 'installing' | 'relaunching' }) => void) | undefined;
+    let releaseInstalling: () => void = () => {};
+    let releaseRelaunching: () => void = () => {};
+    const installingGate = new Promise<void>((resolve) => {
+      releaseInstalling = resolve;
+    });
+    const relaunchGate = new Promise<void>((resolve) => {
+      releaseRelaunching = resolve;
+    });
+    const installAppUpdate = vi.fn().mockImplementation(async () => {
+      await installingGate;
+      listener?.({ phase: 'installing' });
+      await relaunchGate;
+      listener?.({ phase: 'relaunching' });
+      return { ok: true, phase: 'relaunching' as const };
+    });
+    installDesktopBridge({
+      hostArch: 'arm64',
+      installAppUpdate,
+      onUpdateProgress: (cb) => {
+        listener = cb;
+        return () => {
+          listener = undefined;
+        };
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<UpdateCard />);
+    await user.click(screen.getByTestId('button-check-updates'));
+    await screen.findByTestId('button-install-app');
+    await user.click(screen.getByTestId('button-install-app'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-update-phase').textContent).toBe('Downloading'),
+    );
+    expect(screen.getByTestId('button-install-app').textContent).toMatch(/Downloading/);
+
+    releaseInstalling();
+    await waitFor(() =>
+      expect(screen.getByTestId('text-update-phase').textContent).toBe('Installing'),
+    );
+    expect(screen.getByTestId('button-install-app').textContent).toMatch(/Installing/);
+    releaseRelaunching();
+    await waitFor(() =>
+      expect(screen.getByTestId('text-update-phase').textContent).toBe('Relaunching'),
+    );
+    expect(installAppUpdate).toHaveBeenCalledWith({
+      assetUrl:
+        'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg',
+      sha256Url:
+        'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg.sha256',
+      suggestedName: 'SJC Attendance-1.0.1-arm64.dmg',
+    });
+  });
+
+  it('shows a checksum failure on the card and does not crash', async () => {
+    (globalThis as { __TAPIN_BUILD_TARGET__?: string }).__TAPIN_BUILD_TARGET__ = 'electron';
+    (globalThis as { __TAPIN_APP_VERSION__?: string }).__TAPIN_APP_VERSION__ = '1.0.0';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          tag_name: 'v1.0.1',
+          html_url: 'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/tag/v1.0.1',
+          published_at: null,
+          assets: [
+            {
+              name: 'SJC Attendance-1.0.1-arm64.dmg',
+              url: 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/11',
+              browser_download_url:
+                'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg',
+              size: 100,
+            },
+            {
+              name: 'SJC Attendance-1.0.1-arm64.dmg.sha256',
+              url: 'https://api.github.com/repos/Thirdline-LLC/NFC-Attendance-Scanner/releases/assets/12',
+              browser_download_url:
+                'https://github.com/Thirdline-LLC/NFC-Attendance-Scanner/releases/download/v1.0.1/SJC%20Attendance-1.0.1-arm64.dmg.sha256',
+              size: 64,
+            },
+          ],
+        }),
+      }),
+    );
+    installDesktopBridge({
+      hostArch: 'arm64',
+      installAppUpdate: vi.fn().mockResolvedValue({
+        ok: false,
+        reason: 'checksum',
+        message: 'The download did not match its published checksum. Nothing was installed.',
+      }),
+    });
+    const user = userEvent.setup();
+    render(<UpdateCard />);
+    await user.click(screen.getByTestId('button-check-updates'));
+    await user.click(await screen.findByTestId('button-install-app'));
+
+    const notice = await screen.findByTestId('text-app-notice');
+    expect(notice.textContent).toMatch(/checksum/);
+    expect(notice.getAttribute('role')).toBe('alert');
+    expect((screen.getByTestId('button-install-app') as HTMLButtonElement).disabled).toBe(false);
   });
 });
