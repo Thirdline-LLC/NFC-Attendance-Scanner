@@ -576,14 +576,17 @@ export function BodySwitcherDialog({
           </p>
         ) : null}
 
-        <button
-          type="button"
-          onClick={onCancel}
-          className="mt-4 w-full text-xs font-semibold text-[hsl(var(--muted-foreground))] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-          data-testid="button-body-cancel"
-        >
-          Cancel
-        </button>
+        {/* The template step has its own Skip for now / Done. */}
+        {classSetup ? null : (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="mt-4 w-full text-xs font-semibold text-[hsl(var(--muted-foreground))] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+            data-testid="button-body-cancel"
+          >
+            Cancel
+          </button>
+        )}
       </div>
     </div>
   );
@@ -706,7 +709,9 @@ function BodyTreeList({
               <span className="mt-0.5 block truncate text-xs text-[hsl(var(--muted-foreground))]">
                 {body.typeLabel}
               </span>
-            ) : row.depth > 1 ? (
+            ) : row.depth > 1 && !grouped ? (
+              /* Grouped, the indent already says where it sits; a flat
+              search result needs the path to say it. */
               <span className="mt-0.5 block truncate text-xs text-[hsl(var(--muted-foreground))]">
                 {row.path}
               </span>
