@@ -206,6 +206,36 @@ export function saveDialogFilter(filename: string): { name: string; extensions: 
     : { name: 'Excel workbook', extensions: ['xlsx'] };
 }
 
+/**
+ * The desktop Save dialog's title, picked from the filename's shape so a
+ * roster template is not offered as an "attendance export".
+ */
+export function saveDialogTitle(filename: string): string {
+  if (TEMPLATE_EXPORT_FILENAME.test(filename)) return 'Save roster template';
+  if (ROSTER_EXPORT_FILENAME.test(filename)) return 'Save roster export';
+  return 'Save attendance export';
+}
+
+/** Every xlsx file is a zip archive, and every zip starts with these bytes. */
+const ZIP_LOCAL_FILE_HEADER = [0x50, 0x4b, 0x03, 0x04] as const;
+
+function startsWithZipHeader(bytes: Uint8Array): boolean {
+  return ZIP_LOCAL_FILE_HEADER.every((byte, index) => bytes[index] === byte);
+}
+
+/**
+ * Whether the decoded bytes are plausibly the type the filename's extension
+ * claims: an `.xlsx` must open with the zip header, and a `.csv` must not
+ * (a zip under a `.csv` name would be an xlsx wearing the wrong extension).
+ * Checked before the Save dialog opens, so a mismatch never reaches disk.
+ */
+export function contentMatchesExtension(filename: string, bytes: Uint8Array): boolean {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.xlsx')) return startsWithZipHeader(bytes);
+  if (lower.endsWith('.csv')) return !startsWithZipHeader(bytes);
+  return false;
+}
+
 /** The in-place install IPC. Same asset rules as a non-theme download. */
 export function parseInstallAppUpdateRequest(
   payload: unknown,

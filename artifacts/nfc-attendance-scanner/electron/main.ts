@@ -26,9 +26,11 @@ import { createInPlaceHost, fetchReleaseAssetBytes } from './in-place-host';
 import {
   parseDownloadVerifiedAssetRequest,
   parseInstallAppUpdateRequest,
+  contentMatchesExtension,
   parseSaveRequest,
   resolveBundledAsset,
   saveDialogFilter,
+  saveDialogTitle,
 } from './validation';
 
 // esbuild emits CommonJS for both Electron entry points (a sandboxed preload
@@ -183,6 +185,16 @@ async function saveWorkbook(
     return { status: 'failed', message: 'The export request was malformed.' };
   }
 
+  // Decoded once, up front: the bytes must match the extension before the
+  // operator is ever asked where to put them.
+  const bytes = Buffer.from(request.base64, 'base64');
+  if (!contentMatchesExtension(request.filename, bytes)) {
+    return {
+      status: 'failed',
+      message: "The file's contents do not match its file type.",
+    };
+  }
+
   const window = BrowserWindow.fromWebContents(event.sender);
 
   // The operator names the destination. That is what makes this safe: the
@@ -194,7 +206,7 @@ async function saveWorkbook(
   if (canceled || !filePath) return { status: 'cancelled' };
 
   try {
-    await fs.writeFile(filePath, Buffer.from(request.base64, 'base64'));
+    await fs.writeFile(filePath, bytes);
     // Confirmed rather than assumed: a write that resolved but produced an
     // empty file is a failed export, and the operator has to hear so.
     const { size } = await fs.stat(filePath);
@@ -221,7 +233,7 @@ async function saveWorkbook(
 
 function saveDialogOptions(filename: string) {
   return {
-    title: 'Save attendance export',
+    title: saveDialogTitle(filename),
     defaultPath: path.join(app.getPath('documents'), filename),
     filters: [saveDialogFilter(filename)],
     properties: ['createDirectory' as const, 'showOverwriteConfirmation' as const],
