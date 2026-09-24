@@ -10,7 +10,14 @@
  * Support, not in the bundle, and is not mentioned.
  */
 
-/** Moves `target` aside, copies `staged` into its place, clears quarantine. */
+/**
+ * Moves `target` aside, copies `staged` into its place, clears quarantine.
+ *
+ * The previous bundle is removed only after the replacement is in place.
+ * A re-run after a partial swap (move succeeded, copy failed, restore
+ * failed) puts that bundle back and does not delete it while it is the
+ * only remaining app.
+ */
 export function renderInPlaceSwapScript(): string {
   return `#!/bin/bash
 # Tapin bundle swap. Local files only.
@@ -19,31 +26,83 @@ set -u
 TARGET="$1"
 STAGED="$2"
 BACKUP="$3"
+# Sibling of the backup, never inside it, so removing BACKUP cannot clear it.
+MARKER="$BACKUP.incomplete"
 
 case "$TARGET" in
   *.app) ;;
   *) exit 2 ;;
 esac
+case "$BACKUP" in
+  *.app.tapin-previous) ;;
+  *) exit 2 ;;
+esac
+if [ "$BACKUP" = "$TARGET" ]; then
+  exit 2
+fi
 if [ ! -d "$STAGED" ]; then
   exit 3
 fi
 
-# Move aside first so a failed copy can be rolled back. rm -rf only removes
-# the backup after the new bundle is in place, or a partial copy that did
-# not finish.
-rm -rf "$BACKUP"
+# Incomplete swap, or the previous bundle is all that is left: restore it
+# before any delete. Covers admin re-entry after mv succeeded, cp failed,
+# and mv BACKUP back onto TARGET also failed.
+if [ -f "$MARKER" ] || { [ -d "$BACKUP" ] && [ ! -e "$TARGET" ]; }; then
+  if [ -d "$BACKUP" ]; then
+    if [ -e "$TARGET" ]; then
+      rm -rf "$TARGET" || exit 1
+      if [ -e "$TARGET" ]; then
+        exit 1
+      fi
+    fi
+    if ! mv "$BACKUP" "$TARGET"; then
+      exit 1
+    fi
+  fi
+  rm -f "$MARKER" || exit 1
+fi
+
+# A finished swap whose backup cleanup did not run. TARGET is the installed
+# bundle, so BACKUP is not the only copy.
+if [ -d "$BACKUP" ]; then
+  if [ ! -d "$TARGET" ]; then
+    mv "$BACKUP" "$TARGET" || exit 1
+    exit 1
+  fi
+  rm -rf "$BACKUP" || exit 1
+fi
+
+if [ ! -d "$TARGET" ]; then
+  exit 1
+fi
+
+touch "$MARKER" || exit 1
 if ! mv "$TARGET" "$BACKUP"; then
+  rm -f "$MARKER"
   exit 1
 fi
 if ! cp -R "$STAGED" "$TARGET"; then
   rm -rf "$TARGET"
-  mv "$BACKUP" "$TARGET" || exit 1
+  if [ -e "$TARGET" ]; then
+    # Partial copy is still in the way. Leave BACKUP and the marker.
+    exit 1
+  fi
+  if ! mv "$BACKUP" "$TARGET"; then
+    exit 1
+  fi
+  rm -f "$MARKER"
+  exit 1
+fi
+if [ ! -d "$TARGET" ]; then
   exit 1
 fi
 # Ad-hoc builds downloaded from GitHub are quarantined. Clearing the
 # attribute lets the replaced bundle launch. Harmless on a notarized build.
 xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null || true
-rm -rf "$BACKUP"
+# Drop the marker before removing the previous bundle. A crash in between
+# must not look like an incomplete swap whose only copy is already gone.
+rm -f "$MARKER" || exit 1
+rm -rf "$BACKUP" || exit 1
 exit 0
 `;
 }
@@ -95,6 +154,9 @@ BACKUP="\${TARGET}.tapin-previous"
 if ! /bin/bash "$SWAP" "$TARGET" "$STAGED" "$BACKUP"; then
   log "user-swap-failed"
   # Standard accounts cannot write /Applications. One local password prompt.
+  # Same backup path as the failed attempt. swap.sh restores
+  # .tapin-previous when that directory is the only remaining previous app
+  # (move succeeded, copy failed, restore failed) and does not rm it first.
   Q_SWAP=$(printf '%q' "$SWAP")
   Q_TARGET=$(printf '%q' "$TARGET")
   Q_STAGED=$(printf '%q' "$STAGED")
