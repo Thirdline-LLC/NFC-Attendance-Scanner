@@ -2,6 +2,12 @@ import Dexie from 'dexie';
 import { maskCardUid } from '@/lib/scan-format';
 import { findEmailOwner } from '@/lib/student-email';
 import type { ExportDelivery } from '@/lib/workbook-delivery';
+import {
+  flattenBodyTree,
+  isArchived,
+  nextSiblingSortOrder,
+  wouldCycle,
+} from '@/data/body-hierarchy';
 
 export type Person = {
   id?: number;
@@ -56,16 +62,42 @@ export type TapRecord = {
 };
 
 /**
- * A class, club, faculty group, or other entity a kiosk can attach to. Each
- * one owns its own roster and tap history (D-T2); the device merely points
- * `settings.activeBodyId` at whichever one it is currently scanning for.
+ * One node in the device-local body tree. The admin chooses the name, the
+ * type label, and where the node sits. `typeLabel` is a free string — the
+ * product has no club/class/section mode. Each node owns its own roster and
+ * tap history (D-T2). The device points `settings.activeBodyId` at exactly
+ * one non-archived node, which may be a root or any descendant.
  */
 export type AttendanceBody = {
   id?: number;
   name: string;
+  /** Admin-defined vocabulary. Any string. Not a product enum. */
   typeLabel: string;
   createdAt: string;
+  /** `null` = root. Points at the parent body's id. */
+  parentId?: number | null;
+  /** Sibling order under the same parent. */
+  sortOrder?: number;
+  /**
+   * Admin-defined key/value bag for this node only. 08a stores the bag;
+   * field definitions (BodyFieldDef) are 08b and are not required to write
+   * a value. Values are strings.
+   */
+  customFields?: Record<string, string>;
+  /** Soft archive. An archived body cannot become `activeBodyId`. */
+  archivedAt?: string | null;
 };
+
+/**
+ * A hierarchy write that would break the tree (a cycle, a missing parent,
+ * an empty name) or the attachment rule (activating an archived body).
+ */
+export class BodyHierarchyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BodyHierarchyError';
+  }
+}
 
 export type ActivityKind =
   | 'export-session'
@@ -76,7 +108,9 @@ export type ActivityKind =
   | 'purge-history'
   | 'remove-alumni'
   | 'pin-set'
-  | 'pin-changed';
+  | 'pin-changed'
+  | 'body-reparent'
+  | 'body-archive';
 
 /**
  * One line of the device's activity log. Only counts, timestamps, filenames
@@ -231,6 +265,34 @@ database
       value: String(bodyId),
     });
   });
+// v7 bodies were a flat list. Each one becomes a root (`parentId: null`),
+// with `sortOrder` taken from `createdAt` so the old list order survives.
+// `activeBodyId` is left alone. Roster rows and taps stay on the same body
+// (D-T2) — this migration only describes how those bodies nest.
+database
+  .version(8)
+  .stores({
+    scans: 'uid, scannedAt',
+    persons: '++id, &[bodyId+cardUid], lastName, gradYear, enrolledAt, bodyId',
+    taps: '++id, uid, scannedAt, personId, sessionId, bodyId',
+    settings: 'key',
+    activity: '++id, at, kind',
+    bodies: '++id, parentId, createdAt, sortOrder',
+  })
+  .upgrade(async (transaction) => {
+    const table = transaction.table('bodies');
+    const bodies = (await table.toArray()) as AttendanceBody[];
+    bodies.sort((a, b) => {
+      const created = a.createdAt.localeCompare(b.createdAt);
+      if (created !== 0) return created;
+      return (a.id ?? 0) - (b.id ?? 0);
+    });
+    for (let index = 0; index < bodies.length; index += 1) {
+      const body = bodies[index];
+      if (body.id === undefined) continue;
+      await table.update(body.id, { parentId: null, sortOrder: index });
+    }
+  });
 // Pre-enrollment rows from a v1/v2 database. Nothing writes here any more —
 // the table is kept so `clearAllAttendanceHistory` can still purge what an
 // upgraded database carried up, and so the schema versions stay replayable.
@@ -257,6 +319,8 @@ database.on('populate', async () => {
     name: 'Club',
     typeLabel: 'club',
     createdAt: new Date().toISOString(),
+    parentId: null,
+    sortOrder: 0,
   });
   await settingsTable.put({ key: ACTIVE_BODY_ID_KEY, value: String(bodyId) });
 });
@@ -551,35 +615,156 @@ export async function writeSetting(key: string, value: string): Promise<void> {
   await settingsTable.put({ key, value });
 }
 
-/** Every body on this device, oldest first. */
+/**
+ * Every body on this device, in tree order: roots by `sortOrder`, then each
+ * node's children by `sortOrder`. Archived nodes stay in the list; they just
+ * cannot be activated.
+ */
 export async function listBodies(): Promise<AttendanceBody[]> {
-  return bodiesTable.orderBy('createdAt').toArray();
+  const bodies = await bodiesTable.toArray();
+  return flattenBodyTree(bodies).map((row) => row.body as AttendanceBody);
 }
 
-/** Creates a body. Does not attach the device to it — call `setActiveBody` too. */
-export async function createBody(input: {
+export type CreateBodyInput = {
   name: string;
   typeLabel: string;
-}): Promise<AttendanceBody> {
-  const body: Omit<AttendanceBody, 'id'> = {
-    ...input,
-    createdAt: new Date().toISOString(),
-  };
-  const id = await bodiesTable.add({ ...body });
-  return { ...body, id };
+  /** Omit or `null` to create a root. Otherwise the parent body's id. */
+  parentId?: number | null;
+  customFields?: Record<string, string>;
+};
+
+/**
+ * Creates a root or a child. Does not attach the device to it — call
+ * `setActiveBody` too. Does not copy roster or taps from the parent (D-T2:
+ * membership is explicit per body). Depth is not capped.
+ */
+export async function createBody(input: CreateBodyInput): Promise<AttendanceBody> {
+  const name = input.name.trim();
+  const typeLabel = input.typeLabel.trim();
+  if (!name || !typeLabel) {
+    throw new BodyHierarchyError('A body needs a name and a type label.');
+  }
+  const parentId = input.parentId ?? null;
+
+  return database.transaction('rw', bodiesTable, async () => {
+    const bodies = await bodiesTable.toArray();
+    if (parentId !== null && !bodies.some((body) => body.id === parentId)) {
+      throw new BodyHierarchyError(`No attendance body has id ${parentId}.`);
+    }
+    const body: Omit<AttendanceBody, 'id'> = {
+      name,
+      typeLabel,
+      createdAt: new Date().toISOString(),
+      parentId,
+      sortOrder: nextSiblingSortOrder(bodies, parentId),
+      ...(input.customFields ? { customFields: { ...input.customFields } } : {}),
+    };
+    const id = await bodiesTable.add({ ...body });
+    return { ...body, id };
+  });
 }
 
 /**
- * Points this device's `activeBodyId` at another body. Reassignment only —
- * the previous body's roster and tap history stay exactly where they are
- * (D-T2): nothing here touches `persons` or `taps`.
+ * Points this device's `activeBodyId` at another body. Any non-archived node
+ * is valid — root or descendant. Reassignment only: the previous body's
+ * roster and tap history stay exactly where they are (D-T2).
  */
 export async function setActiveBody(bodyId: number): Promise<void> {
   const body = await bodiesTable.get(bodyId);
   if (!body) {
     throw new Error(`No attendance body has id ${bodyId}.`);
   }
+  if (isArchived(body)) {
+    throw new BodyHierarchyError('Archived bodies cannot be the active body.');
+  }
   await writeSetting(ACTIVE_BODY_ID_KEY, String(bodyId));
+}
+
+/** Renames a body and/or its type label. Does not move roster rows or taps. */
+export async function renameBody(
+  bodyId: number,
+  input: { name: string; typeLabel: string },
+): Promise<AttendanceBody> {
+  const name = input.name.trim();
+  const typeLabel = input.typeLabel.trim();
+  if (!name || !typeLabel) {
+    throw new BodyHierarchyError('A body needs a name and a type label.');
+  }
+  const existing = await bodiesTable.get(bodyId);
+  if (!existing) {
+    throw new BodyHierarchyError(`No attendance body has id ${bodyId}.`);
+  }
+  await bodiesTable.update(bodyId, { name, typeLabel });
+  return { ...existing, name, typeLabel };
+}
+
+/**
+ * Moves a body under a new parent, or to the root when `parentId` is null.
+ * Refuses a cycle. Does not move or wipe `persons` / `taps`.
+ */
+export async function reparentBody(bodyId: number, parentId: number | null): Promise<void> {
+  let moved = false;
+  await database.transaction('rw', bodiesTable, async () => {
+    const bodies = await bodiesTable.toArray();
+    const body = bodies.find((candidate) => candidate.id === bodyId);
+    if (!body) {
+      throw new BodyHierarchyError(`No attendance body has id ${bodyId}.`);
+    }
+    if (parentId !== null && !bodies.some((candidate) => candidate.id === parentId)) {
+      throw new BodyHierarchyError(`No attendance body has id ${parentId}.`);
+    }
+    if (wouldCycle(bodies, bodyId, parentId)) {
+      throw new BodyHierarchyError('That move would make a body its own ancestor.');
+    }
+    if ((body.parentId ?? null) === parentId) return;
+    const sortOrder = nextSiblingSortOrder(
+      bodies.filter((candidate) => candidate.id !== bodyId),
+      parentId,
+    );
+    await bodiesTable.update(bodyId, { parentId, sortOrder });
+    moved = true;
+  });
+  if (!moved) return;
+  try {
+    await recordActivity({ at: new Date().toISOString(), kind: 'body-reparent' });
+  } catch {
+    // The move already landed. A missing log row is not the move failing.
+  }
+}
+
+/**
+ * Soft-archives a body. Its roster and taps stay. The device cannot attach
+ * to it until `restoreBody`. The active body cannot be archived — attach
+ * somewhere else first so the desk is never left pointing at an archive.
+ */
+export async function archiveBody(bodyId: number): Promise<void> {
+  const body = await bodiesTable.get(bodyId);
+  if (!body) {
+    throw new BodyHierarchyError(`No attendance body has id ${bodyId}.`);
+  }
+  if (isArchived(body)) return;
+  const activeId = Number(await readSetting(ACTIVE_BODY_ID_KEY));
+  if (activeId === bodyId) {
+    throw new BodyHierarchyError(
+      'The active body cannot be archived. Attach this device to another body first.',
+    );
+  }
+  await bodiesTable.update(bodyId, { archivedAt: new Date().toISOString() });
+  try {
+    await recordActivity({ at: new Date().toISOString(), kind: 'body-archive' });
+  } catch {
+    // The archive already landed.
+  }
+}
+
+/** Clears `archivedAt` so the body can be activated again. */
+export async function restoreBody(bodyId: number): Promise<void> {
+  const body = await bodiesTable.get(bodyId);
+  if (!body) {
+    throw new BodyHierarchyError(`No attendance body has id ${bodyId}.`);
+  }
+  if (!isArchived(body)) return;
+  await bodiesTable.update(bodyId, { archivedAt: null });
 }
 
 /**
@@ -598,17 +783,23 @@ export async function setActiveBody(bodyId: number): Promise<void> {
  */
 export async function getActiveBodyId(): Promise<number> {
   const stored = Number(await readSetting(ACTIVE_BODY_ID_KEY));
-  if (Number.isInteger(stored) && (await bodiesTable.get(stored))) {
-    return stored;
+  if (Number.isInteger(stored)) {
+    const body = await bodiesTable.get(stored);
+    // An archived node cannot stay attached. Fall through and point the
+    // device at another non-archived body instead of scanning into an archive.
+    if (body && !isArchived(body)) return stored;
   }
 
   return database.transaction('rw', settingsTable, bodiesTable, async () => {
     const current = Number(await readSetting(ACTIVE_BODY_ID_KEY));
-    if (Number.isInteger(current) && (await bodiesTable.get(current))) {
-      return current;
+    if (Number.isInteger(current)) {
+      const body = await bodiesTable.get(current);
+      if (body && !isArchived(body)) return current;
     }
 
-    const [firstBody] = await listBodies();
+    const firstBody = (await listBodies()).find(
+      (body) => body.id !== undefined && !isArchived(body),
+    );
     if (firstBody?.id !== undefined) {
       await writeSetting(ACTIVE_BODY_ID_KEY, String(firstBody.id));
       return firstBody.id;
@@ -618,6 +809,8 @@ export async function getActiveBodyId(): Promise<number> {
       name: 'Club',
       typeLabel: 'club',
       createdAt: new Date().toISOString(),
+      parentId: null,
+      sortOrder: 0,
     });
     await writeSetting(ACTIVE_BODY_ID_KEY, String(createdId));
     return createdId;
@@ -932,6 +1125,23 @@ export async function applyRosterImport(
 export async function listTapRecords(): Promise<TapRecord[]> {
   const bodyId = await getActiveBodyId();
   return tapsTable.where('bodyId').equals(bodyId).sortBy('scannedAt');
+}
+
+/**
+ * Taps whose `bodyId` is in `bodyIds`. Used for "this body + descendants":
+ * the caller passes `subtreeBodyIds` and rolls the rows up. This does not
+ * change what the scanner records — a tap is still written for `activeBodyId`
+ * only.
+ */
+export async function listTapsForBodies(bodyIds: readonly number[]): Promise<TapRecord[]> {
+  if (bodyIds.length === 0) return [];
+  return tapsTable.where('bodyId').anyOf([...bodyIds]).sortBy('scannedAt');
+}
+
+/** Roster rows whose `bodyId` is in `bodyIds`. Same scope as `listTapsForBodies`. */
+export async function listPersonsForBodies(bodyIds: readonly number[]): Promise<Person[]> {
+  if (bodyIds.length === 0) return [];
+  return personsTable.where('bodyId').anyOf([...bodyIds]).sortBy('lastName');
 }
 
 /**

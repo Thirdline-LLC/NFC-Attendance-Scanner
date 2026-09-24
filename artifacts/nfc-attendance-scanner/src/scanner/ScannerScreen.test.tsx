@@ -880,3 +880,22 @@ describe('ScannerScreen teacher gate', () => {
     expect(screen.queryByTestId('text-pin-unset')).toBeNull();
   });
 });
+
+describe('ScannerScreen body attachment', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete('attendance-scanner-local');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('shows the active body and does not offer a way to switch mid-queue', async () => {
+    renderScanner();
+    expect((await screen.findByTestId('text-body-subtitle')).textContent).toContain('Club');
+    expect(screen.getByTestId('text-body-subtitle').textContent).toContain('club');
+    expect(screen.queryByTestId('button-change-body')).toBeNull();
+    expect(screen.queryByTestId('dialog-body-switcher')).toBeNull();
+  });
+});

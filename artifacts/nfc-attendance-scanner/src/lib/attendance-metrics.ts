@@ -71,6 +71,11 @@ export type UnidentifiedCard = {
   uid: string;
   tapCount: number;
   lastSeenAt: string;
+  /**
+   * Set on a subtree roll-up so the same card in two bodies stays two rows.
+   * Absent in "this body" mode.
+   */
+  bodyId?: number;
 };
 
 export type UnidentifiedSummary = {
@@ -87,6 +92,11 @@ export type DashboardMetrics = {
   gradeBreakdown: GradeBreakdownRow[];
   enrolledStudents: number;
   unidentified: UnidentifiedSummary;
+  /**
+   * `body` is one node's roster and taps. `subtree` is that node plus its
+   * descendants, with the roll-up identity rules in `rollupIdentityKey`.
+   */
+  scope: 'body' | 'subtree';
 };
 
 /**
@@ -354,5 +364,184 @@ export function computeDashboardMetrics(
     gradeBreakdown: gradeBreakdown(students, persons, now),
     enrolledStudents: persons.length,
     unidentified: unidentifiedTaps(taps, roster),
+    scope: 'body',
   };
+}
+
+/**
+ * Identity for a subtree roll-up ("this body + descendants").
+ *
+ * Prefer the student's email, trimmed and lowercased. When the row has no
+ * email, use `cardUid`. Two roster rows that share an email — or, with no
+ * email, the same card — are one person in the roll-up, even though each
+ * body still owns its own row (D-T2). Two enrollments that share neither an
+ * email nor a card still count twice: dual membership without a shared
+ * identity is two people as far as this device can tell.
+ *
+ * "This body" metrics do not use this key. They count roster rows.
+ */
+export function rollupIdentityKey(
+  person: Pick<Person, 'id' | 'email' | 'cardUid' | 'enrolledAt'>,
+): string {
+  const email = person.email.trim().toLowerCase();
+  if (email) return `email:${email}`;
+  if (person.cardUid) return `card:${person.cardUid}`;
+  return `row:${person.id ?? person.enrolledAt}`;
+}
+
+function dedupeByRollupIdentity(people: readonly Person[]): Person[] {
+  const seen = new Map<string, Person>();
+  for (const person of people) {
+    const key = rollupIdentityKey(person);
+    if (!seen.has(key)) seen.set(key, person);
+  }
+  return [...seen.values()];
+}
+
+function partitionByBodyId<T extends { bodyId?: number }>(rows: readonly T[]): Map<number, T[]> {
+  const groups = new Map<number, T[]>();
+  for (const row of rows) {
+    const id = typeof row.bodyId === 'number' ? row.bodyId : -1;
+    const list = groups.get(id);
+    if (list) list.push(row);
+    else groups.set(id, [row]);
+  }
+  return groups;
+}
+
+/**
+ * Dashboard metrics for a node plus its descendants.
+ *
+ * Taps are resolved against the roster of the body that recorded them
+ * (`tap.bodyId`), never a merged roster — a card enrolled in one body must
+ * not identify an unknown tap in another.
+ *
+ * Unique attendance (per session and for the year) uses `rollupIdentityKey`:
+ * email, lowercased, then `cardUid`. Unknown cards are not deduped across
+ * bodies. Each body's unidentified taps are counted on their own and then
+ * summed ("sum of branch unknowns"), so the same physical card in two bodies
+ * stays two unknown-card rows rather than one pooled card.
+ */
+export function computeRollupDashboardMetrics(
+  taps: readonly TapRecord[],
+  persons: readonly Person[],
+  now: string,
+  target: number = DEFAULT_ATTENDANCE_TARGET,
+): DashboardMetrics {
+  const personsByBody = partitionByBodyId(persons);
+  const tapsByBody = partitionByBodyId(taps);
+  const bodyIds = new Set<number>([...personsByBody.keys(), ...tapsByBody.keys()]);
+
+  const rosterByBody = new Map<number, RosterIndex>();
+  for (const id of bodyIds) {
+    rosterByBody.set(id, indexRoster(personsByBody.get(id) ?? []));
+  }
+
+  const attended: Person[] = [];
+  const ytdTaps: TapRecord[] = [];
+  for (const id of bodyIds) {
+    const bodyTaps = tapsByBody.get(id) ?? [];
+    const ytd = selectYearToDateTaps(bodyTaps, now);
+    ytdTaps.push(...ytd);
+    attended.push(...distinctStudents(ytd, rosterByBody.get(id) ?? indexRoster([])));
+  }
+
+  const enrolledPeople = dedupeByRollupIdentity(persons);
+  const enrolledByKey = new Map(
+    enrolledPeople.map((person) => [rollupIdentityKey(person), person]),
+  );
+  const students = dedupeByRollupIdentity(attended).map(
+    (person) => enrolledByKey.get(rollupIdentityKey(person)) ?? person,
+  );
+
+  const sessions = computeRollupSessionAttendance(ytdTaps, rosterByBody);
+  const hasSessions = sessions.length > 0;
+  const averageAttendance = hasSessions
+    ? sessions.reduce((sum, session) => sum + session.attendance, 0) / sessions.length
+    : 0;
+  let best: SessionAttendance | null = null;
+  for (const session of sessions) {
+    if (!best || session.attendance > best.attendance) best = session;
+  }
+  const latest = hasSessions ? sessions[sessions.length - 1] : null;
+
+  const cards: UnidentifiedCard[] = [];
+  let unidentifiedTapCount = 0;
+  for (const id of bodyIds) {
+    const summary = unidentifiedTaps(
+      tapsByBody.get(id) ?? [],
+      rosterByBody.get(id) ?? indexRoster([]),
+    );
+    unidentifiedTapCount += summary.tapCount;
+    for (const card of summary.cards) {
+      cards.push(id === -1 ? { ...card } : { ...card, bodyId: id });
+    }
+  }
+  cards.sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt));
+
+  return {
+    computedAt: now,
+    ytd: {
+      schoolYearStart: schoolYearStart(now),
+      sessions,
+      sessionsCount: sessions.length,
+      hasSessions,
+      averageAttendance,
+      target,
+      percentOfTarget: (averageAttendance / target) * 100,
+      latestSession: latest && snapshot(latest),
+      bestSession: best && snapshot(best),
+      uniqueStudents: students.length,
+    },
+    gradeBreakdown: gradeBreakdown(students, enrolledPeople, now),
+    enrolledStudents: enrolledPeople.length,
+    unidentified: {
+      tapCount: unidentifiedTapCount,
+      cardCount: cards.length,
+      cards,
+    },
+    scope: 'subtree',
+  };
+}
+
+/**
+ * Session attendance across bodies. Students are resolved per body, then
+ * deduped with `rollupIdentityKey` so one person at two bodies in the same
+ * session counts once. Tap totals are still the sum of every tap.
+ */
+function computeRollupSessionAttendance(
+  taps: readonly TapRecord[],
+  rosterByBody: ReadonlyMap<number, RosterIndex>,
+): SessionAttendance[] {
+  const groups = new Map<string, TapRecord[]>();
+  for (const tap of taps) {
+    const group = groups.get(tap.sessionId);
+    if (group) group.push(tap);
+    else groups.set(tap.sessionId, [tap]);
+  }
+
+  const sessions = [...groups].map(([sessionId, sessionTaps]) => {
+    let startedAt = sessionTaps[0].scannedAt;
+    for (const tap of sessionTaps) {
+      if (Date.parse(tap.scannedAt) < Date.parse(startedAt)) startedAt = tap.scannedAt;
+    }
+
+    const present: Person[] = [];
+    const byBody = partitionByBodyId(sessionTaps);
+    for (const [bodyId, bodyTaps] of byBody) {
+      present.push(
+        ...distinctStudents(bodyTaps, rosterByBody.get(bodyId) ?? indexRoster([])),
+      );
+    }
+
+    return {
+      sessionId,
+      date: formatSessionDate(startedAt),
+      startedAt,
+      attendance: dedupeByRollupIdentity(present).length,
+      tapCount: sessionTaps.length,
+    };
+  });
+
+  return sessions.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
 }

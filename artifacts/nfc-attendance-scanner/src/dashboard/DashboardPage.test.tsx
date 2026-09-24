@@ -11,6 +11,7 @@ import {
   getActiveBody,
   recordActivity,
   recordSessionTap,
+  setActiveBody,
   type BoundPerson,
 } from '@/data/attendance-store';
 import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
@@ -199,7 +200,7 @@ describe('DashboardPage', () => {
   it('offers a retry when the first read fails', async () => {
     await seedTwoSessions();
     const read = vi
-      .spyOn(attendanceStore, 'listTapRecords')
+      .spyOn(attendanceStore, 'listTapsForBodies')
       .mockRejectedValueOnce(new Error('storage unavailable'));
     const user = userEvent.setup();
     renderPage();
@@ -220,7 +221,7 @@ describe('DashboardPage', () => {
     renderPage();
     await screen.findByTestId('dashboard');
 
-    vi.spyOn(attendanceStore, 'listTapRecords').mockRejectedValueOnce(
+    vi.spyOn(attendanceStore, 'listTapsForBodies').mockRejectedValueOnce(
       new Error('storage unavailable'),
     );
     await user.click(screen.getByTestId('button-refresh-dashboard'));
@@ -497,7 +498,7 @@ describe('DashboardPage attendance body', () => {
 
     await user.click(await screen.findByTestId('button-change-body'));
     await user.type(await screen.findByTestId('input-body-name'), 'Robotics Club');
-    await user.selectOptions(screen.getByTestId('select-body-type'), 'club');
+    await user.type(screen.getByTestId('input-body-type'), 'section');
     await user.click(screen.getByTestId('button-body-create'));
 
     await waitFor(() =>
@@ -505,6 +506,100 @@ describe('DashboardPage attendance body', () => {
         'Robotics Club',
       ),
     );
+    expect(screen.getByTestId('text-active-body').textContent).toContain('section');
+  });
+
+  it('shows a child body with its path and still switches to it', async () => {
+    const parent = await getActiveBody();
+    const child = await createBody({
+      name: 'Finance',
+      typeLabel: 'Branch',
+      parentId: parent.id,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.type(await screen.findByTestId('input-body-search'), 'Finance');
+
+    const button = await screen.findByTestId(`button-body-${child.id}`);
+    expect(button.textContent).toContain('Finance');
+    expect(button.textContent).toContain('Branch');
+    expect(button.textContent).toContain('Club › Finance');
+    expect(screen.queryByTestId(`button-body-${parent.id}`)).toBeNull();
+
+    await user.clear(screen.getByTestId('input-body-search'));
+    await user.click(screen.getByTestId(`button-body-${child.id}`));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-active-body').textContent).toContain('Finance'),
+    );
+    expect((await getActiveBody()).id).toBe(child.id);
+  });
+
+  it('rolls metrics up to descendants and counts a shared email once', async () => {
+    const parent = await getActiveBody();
+    const jane = await addPerson({
+      cardUid: '04A1B2C3D4E5F6',
+      firstName: 'Jane',
+      lastName: 'Smith',
+      gradYear: currentSeniorGradYear(new Date().toISOString()),
+      email: 'jsmith@stjohnschs.org',
+      enrolledAt: secondsAgo(90),
+    });
+    await recordSessionTap({
+      sessionId: 'parent-session',
+      uid: jane.cardUid,
+      scannedAt: secondsAgo(60),
+      personId: jane.id as number,
+    });
+
+    const child = await createBody({
+      name: 'Finance',
+      typeLabel: 'Branch',
+      parentId: parent.id,
+    });
+    await setActiveBody(child.id as number);
+    const janeAgain = await addPerson({
+      cardUid: '04BBBBBBBBBBBB',
+      firstName: 'Jane',
+      lastName: 'Smith',
+      gradYear: currentSeniorGradYear(new Date().toISOString()),
+      email: 'JSmith@stjohnschs.org',
+      enrolledAt: secondsAgo(50),
+    });
+    await recordSessionTap({
+      sessionId: 'child-session',
+      uid: janeAgain.cardUid,
+      scannedAt: secondsAgo(40),
+      personId: janeAgain.id as number,
+    });
+    const ada = await addPerson({
+      cardUid: '04CCCCCCCCCCCC',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      gradYear: currentSeniorGradYear(new Date().toISOString()),
+      email: 'alovelace@stjohnschs.org',
+      enrolledAt: secondsAgo(30),
+    });
+    await recordSessionTap({
+      sessionId: 'child-session',
+      uid: ada.cardUid,
+      scannedAt: secondsAgo(20),
+      personId: ada.id as number,
+    });
+    await setActiveBody(parent.id as number);
+
+    const user = userEvent.setup();
+    renderPage();
+
+    expect((await screen.findByTestId('text-unique-students')).textContent).toBe('1');
+    await user.click(screen.getByTestId('button-metrics-subtree'));
+    await waitFor(() =>
+      expect(screen.getByTestId('text-unique-students').textContent).toBe('2'),
+    );
+    expect(screen.getByTestId('text-enrolled-students').textContent).toBe('2');
+    expect(screen.getByTestId('text-rollup-identity').textContent).toMatch(/email/i);
   });
 });
 

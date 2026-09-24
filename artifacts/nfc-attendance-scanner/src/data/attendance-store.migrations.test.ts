@@ -419,7 +419,7 @@ describe('version 5 to 6', () => {
     await withRawDatabase(async (raw) => {
       // Reading through the store upgrades all the way to the current
       // schema, not just to 6 — `bodies` and its backfill land too.
-      expect(raw.verno).toBe(7);
+      expect(raw.verno).toBe(8);
       expect(raw.tables.map((table) => table.name).sort()).toEqual([
         'activity',
         'bodies',
@@ -478,6 +478,8 @@ describe('version 6 to 7', () => {
 
     const activeBodyId = await getActiveBodyId();
     expect(activeBodyId).toBe(body.id);
+    expect(body.parentId).toBeNull();
+    expect(body.sortOrder).toBe(0);
 
     // Every pre-existing person and tap belongs to the one backfilled body —
     // nothing is orphaned, and nothing is invented.
@@ -488,11 +490,70 @@ describe('version 6 to 7', () => {
     expect(await listTapRecords()).toHaveLength(2);
 
     await withRawDatabase(async (raw) => {
-      expect(raw.verno).toBe(7);
+      expect(raw.verno).toBe(8);
       const persons = await raw.table('persons').toArray();
       const taps = await raw.table('taps').toArray();
       expect(persons.every((person) => person.bodyId === body.id)).toBe(true);
       expect(taps.every((tap) => tap.bodyId === body.id)).toBe(true);
+    });
+  });
+});
+
+describe('version 7 to 8', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  /**
+   * A database frozen at version 7: bodies exist, but they are a flat list
+   * with no parent, sort order, or archive flag.
+   */
+  async function seedVersion7(): Promise<{ olderId: number; newerId: number }> {
+    const legacy = new Dexie(DATABASE_NAME);
+    legacy.version(7).stores({
+      scans: 'uid, scannedAt',
+      persons: '++id, &[bodyId+cardUid], lastName, gradYear, enrolledAt, bodyId',
+      taps: '++id, uid, scannedAt, personId, sessionId, bodyId',
+      settings: 'key',
+      activity: '++id, at, kind',
+      bodies: '++id, createdAt',
+    });
+    await legacy.open();
+    const olderId = (await legacy.table('bodies').add({
+      name: 'Older',
+      typeLabel: 'group',
+      createdAt: '2024-01-01T00:00:00.000Z',
+    })) as number;
+    const newerId = (await legacy.table('bodies').add({
+      name: 'Newer',
+      typeLabel: 'group',
+      createdAt: '2025-06-01T00:00:00.000Z',
+    })) as number;
+    await legacy.table('persons').add({ ...ROSA, bodyId: olderId });
+    await legacy.table('settings').put({
+      key: 'active-body-id',
+      value: String(newerId),
+    });
+    legacy.close();
+    return { olderId, newerId };
+  }
+
+  it('turns flat bodies into roots and leaves the active body where it was', async () => {
+    const { olderId, newerId } = await seedVersion7();
+
+    const bodies = await listBodies();
+    expect(bodies.map((body) => body.name)).toEqual(['Older', 'Newer']);
+    expect(bodies.map((body) => body.parentId)).toEqual([null, null]);
+    expect(bodies.map((body) => body.sortOrder)).toEqual([0, 1]);
+    expect(await getActiveBodyId()).toBe(newerId);
+
+    await withRawDatabase(async (raw) => {
+      expect(raw.verno).toBe(8);
+      const persons = await raw.table('persons').toArray();
+      expect(persons).toHaveLength(1);
+      expect(persons[0].bodyId).toBe(olderId);
+      expect(persons[0].lastName).toBe('Alvarez');
     });
   });
 });
