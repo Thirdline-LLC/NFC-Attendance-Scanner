@@ -77,7 +77,9 @@ overrides:
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.28.2"
   fast-uri: "3.1.6"
-  js-yaml: "4.3.1"
+  js-yaml: "4.3.2"
+  # Latest 7.x. Applies only below 7.29.0 so undici@7.29.1 and undici@8 stay.
+  "undici@<7.29.0": "7.29.1"
   nanoid: "3.3.18"
   qs: "6.16.0"
   uuid: "11.1.1"
