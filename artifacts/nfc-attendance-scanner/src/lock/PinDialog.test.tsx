@@ -2,9 +2,11 @@ import Dexie from 'dexie';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_THEME, storeActiveTheme, type ThemePack } from '@workspace/themes';
 import * as attendanceStore from '@/data/attendance-store';
 import * as operatorPin from '@/data/operator-pin';
 import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
+import { ThemeProvider } from '@/theme/ThemeProvider';
 import { PinDialog } from './PinDialog';
 
 const DATABASE_NAME = 'attendance-scanner-local';
@@ -178,6 +180,53 @@ describe('PinDialog', () => {
       'Set a teacher PIN',
     );
     expect(has).toHaveBeenCalledTimes(2);
+  });
+
+  it('takes its gate title from the active theme, but a wrong PIN is still wrong', async () => {
+    await setOperatorPin('2468');
+    const pack: ThemePack = {
+      ...DEFAULT_THEME,
+      meta: { id: 'st-johns', orgName: "St. John's", version: '1.0.0' },
+      copy: { ...DEFAULT_THEME.copy, pinGateTitle: 'Enter the club-operator PIN' },
+    };
+    storeActiveTheme(JSON.stringify(pack));
+
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider>
+        <PinDialog mode="gate" onUnlocked={() => {}} onCancel={() => {}} />
+      </ThemeProvider>,
+    );
+
+    expect((await screen.findByTestId('text-pin-title')).textContent).toBe(
+      'Enter the club-operator PIN',
+    );
+
+    await user.type(screen.getByTestId('input-pin'), '0000');
+    await user.click(screen.getByTestId('button-pin-submit'));
+    expect((await screen.findByTestId('text-pin-error')).textContent).toBe(
+      'That PIN is not right.',
+    );
+  });
+
+  it('takes the generic heading from the theme while no phase is known yet', async () => {
+    const pack: ThemePack = {
+      ...DEFAULT_THEME,
+      meta: { id: 'st-johns', orgName: "St. John's", version: '1.0.0' },
+      copy: { ...DEFAULT_THEME.copy, teacherRoleLabel: 'Club Operator PIN' },
+    };
+    storeActiveTheme(JSON.stringify(pack));
+    vi.spyOn(operatorPin, 'hasOperatorPin').mockRejectedValueOnce(new Error('closed'));
+
+    render(
+      <ThemeProvider>
+        <PinDialog mode="gate" onUnlocked={() => {}} onCancel={() => {}} />
+      </ThemeProvider>,
+    );
+
+    expect((await screen.findByText('Club Operator PIN')).textContent).toBe(
+      'Club Operator PIN',
+    );
   });
 
   it('names the missing Web Crypto rather than crashing', async () => {
