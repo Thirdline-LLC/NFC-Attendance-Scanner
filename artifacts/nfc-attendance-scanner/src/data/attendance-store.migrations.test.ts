@@ -8,6 +8,7 @@ import {
   getAttendanceTarget,
   listActivity,
   listBodies,
+  listBodyTypeDefs,
   listPersons,
   listSessionIds,
   listSessionTapRecords,
@@ -419,10 +420,12 @@ describe('version 5 to 6', () => {
     await withRawDatabase(async (raw) => {
       // Reading through the store upgrades all the way to the current
       // schema, not just to 6 — `bodies` and its backfill land too.
-      expect(raw.verno).toBe(8);
+      expect(raw.verno).toBe(9);
       expect(raw.tables.map((table) => table.name).sort()).toEqual([
         'activity',
         'bodies',
+        'bodyFields',
+        'bodyTypes',
         'persons',
         'scans',
         'settings',
@@ -490,7 +493,7 @@ describe('version 6 to 7', () => {
     expect(await listTapRecords()).toHaveLength(2);
 
     await withRawDatabase(async (raw) => {
-      expect(raw.verno).toBe(8);
+      expect(raw.verno).toBe(9);
       const persons = await raw.table('persons').toArray();
       const taps = await raw.table('taps').toArray();
       expect(persons.every((person) => person.bodyId === body.id)).toBe(true);
@@ -549,11 +552,70 @@ describe('version 7 to 8', () => {
     expect(await getActiveBodyId()).toBe(newerId);
 
     await withRawDatabase(async (raw) => {
-      expect(raw.verno).toBe(8);
+      expect(raw.verno).toBe(9);
       const persons = await raw.table('persons').toArray();
       expect(persons).toHaveLength(1);
       expect(persons[0].bodyId).toBe(olderId);
       expect(persons[0].lastName).toBe('Alvarez');
+    });
+  });
+});
+
+describe('version 8 to 9', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await Dexie.delete(DATABASE_NAME);
+  });
+
+  /** A database frozen at version 8: the tree exists, but no vocabulary tables. */
+  async function seedVersion8(): Promise<void> {
+    const legacy = new Dexie(DATABASE_NAME);
+    legacy.version(8).stores({
+      scans: 'uid, scannedAt',
+      persons: '++id, &[bodyId+cardUid], lastName, gradYear, enrolledAt, bodyId',
+      taps: '++id, uid, scannedAt, personId, sessionId, bodyId',
+      settings: 'key',
+      activity: '++id, at, kind',
+      bodies: '++id, parentId, createdAt, sortOrder',
+    });
+    await legacy.open();
+    const clubId = (await legacy.table('bodies').add({
+      name: 'Robotics',
+      typeLabel: 'club',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      parentId: null,
+      sortOrder: 0,
+    })) as number;
+    // A second body with the same label spelled differently, and a third
+    // with a distinct one, seeded in this order to prove the vocabulary
+    // dedupes case-insensitively and keeps first-appearance order.
+    await legacy.table('bodies').add({
+      name: 'Debate',
+      typeLabel: 'Club',
+      createdAt: '2024-02-01T00:00:00.000Z',
+      parentId: null,
+      sortOrder: 1,
+    });
+    await legacy.table('bodies').add({
+      name: 'Finance',
+      typeLabel: 'Branch',
+      parentId: clubId,
+      createdAt: '2024-03-01T00:00:00.000Z',
+      sortOrder: 0,
+    });
+    legacy.close();
+  }
+
+  it('seeds the vocabulary from every distinct type label already in use', async () => {
+    await seedVersion8();
+
+    const typeDefs = await listBodyTypeDefs();
+    expect(typeDefs.map((def) => def.label)).toEqual(['club', 'Branch']);
+    expect(typeDefs.map((def) => def.sortOrder)).toEqual([0, 1]);
+
+    await withRawDatabase(async (raw) => {
+      expect(raw.verno).toBe(9);
+      expect(await raw.table('bodyFields').count()).toBe(0);
     });
   });
 });

@@ -5,11 +5,18 @@ import { formatBodySubtitle, subtreeBodyIds } from '@/data/body-hierarchy';
 import {
   ACTIVITY_LOG_CAP,
   BodyHierarchyError,
+  BodyVocabError,
+  addBodyFieldDef,
+  addBodyTypeDef,
   archiveBody,
   createBody,
+  deleteBodyFieldDef,
+  deleteBodyTypeDef,
   getActiveBody,
   listActivity,
   listBodies,
+  listBodyFieldDefs,
+  listBodyTypeDefs,
   listPersonsForBodies,
   listTapsForBodies,
   previewAlumniRemoval,
@@ -18,14 +25,19 @@ import {
   recordActivity,
   removeAlumni,
   renameBody,
+  renameBodyTypeDef,
   reparentBody,
   restoreBody,
   setActiveBody,
   setAttendanceTarget,
   getAttendanceTarget,
+  updateBodyCustomFields,
+  updateBodyFieldDef,
   type ActivityEntry,
   type AlumniRemoval,
   type AttendanceBody,
+  type BodyFieldDef,
+  type BodyTypeDef,
   type HistoryPurge,
   type Person,
   type TapRecord,
@@ -43,6 +55,7 @@ import {
 } from '@/lib/session-formatting';
 import { RetentionDialog } from '@/ui/RetentionDialog';
 import { BodySwitcherDialog } from '@/ui/BodySwitcherDialog';
+import { BodyVocabularyDialog } from '@/ui/BodyVocabularyDialog';
 import { Dashboard } from '@/ui/Dashboard';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
 import { ExportNotice, type ExportResult } from '@/ui/ExportNotice';
@@ -54,7 +67,9 @@ function plural(count: number, noun: string): string {
 }
 
 function bodyFailure(error: unknown, fallback: string): string {
-  return error instanceof BodyHierarchyError ? error.message : fallback;
+  return error instanceof BodyHierarchyError || error instanceof BodyVocabError
+    ? error.message
+    : fallback;
 }
 
 function metricsFromBundle(
@@ -125,6 +140,14 @@ export function DashboardPage() {
   const [bodies, setBodies] = useState<AttendanceBody[]>([]);
   const [bodyWorking, setBodyWorking] = useState(false);
   const [bodyError, setBodyError] = useState<string | null>(null);
+  // The admin's saved type-label vocabulary and field defs (08b). Loaded
+  // with everything else and refreshed after any write that could change
+  // them, including a rename cascade that moves bodies onto a new label.
+  const [typeDefs, setTypeDefs] = useState<BodyTypeDef[]>([]);
+  const [fieldDefs, setFieldDefs] = useState<BodyFieldDef[]>([]);
+  const [managingVocab, setManagingVocab] = useState(false);
+  const [vocabWorking, setVocabWorking] = useState(false);
+  const [vocabError, setVocabError] = useState<string | null>(null);
   // "This body" vs "this body + descendants". Export and retention stay on
   // the active body either way; only the figures above the body card move.
   const [metricsScope, setMetricsScope] = useState<'body' | 'subtree'>('body');
@@ -144,14 +167,17 @@ export function DashboardPage() {
       // read once here and shared by the metrics and both retention previews.
       const now = new Date().toISOString();
       const start = schoolYearStart(now);
-      const [body, allBodies, target, recent, stale, graduates] = await Promise.all([
-        getActiveBody(),
-        listBodies(),
-        getAttendanceTarget(),
-        listActivity(),
-        previewHistoryPurge((scannedAt) => formatSessionDate(scannedAt) < start),
-        previewAlumniRemoval((person) => deriveGrade(person.gradYear, now) === 'Alumni'),
-      ]);
+      const [body, allBodies, target, recent, stale, graduates, savedTypes, savedFields] =
+        await Promise.all([
+          getActiveBody(),
+          listBodies(),
+          getAttendanceTarget(),
+          listActivity(),
+          previewHistoryPurge((scannedAt) => formatSessionDate(scannedAt) < start),
+          previewAlumniRemoval((person) => deriveGrade(person.gradYear, now) === 'Alumni'),
+          listBodyTypeDefs(),
+          listBodyFieldDefs(),
+        ]);
       const ids =
         body.id === undefined ? [] : subtreeBodyIds(body.id, allBodies);
       const [subtreeTaps, subtreePersons] = await Promise.all([
@@ -171,6 +197,8 @@ export function DashboardPage() {
       setAlumniPreview(graduates);
       setActiveBodyState(body);
       setBodies(allBodies);
+      setTypeDefs(savedTypes);
+      setFieldDefs(savedFields);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -355,7 +383,12 @@ export function DashboardPage() {
   );
 
   const createAndSwitchBody = useCallback(
-    async (input: { name: string; typeLabel: string; parentId: number | null }) => {
+    async (input: {
+      name: string;
+      typeLabel: string;
+      parentId: number | null;
+      customFields: Record<string, string>;
+    }) => {
       setBodyWorking(true);
       setBodyError(null);
       try {
@@ -376,6 +409,22 @@ export function DashboardPage() {
     setBodies(await listBodies());
     await load();
   }, [load]);
+
+  const saveBodyCustomFields = useCallback(
+    async (input: { bodyId: number; customFields: Record<string, string> }) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      try {
+        await updateBodyCustomFields(input.bodyId, input.customFields);
+        await refreshBodies();
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't save those fields. Try again."));
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [refreshBodies],
+  );
 
   const renameSelectedBody = useCallback(
     async (input: { bodyId: number; name: string; typeLabel: string }) => {
@@ -439,6 +488,130 @@ export function DashboardPage() {
       }
     },
     [refreshBodies],
+  );
+
+  const openVocabDialog = useCallback(() => {
+    setVocabError(null);
+    setManagingVocab(true);
+  }, []);
+
+  /**
+   * Refreshes both vocabulary lists and, for a write that can rewrite a
+   * body's own `typeLabel` (a type-def rename cascades — see
+   * `renameBodyTypeDef`), the whole page: `activeBodyLabel` reads that field,
+   * and a stale one would show a label the rename just replaced.
+   */
+  const refreshVocab = useCallback(
+    async (rewritesBodies = false) => {
+      if (rewritesBodies) {
+        await load();
+        return;
+      }
+      setTypeDefs(await listBodyTypeDefs());
+      setFieldDefs(await listBodyFieldDefs());
+    },
+    [load],
+  );
+
+  const addVocabType = useCallback(
+    async (label: string) => {
+      setVocabWorking(true);
+      setVocabError(null);
+      try {
+        await addBodyTypeDef(label);
+        await refreshVocab();
+      } catch (error) {
+        setVocabError(bodyFailure(error, "That body type couldn't be saved. Try again."));
+      } finally {
+        setVocabWorking(false);
+      }
+    },
+    [refreshVocab],
+  );
+
+  const renameVocabType = useCallback(
+    async (input: { id: number; label: string }) => {
+      setVocabWorking(true);
+      setVocabError(null);
+      try {
+        await renameBodyTypeDef(input.id, input.label);
+        await refreshVocab(true);
+      } catch (error) {
+        setVocabError(bodyFailure(error, "That body type couldn't be renamed. Try again."));
+      } finally {
+        setVocabWorking(false);
+      }
+    },
+    [refreshVocab],
+  );
+
+  const deleteVocabType = useCallback(
+    async (id: number) => {
+      setVocabWorking(true);
+      setVocabError(null);
+      try {
+        await deleteBodyTypeDef(id);
+        await refreshVocab();
+      } catch (error) {
+        setVocabError(bodyFailure(error, "That body type couldn't be removed. Try again."));
+      } finally {
+        setVocabWorking(false);
+      }
+    },
+    [refreshVocab],
+  );
+
+  const addVocabField = useCallback(
+    async (input: { label: string; appliesToTypeLabel: string; required: boolean }) => {
+      setVocabWorking(true);
+      setVocabError(null);
+      try {
+        await addBodyFieldDef(input);
+        await refreshVocab();
+      } catch (error) {
+        setVocabError(bodyFailure(error, "That field couldn't be saved. Try again."));
+      } finally {
+        setVocabWorking(false);
+      }
+    },
+    [refreshVocab],
+  );
+
+  const updateVocabField = useCallback(
+    async (input: {
+      id: number;
+      label: string;
+      appliesToTypeLabel: string;
+      required: boolean;
+    }) => {
+      setVocabWorking(true);
+      setVocabError(null);
+      try {
+        await updateBodyFieldDef(input.id, input);
+        await refreshVocab();
+      } catch (error) {
+        setVocabError(bodyFailure(error, "That field couldn't be saved. Try again."));
+      } finally {
+        setVocabWorking(false);
+      }
+    },
+    [refreshVocab],
+  );
+
+  const deleteVocabField = useCallback(
+    async (id: number) => {
+      setVocabWorking(true);
+      setVocabError(null);
+      try {
+        await deleteBodyFieldDef(id);
+        await refreshVocab();
+      } catch (error) {
+        setVocabError(bodyFailure(error, "That field couldn't be removed. Try again."));
+      } finally {
+        setVocabWorking(false);
+      }
+    },
+    [refreshVocab],
   );
 
   return (
@@ -553,6 +726,7 @@ export function DashboardPage() {
                 activeBody ? formatBodySubtitle(activeBody, bodies) : undefined
               }
               onChangeBody={() => void openBodySwitcher()}
+              onManageVocabulary={openVocabDialog}
               onMetricsScopeChange={changeMetricsScope}
               onChangePin={() => {
                 setPinNotice(null);
@@ -621,13 +795,32 @@ export function DashboardPage() {
           activeBodyId={activeBody?.id}
           isWorking={bodyWorking}
           error={bodyError}
+          typeDefs={typeDefs}
+          fieldDefs={fieldDefs}
           onSelect={(bodyId) => void selectBody(bodyId)}
           onCreate={(input) => void createAndSwitchBody(input)}
           onRename={(input) => void renameSelectedBody(input)}
           onReparent={(input) => void moveSelectedBody(input)}
           onArchive={(bodyId) => void archiveSelectedBody(bodyId)}
           onRestore={(bodyId) => void restoreSelectedBody(bodyId)}
+          onSaveCustomFields={(input) => void saveBodyCustomFields(input)}
           onCancel={() => setSwitchingBody(false)}
+        />
+      ) : null}
+
+      {managingVocab ? (
+        <BodyVocabularyDialog
+          typeDefs={typeDefs}
+          fieldDefs={fieldDefs}
+          isWorking={vocabWorking}
+          error={vocabError}
+          onAddType={(label) => void addVocabType(label)}
+          onRenameType={(input) => void renameVocabType(input)}
+          onDeleteType={(id) => void deleteVocabType(id)}
+          onAddField={(input) => void addVocabField(input)}
+          onUpdateField={(input) => void updateVocabField(input)}
+          onDeleteField={(id) => void deleteVocabField(id)}
+          onCancel={() => setManagingVocab(false)}
         />
       ) : null}
 
