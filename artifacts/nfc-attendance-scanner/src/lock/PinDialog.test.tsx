@@ -47,6 +47,7 @@ describe('PinDialog', () => {
     await user.click(screen.getByTestId('button-pin-submit'));
 
     await waitFor(() => expect(onUnlocked).toHaveBeenCalledTimes(1));
+    expect(onUnlocked).toHaveBeenCalledWith('set');
     expect(await verifyOperatorPin('2468')).toEqual({ status: 'ok' });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'pin-set' }));
     expect(JSON.stringify(record.mock.calls[0][0])).not.toContain('2468');
@@ -313,5 +314,41 @@ describe('PinDialog', () => {
 
     await waitFor(() => expect(onChanged).toHaveBeenCalledWith('set'));
     expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
+  });
+
+  it('reports "unlocked" when the gate verified an existing PIN', async () => {
+    await setOperatorPin('2468');
+    const onUnlocked = vi.fn();
+    const user = userEvent.setup();
+    render(<PinDialog mode="gate" onUnlocked={onUnlocked} onCancel={() => {}} />);
+    await user.type(await screen.findByTestId('input-pin'), '2468');
+    await user.click(screen.getByTestId('button-pin-submit'));
+    await waitFor(() => expect(onUnlocked).toHaveBeenCalledWith('unlocked'));
+  });
+
+  it('change mode: a PIN set elsewhere during its set fallback goes back to the change form', async () => {
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    render(<PinDialog mode="change" onChanged={onChanged} onCancel={() => {}} />);
+    // No PIN to change, so the dialog falls back to setting one.
+    await user.type(screen.getByTestId('input-pin-current'), '1111');
+    await user.type(screen.getByTestId('input-pin'), '2468');
+    await user.type(screen.getByTestId('input-pin-confirm'), '2468');
+    await user.click(screen.getByTestId('button-pin-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('text-pin-title').textContent).toBe('Set a teacher PIN'),
+    );
+
+    await setOperatorPin('9753');
+    await user.type(screen.getByTestId('input-pin'), '2468');
+    await user.type(screen.getByTestId('input-pin-confirm'), '2468');
+    await user.click(screen.getByTestId('button-pin-submit'));
+
+    expect((await screen.findByTestId('text-pin-error')).textContent).toBe(
+      'A teacher PIN was set on this device in the meantime. Enter it to continue.',
+    );
+    expect(screen.getByTestId('text-pin-title').textContent).toBe('Change the teacher PIN');
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(await verifyOperatorPin('9753')).toEqual({ status: 'ok' });
   });
 });

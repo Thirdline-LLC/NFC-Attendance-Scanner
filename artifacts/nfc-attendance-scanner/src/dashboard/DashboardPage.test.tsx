@@ -694,6 +694,8 @@ describe('DashboardPage "Require teacher PIN" switch', () => {
       );
       const toggle = await screen.findByTestId('switch-pin-required');
       expect(toggle.getAttribute('aria-checked')).toBe('true');
+      // The alert's button is gone; the keyboard lands on the switch it brought back.
+      await waitFor(() => expect(document.activeElement).toBe(toggle));
       expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
       // The requirement never changed, so only the set is logged.
       expect(await attendanceStore.getPinRequired()).toBe(true);
@@ -729,6 +731,78 @@ describe('DashboardPage "Require teacher PIN" switch', () => {
       );
       expect(await screen.findByTestId('switch-pin-required')).toBeTruthy();
       expect(await verifyOperatorPin('1357')).toEqual({ status: 'ok' });
+      // Setting a PIN is not flipping the requirement: still on, and neither
+      // direction of the switch was logged.
+      expect(await attendanceStore.getPinRequired()).toBe(true);
+      const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+      expect(kinds).not.toContain('pin-enabled');
+      expect(kinds).not.toContain('pin-disabled');
+    });
+
+    it('cancelling Set PIN returns focus to Change PIN', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+
+      await user.click(screen.getByTestId('button-pin-error-set-pin'));
+      await screen.findByTestId('text-pin-title');
+      await user.click(screen.getByTestId('button-pin-cancel'));
+
+      expect(screen.queryByTestId('dialog-pin')).toBeNull();
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByTestId('button-change-pin')),
+      );
+    });
+
+    it('a PIN set elsewhere before Set PIN is pressed is asked for, not reported as set', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+      // Another window sets a PIN while the alert is still up.
+      await setOperatorPin('9753');
+
+      await user.click(screen.getByTestId('button-pin-error-set-pin'));
+      await waitFor(() =>
+        expect(screen.getByTestId('text-pin-title').textContent).toBe('Enter the teacher PIN'),
+      );
+      await user.type(screen.getByTestId('input-pin'), '9753');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+      expect((await screen.findByTestId('text-pin-changed')).textContent).toBe(
+        'A teacher PIN is already set on this device.',
+      );
+      expect(await attendanceStore.getPinRequired()).toBe(true);
+      const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+      expect(kinds).not.toContain('pin-set');
+    });
+
+    it('a PIN set elsewhere while the set form is open is named, and asked for', async () => {
+      const user = userEvent.setup();
+      await reachMissingPinAlert(user);
+
+      await user.click(screen.getByTestId('button-pin-error-set-pin'));
+      await waitFor(() =>
+        expect(screen.getByTestId('text-pin-title').textContent).toBe('Set a teacher PIN'),
+      );
+      await setOperatorPin('9753');
+      await user.type(screen.getByTestId('input-pin'), '1357');
+      await user.type(screen.getByTestId('input-pin-confirm'), '1357');
+      await user.click(screen.getByTestId('button-pin-submit'));
+
+      expect((await screen.findByTestId('text-pin-error')).textContent).toBe(
+        'A teacher PIN was set on this device in the meantime. Enter it to continue.',
+      );
+      expect(screen.getByTestId('text-pin-title').textContent).toBe('Enter the teacher PIN');
+      // Nothing was overwritten.
+      expect(await verifyOperatorPin('9753')).toEqual({ status: 'ok' });
+
+      await user.type(screen.getByTestId('input-pin'), '9753');
+      await user.click(screen.getByTestId('button-pin-submit'));
+      await waitFor(() => expect(screen.queryByTestId('dialog-pin')).toBeNull());
+      expect((await screen.findByTestId('text-pin-changed')).textContent).toBe(
+        'A teacher PIN is already set on this device.',
+      );
+      const kinds = (await attendanceStore.listActivity()).map((entry) => entry.kind);
+      expect(kinds).not.toContain('pin-set');
     });
 
     it('Dismiss clears the alert', async () => {

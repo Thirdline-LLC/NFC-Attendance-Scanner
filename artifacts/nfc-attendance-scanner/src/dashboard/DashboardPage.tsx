@@ -444,12 +444,42 @@ export function DashboardPage() {
     if (anyDialogOpen) setPinError(null);
   }, [anyDialogOpen]);
 
-  /** The missing-PIN alert's "Set PIN" finished: a PIN exists again. */
-  const finishSettingMissingPin = useCallback(() => {
+  /**
+   * Where the keyboard goes once the missing-PIN "Set PIN" dialog closes.
+   * The alert's own button, which opened it, unmounted when the dialog
+   * opened, so PinDialog's hand-back finds nothing to return to. Focused
+   * from an effect because the switch only renders once `hasPin` is true.
+   */
+  const [focusAfterSetPin, setFocusAfterSetPin] = useState<
+    'button-change-pin' | 'switch-pin-required' | null
+  >(null);
+  useEffect(() => {
+    if (!focusAfterSetPin || settingMissingPin) return;
+    const target = document.querySelector<HTMLElement>(`[data-testid="${focusAfterSetPin}"]`);
+    if (target) {
+      target.focus();
+      setFocusAfterSetPin(null);
+    }
+  }, [focusAfterSetPin, settingMissingPin, hasPin]);
+
+  const cancelSettingMissingPin = useCallback(() => {
+    setSettingMissingPin(false);
+    setFocusAfterSetPin('button-change-pin');
+  }, []);
+
+  /**
+   * The missing-PIN alert's "Set PIN" finished: a PIN exists again. If one
+   * had appeared meanwhile (set from another window), the dialog asked for it
+   * instead of setting a new one — and the notice says that, not "set".
+   */
+  const finishSettingMissingPin = useCallback((outcome?: 'set' | 'unlocked') => {
     setSettingMissingPin(false);
     setHasPin(true);
     setPinError(null);
-    setPinNotice('Teacher PIN set.');
+    setPinNotice(
+      outcome === 'unlocked' ? 'A teacher PIN is already set on this device.' : 'Teacher PIN set.',
+    );
+    setFocusAfterSetPin('switch-pin-required');
     // The set form logged its own row; re-read only the log.
     void listActivity()
       .then(setActivity)
@@ -1151,7 +1181,7 @@ export function DashboardPage() {
         <PinDialog
           mode="gate"
           onUnlocked={finishSettingMissingPin}
-          onCancel={() => setSettingMissingPin(false)}
+          onCancel={cancelSettingMissingPin}
         />
       ) : null}
     </main>

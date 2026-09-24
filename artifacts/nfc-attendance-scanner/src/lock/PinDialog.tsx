@@ -12,6 +12,7 @@ import {
   changeOperatorPin,
   hasOperatorPin,
   isValidPin,
+  OperatorPinExistsError,
   PIN_MAX_LENGTH,
   PinUnavailableError,
   setOperatorPin,
@@ -23,7 +24,16 @@ import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
 import { useTheme } from '@/theme/ThemeProvider';
 
 type PinDialogProps =
-  | { mode: 'gate'; onUnlocked: () => void; onCancel: () => void }
+  | {
+      mode: 'gate';
+      /**
+       * `'set'` when this dialog set a new PIN, `'unlocked'` when it found one
+       * already there and verified it — a caller that opened the gate to set
+       * a PIN words the two differently.
+       */
+      onUnlocked: (outcome?: 'set' | 'unlocked') => void;
+      onCancel: () => void;
+    }
   | {
       mode: 'change';
       /**
@@ -86,6 +96,8 @@ const MISMATCH = 'The PINs do not match.';
 const STORAGE = "This device isn't letting the app read its settings.";
 const PIN_MISSING =
   'There is no teacher PIN on this device anymore, so nothing was changed. Close this and set a PIN first.';
+const PIN_APPEARED =
+  'A teacher PIN was set on this device in the meantime. Enter it to continue.';
 const NO_CRYPTO =
   'This device cannot secure a PIN — open the app from its installed or https address.';
 
@@ -296,7 +308,7 @@ export function PinDialog(props: PinDialogProps) {
         }
         await setOperatorPin(pin);
         await logQuietly('pin-set');
-        if (props.mode === 'gate') props.onUnlocked();
+        if (props.mode === 'gate') props.onUnlocked('set');
         // Change mode lands here when the PIN had vanished ('unset'): the new
         // PIN is saved, so the dialog finishes instead of staying open.
         else if (props.mode === 'change') props.onChanged('set');
@@ -314,7 +326,7 @@ export function PinDialog(props: PinDialogProps) {
         await handleVerdict(
           verdict,
           () => {
-            if (props.mode === 'gate') props.onUnlocked();
+            if (props.mode === 'gate') props.onUnlocked('unlocked');
             else if (props.mode === 'verify') props.onVerified();
           },
           () => setPin(''),
@@ -334,6 +346,16 @@ export function PinDialog(props: PinDialogProps) {
         );
       }
     } catch (caught) {
+      if (caught instanceof OperatorPinExistsError) {
+        // Someone set a PIN while this set form was open. Nothing was
+        // overwritten; ask for that PIN instead. Change mode goes back to its
+        // own form, since only it can finish a change.
+        setPin('');
+        setConfirm('');
+        setPhase(props.mode === 'change' ? 'change' : 'unlock');
+        setError(PIN_APPEARED);
+        return;
+      }
       setError(caught instanceof PinUnavailableError ? NO_CRYPTO : STORAGE);
     } finally {
       setBusy(false);
