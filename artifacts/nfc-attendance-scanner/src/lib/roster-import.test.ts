@@ -104,6 +104,19 @@ describe('parseRosterCsvText', () => {
     expect(result.entries).toHaveLength(1);
   });
 
+  it('matches the active body even when its name carries a trailing space', () => {
+    const paddedBody: AttendanceBody = { ...roboticsBody, name: 'Robotics ' };
+    const csv = [
+      'first_name,last_name,grad_year,email,body_name,body_type',
+      'Avery,Chen,2028,achen28@stjohnschs.org,Robotics,club',
+    ].join('\n');
+
+    const result = parseRosterCsvText(csv, paddedBody);
+
+    expect(result.rejected).toEqual([]);
+    expect(result.entries).toHaveLength(1);
+  });
+
   it('skips body validation entirely when no activeBody is supplied', () => {
     const csv = [
       'first_name,last_name,grad_year,email,body_name,body_type',

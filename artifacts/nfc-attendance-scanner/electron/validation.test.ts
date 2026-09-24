@@ -9,6 +9,7 @@ import {
   parseInstallAppUpdateRequest,
   parseSaveRequest,
   resolveBundledAsset,
+  saveDialogFilter,
 } from './validation';
 
 /** A filename of exactly the shape `buildAttendanceWorkbook` produces. */
@@ -80,6 +81,81 @@ describe('parseSaveRequest', () => {
     expect(
       parseSaveRequest({ filename: VALID_NAME, base64: oversized }),
     ).toBeNull();
+  });
+
+  // Acceptance against the actual output of `buildRosterWorkbook`,
+  // `buildRosterTemplateWorkbook` and `buildRosterTemplateCsv` lives in
+  // `src/lib/desktop-save-allowlist.test.ts`, not here: those builders pull in
+  // `@/...`-aliased modules that `electron/tsconfig.json` does not resolve
+  // (it type-checks this whole directory against a deliberately narrow,
+  // Electron-free project), so this file sticks to filenames of the same
+  // shape rather than importing the builders.
+  describe('other filename shapes a real export can produce', () => {
+    it('accepts the roster export shape (roster-YYYY-MM-DD-<stamp>.xlsx)', () => {
+      const filename = 'roster-2026-09-15-20260915T210000Z.xlsx';
+
+      expect(
+        parseSaveRequest({ filename, base64: VALID_BASE64 }),
+      ).toEqual({ filename, base64: VALID_BASE64 });
+    });
+
+    it('accepts the roster template xlsx shape', () => {
+      const filename = 'tapin-roster-template-robotics-club.xlsx';
+
+      expect(
+        parseSaveRequest({ filename, base64: VALID_BASE64 }),
+      ).toEqual({ filename, base64: VALID_BASE64 });
+    });
+
+    it('accepts the roster template csv shape', () => {
+      const filename = 'tapin-roster-template-robotics-club.csv';
+
+      expect(
+        parseSaveRequest({ filename, base64: VALID_BASE64 }),
+      ).toEqual({ filename, base64: VALID_BASE64 });
+    });
+
+    it.each([
+      ['a traversal wearing the template shape', '../../tapin-roster-template-robotics.xlsx'],
+      ['an unrecognised extension', 'tapin-roster-template-robotics.sh'],
+      ['a double extension', 'tapin-roster-template-robotics.xlsx.command'],
+      ['a slug over 64 characters', `tapin-roster-template-${'a'.repeat(65)}.xlsx`],
+      ['uppercase in the slug', 'tapin-roster-template-Robotics.xlsx'],
+      ['an empty slug', 'tapin-roster-template-.xlsx'],
+    ])('refuses a template filename with %s', (_case, filename) => {
+      expect(parseSaveRequest({ filename, base64: VALID_BASE64 })).toBeNull();
+    });
+
+    it('accepts a slug of exactly 64 characters', () => {
+      const filename = `tapin-roster-template-${'a'.repeat(64)}.xlsx`;
+
+      expect(
+        parseSaveRequest({ filename, base64: VALID_BASE64 }),
+      ).toEqual({ filename, base64: VALID_BASE64 });
+    });
+  });
+});
+
+describe('saveDialogFilter', () => {
+  it('offers the CSV filter for a .csv filename', () => {
+    expect(saveDialogFilter('tapin-roster-template-robotics.csv')).toEqual({
+      name: 'CSV file',
+      extensions: ['csv'],
+    });
+  });
+
+  it('offers the CSV filter regardless of case', () => {
+    expect(saveDialogFilter('tapin-roster-template-robotics.CSV')).toEqual({
+      name: 'CSV file',
+      extensions: ['csv'],
+    });
+  });
+
+  it('offers the Excel filter for a .xlsx filename', () => {
+    expect(saveDialogFilter('attendance-2026-09-15-20260915T170000Z.xlsx')).toEqual({
+      name: 'Excel workbook',
+      extensions: ['xlsx'],
+    });
   });
 });
 

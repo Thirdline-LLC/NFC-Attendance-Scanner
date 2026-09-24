@@ -8,7 +8,7 @@
 
 ## File-level tasks (docs→code later; no code in this PR)
 
-1. Keep xlsx import; add CSV parser in `packages/roster-import`.\n2. Add body_name/body_type validation.\n3. Optional `.nfc-pack` JSON parse + signature verify hook.\n4. Preview UI: added/updated/unchanged/refused.\n5. Ship `templates/roster-template.csv`.
+1. Keep xlsx import; add CSV parser in `packages/roster-import`.\n2. Add body_name/body_type validation.\n3. Optional `.nfc-pack` JSON parse + signature verify hook.\n4. Preview UI: added/updated/unchanged/refused.\n5. Ship `templates/roster-template.csv`.\n6. Done: in-app **Download template** (xlsx + CSV) on the Students import panel, generated from `src/lib/roster-template.ts` with the active body pre-filled — no more hunting for the static `templates/roster-template.csv` by hand.
 
 ## Acceptance criteria
 

@@ -1,6 +1,6 @@
 import Dexie from 'dexie';
 import * as XLSX from 'xlsx';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   addPerson,
@@ -8,9 +8,11 @@ import {
   type BoundPerson,
   type Person,
 } from '@/data/attendance-store';
+import * as delivery from '@/lib/workbook-delivery';
 import {
   buildRosterRows,
   buildRosterWorkbook,
+  exportRosterWorkbook,
   parseRosterWorkbook,
   ROSTER_COLUMNS,
   ROSTER_SHEET_NAME,
@@ -167,6 +169,22 @@ describe('buildRosterWorkbook', () => {
   });
 });
 
+describe('exportRosterWorkbook', () => {
+  it('delivers with a share title of its own, not the attendance export default', async () => {
+    vi.spyOn(delivery, 'deliverWorkbook').mockResolvedValue({
+      filename: 'roster-2026-09-15-20260915T210000Z.xlsx',
+      delivery: 'download',
+    });
+
+    await exportRosterWorkbook([jordan]);
+
+    const [request] = vi.mocked(delivery.deliverWorkbook).mock.calls[0];
+    expect(request.shareTitle).toBe('Roster export');
+
+    vi.restoreAllMocks();
+  });
+});
+
 describe('parseRosterWorkbook', () => {
   beforeEach(async () => {
     await Dexie.delete(DATABASE_NAME);
@@ -284,6 +302,25 @@ describe('parseRosterWorkbook', () => {
 
     expect(parsed.entries).toHaveLength(1);
     expect(parsed.rejected).toEqual([]);
+  });
+
+  it('matches the active body even when its name carries a trailing space', () => {
+    // A body named with a trailing space is an edge case from before this
+    // change; an unmodified template (body_name written from the same
+    // AttendanceBody) must still import cleanly rather than refusing the
+    // whole file on a mismatch that is really just untrimmed whitespace.
+    const body: AttendanceBody = {
+      id: 1,
+      name: 'Robotics Club ',
+      typeLabel: 'Club',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    };
+    const { workbook } = buildRosterWorkbook([jordan], new Date(), body);
+
+    const parsed = parseRosterWorkbook(workbook, body);
+
+    expect(parsed.rejected).toEqual([]);
+    expect(parsed.entries).toHaveLength(1);
   });
 
   it('refuses a file that is not a roster at all', () => {
