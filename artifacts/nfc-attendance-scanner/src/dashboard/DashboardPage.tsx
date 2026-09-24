@@ -305,8 +305,15 @@ export function DashboardPage() {
    * their hands.
    */
   const enablePinRequiredDirect = useCallback(async () => {
-    await setPinRequired(true);
+    // Unlock first: if the gate was relocked while off, re-arming it before
+    // this would briefly swap the dashboard for a PIN prompt.
     unlock();
+    const verdict = await setPinRequired(true);
+    if (verdict.status !== 'ok') {
+      // No PIN after all (e.g. cleared elsewhere): set one first.
+      setEnablingPinSetup(true);
+      return;
+    }
     setPinNotice('Teacher PIN turned on.');
     await logPinRequiredChange('pin-enabled');
   }, [setPinRequired, unlock, logPinRequiredChange]);
@@ -335,19 +342,22 @@ export function DashboardPage() {
     [hasPin, enablePinRequiredDirect],
   );
 
+  /**
+   * Runs only after `setPinRequired(false, pin)` itself verified the PIN and
+   * saved the setting (it is the dialog's `verify`), so this just closes up.
+   */
   const confirmDisablePinRequired = useCallback(async () => {
-    await setPinRequired(false);
     setDisablingPinRequired(false);
     setPinNotice('Teacher PIN turned off.');
     await logPinRequiredChange('pin-disabled');
-  }, [setPinRequired, logPinRequiredChange]);
+  }, [logPinRequiredChange]);
 
   /** The set-PIN form itself already wrote the hash and its own log row. */
   const confirmEnablePinAfterSetup = useCallback(async () => {
     setEnablingPinSetup(false);
     setHasPin(true);
-    await setPinRequired(true);
     unlock();
+    await setPinRequired(true);
     setPinNotice('Teacher PIN set. Requirement turned on.');
     await logPinRequiredChange('pin-enabled');
   }, [setPinRequired, unlock, logPinRequiredChange]);
@@ -960,6 +970,7 @@ export function DashboardPage() {
       {disablingPinRequired ? (
         <PinDialog
           mode="verify"
+          verify={(pin) => setPinRequired(false, pin)}
           onVerified={() => void confirmDisablePinRequired()}
           onCancel={() => setDisablingPinRequired(false)}
         />

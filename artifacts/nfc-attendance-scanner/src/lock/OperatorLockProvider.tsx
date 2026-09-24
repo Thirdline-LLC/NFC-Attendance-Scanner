@@ -12,6 +12,11 @@ import {
   getPinRequired,
   setPinRequired as storeSetPinRequired,
 } from '@/data/attendance-store';
+import {
+  hasOperatorPin,
+  verifyOperatorPin,
+  type PinVerification,
+} from '@/data/operator-pin';
 
 /** Five minutes without a key or a tap and the teacher is assumed gone. */
 export const IDLE_RELOCK_MS = 5 * 60_000;
@@ -27,8 +32,16 @@ type OperatorLock = {
   pinRequired: boolean;
   unlock: () => void;
   relock: () => void;
-  /** Persists the setting and updates this device's live gate immediately. */
-  setPinRequired: (required: boolean) => Promise<void>;
+  /**
+   * Persists the setting and updates this device's live gate immediately.
+   * The rules live here, not only in the screen that calls it:
+   * - turning it OFF needs the current PIN, verified through
+   *   `verifyOperatorPin` (shared lockout); anything but `ok` changes nothing
+   *   and the verdict is returned for the caller to show;
+   * - turning it ON needs a PIN to exist; with none, `unset` is returned and
+   *   nothing changes (the caller opens the set-PIN form first).
+   */
+  setPinRequired: (required: boolean, pin?: string) => Promise<PinVerification>;
 };
 
 const OperatorLockContext = createContext<OperatorLock | null>(null);
@@ -60,18 +73,36 @@ export function OperatorLockProvider({
 
   useEffect(() => {
     let cancelled = false;
-    void getPinRequired().then((required) => {
-      if (!cancelled) setPinRequiredState(required);
-    });
+    getPinRequired()
+      .then((required) => {
+        if (!cancelled) setPinRequiredState(required);
+      })
+      .catch(() => {
+        // A storage error leaves the gate at its safe default: required.
+        if (!cancelled) setPinRequiredState(true);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const setPinRequired = useCallback(async (required: boolean) => {
-    await storeSetPinRequired(required);
-    setPinRequiredState(required);
-  }, []);
+  const setPinRequired = useCallback(
+    async (required: boolean, pin?: string): Promise<PinVerification> => {
+      if (required) {
+        if (!(await hasOperatorPin())) return { status: 'unset' };
+      } else {
+        if (pin === undefined) {
+          throw new Error('Turning the teacher PIN requirement off needs the current PIN.');
+        }
+        const verdict = await verifyOperatorPin(pin);
+        if (verdict.status !== 'ok') return verdict;
+      }
+      await storeSetPinRequired(required);
+      setPinRequiredState(required);
+      return { status: 'ok' };
+    },
+    [],
+  );
 
   useEffect(() => {
     // While the gate is off, `unlocked` is already true regardless of

@@ -3,7 +3,9 @@ import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-libr
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
+import * as attendanceStore from '@/data/attendance-store';
 import { setPinRequired as storeSetPinRequired } from '@/data/attendance-store';
+import { hasOperatorPin, setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
 import { LockedRoute } from './LockedRoute';
 import {
   IDLE_RELOCK_MS,
@@ -186,11 +188,12 @@ describe('OperatorLockProvider', () => {
   });
 
   it('setPinRequired persists the setting; a freshly mounted provider reads it back', async () => {
+    await setOperatorPin('2468');
     const { result, unmount } = renderHook(() => useOperatorLock(), { wrapper });
     await waitFor(() => expect(result.current.pinRequired).toBe(true));
 
     await act(async () => {
-      await result.current.setPinRequired(false);
+      expect(await result.current.setPinRequired(false, '2468')).toEqual({ status: 'ok' });
     });
     expect(result.current.pinRequired).toBe(false);
     expect(result.current.unlocked).toBe(true);
@@ -199,5 +202,163 @@ describe('OperatorLockProvider', () => {
     const { result: fresh } = renderHook(() => useOperatorLock(), { wrapper });
     await waitFor(() => expect(fresh.current.pinRequired).toBe(false));
     expect(fresh.current.unlocked).toBe(true);
+  });
+
+  describe('setPinRequired enforces its own rules (not only the dashboard UI)', () => {
+    it('refuses to turn off without a PIN argument', async () => {
+      await setOperatorPin('2468');
+      const { result } = renderHook(() => useOperatorLock(), { wrapper });
+      await waitFor(() => expect(result.current.pinRequired).toBe(true));
+
+      await expect(result.current.setPinRequired(false)).rejects.toThrow(/current PIN/);
+      expect(result.current.pinRequired).toBe(true);
+      expect(await attendanceStore.getPinRequired()).toBe(true);
+    });
+
+    it('a wrong PIN leaves it on and returns the verdict; the right one turns it off', async () => {
+      await setOperatorPin('2468');
+      const { result } = renderHook(() => useOperatorLock(), { wrapper });
+      await waitFor(() => expect(result.current.pinRequired).toBe(true));
+
+      let verdict: Awaited<ReturnType<typeof result.current.setPinRequired>> | undefined;
+      await act(async () => {
+        verdict = await result.current.setPinRequired(false, '0000');
+      });
+      expect(verdict?.status).toBe('wrong');
+      expect(result.current.pinRequired).toBe(true);
+      expect(await attendanceStore.getPinRequired()).toBe(true);
+
+      await act(async () => {
+        verdict = await result.current.setPinRequired(false, '2468');
+      });
+      expect(verdict).toEqual({ status: 'ok' });
+      expect(result.current.pinRequired).toBe(false);
+      // The hash is untouched.
+      expect(await hasOperatorPin()).toBe(true);
+      expect((await verifyOperatorPin('2468')).status).toBe('ok');
+    });
+
+    it('refuses to turn on when no PIN exists, returning unset', async () => {
+      await storeSetPinRequired(false);
+      const { result } = renderHook(() => useOperatorLock(), { wrapper });
+      await waitFor(() => expect(result.current.pinRequired).toBe(false));
+
+      let verdict: Awaited<ReturnType<typeof result.current.setPinRequired>> | undefined;
+      await act(async () => {
+        verdict = await result.current.setPinRequired(true);
+      });
+      expect(verdict).toEqual({ status: 'unset' });
+      expect(result.current.pinRequired).toBe(false);
+    });
+
+    it('turns on with no PIN argument once a PIN exists', async () => {
+      await setOperatorPin('2468');
+      await storeSetPinRequired(false);
+      const { result } = renderHook(() => useOperatorLock(), { wrapper });
+      await waitFor(() => expect(result.current.pinRequired).toBe(false));
+
+      await act(async () => {
+        expect(await result.current.setPinRequired(true)).toEqual({ status: 'ok' });
+      });
+      expect(result.current.pinRequired).toBe(true);
+      expect(await attendanceStore.getPinRequired()).toBe(true);
+    });
+  });
+
+  it('falls back to required when the first read of the setting fails', async () => {
+    const spy = vi
+      .spyOn(attendanceStore, 'getPinRequired')
+      .mockRejectedValueOnce(new Error('storage unavailable'));
+    const { result } = renderHook(() => useOperatorLock(), { wrapper });
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    // Let the rejected read settle; the handled rejection must leave it safe.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.pinRequired).toBe(true);
+    expect(result.current.unlocked).toBe(false);
+    spy.mockRestore();
+  });
+
+  it('resumes idle and scanner relocks after the requirement is turned back on', async () => {
+    await setOperatorPin('2468');
+    await storeSetPinRequired(false);
+    function Probe() {
+      const { unlocked, unlock, pinRequired, setPinRequired } = useOperatorLock();
+      const navigate = useNavigate();
+      return (
+        <>
+          <span data-testid="state">{unlocked ? 'open' : 'locked'}</span>
+          <span data-testid="required">{pinRequired ? 'on' : 'off'}</span>
+          <button type="button" onClick={() => navigate('/')}>
+            home
+          </button>
+          <button type="button" onClick={() => navigate('/dashboard')}>
+            dashboard
+          </button>
+          <button type="button" onClick={unlock}>
+            unlock
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              // The dashboard's order: unlock first, then re-arm the gate.
+              unlock();
+              void setPinRequired(true);
+            }}
+          >
+            turn on
+          </button>
+        </>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <OperatorLockProvider>
+          <RelockOnScanner />
+          <Routes>
+            <Route path="*" element={<Probe />} />
+          </Routes>
+        </OperatorLockProvider>
+      </MemoryRouter>,
+    );
+    const state = () => screen.getByTestId('state').textContent;
+    const required = () => screen.getByTestId('required').textContent;
+    await waitFor(() => expect(required()).toBe('off'));
+    expect(state()).toBe('open');
+
+    // While off: visiting the scanner drops the in-memory unlock, but the
+    // gate stays open because the requirement is off.
+    act(() => screen.getByText('home').click());
+    expect(state()).toBe('open');
+    act(() => screen.getByText('dashboard').click());
+
+    // Back on: open immediately (no prompt under the teacher's hands)...
+    await act(async () => {
+      screen.getByText('turn on').click();
+    });
+    await waitFor(() => expect(required()).toBe('on'));
+    expect(state()).toBe('open');
+    expect(await attendanceStore.getPinRequired()).toBe(true);
+
+    // ...and the scanner relock applies again.
+    act(() => screen.getByText('home').click());
+    expect(state()).toBe('locked');
+
+    // The idle relock applies again too. Fake timers are engaged before the
+    // unlock (the PIN passing on re-entry) so they own the idle timer; the
+    // IndexedDB work above has already settled under real timers.
+    vi.useFakeTimers();
+    act(() => screen.getByText('dashboard').click());
+    act(() => screen.getByText('unlock').click());
+    expect(state()).toBe('open');
+    act(() => {
+      vi.advanceTimersByTime(IDLE_RELOCK_MS - 1_000);
+    });
+    expect(state()).toBe('open');
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(state()).toBe('locked');
   });
 });

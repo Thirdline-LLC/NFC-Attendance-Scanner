@@ -25,7 +25,17 @@ import { useTheme } from '@/theme/ThemeProvider';
 type PinDialogProps =
   | { mode: 'gate'; onUnlocked: () => void; onCancel: () => void }
   | { mode: 'change'; onChanged: () => void; onCancel: () => void }
-  | { mode: 'verify'; onVerified: () => void; onCancel: () => void };
+  | {
+      mode: 'verify';
+      /**
+       * Checks the typed PIN and acts on it in one step (e.g. the lock
+       * context's `setPinRequired(false, pin)`), so the rule is enforced by
+       * the callee, not by this dialog. Defaults to `verifyOperatorPin`.
+       */
+      verify?: (pin: string) => Promise<PinVerification>;
+      onVerified: () => void;
+      onCancel: () => void;
+    };
 
 /**
  * `checking` and `storage-error` belong to the gate: it has to read whether a
@@ -272,7 +282,9 @@ export function PinDialog(props: PinDialogProps) {
         if (props.mode === 'gate') props.onUnlocked();
       } else if (phase === 'unlock') {
         await handleVerdict(
-          await verifyOperatorPin(pin),
+          props.mode === 'verify' && props.verify
+            ? await props.verify(pin)
+            : await verifyOperatorPin(pin),
           () => {
             if (props.mode === 'gate') props.onUnlocked();
             else if (props.mode === 'verify') props.onVerified();

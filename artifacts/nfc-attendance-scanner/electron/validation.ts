@@ -236,6 +236,16 @@ export function contentMatchesExtension(filename: string, bytes: Uint8Array): bo
   return false;
 }
 
+/**
+ * Whether the path the operator chose in the Save dialog keeps the extension
+ * of the suggested filename (the one the content check validated). Compared
+ * case-insensitively, so `Roster.CSV` is still a CSV.
+ */
+export function hasSameExtension(suggestedFilename: string, chosenPath: string): boolean {
+  const expected = path.extname(suggestedFilename).toLowerCase();
+  return expected.length > 0 && path.extname(chosenPath).toLowerCase() === expected;
+}
+
 /** The in-place install IPC. Same asset rules as a non-theme download. */
 export function parseInstallAppUpdateRequest(
   payload: unknown,
