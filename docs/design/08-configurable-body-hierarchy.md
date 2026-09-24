@@ -1,6 +1,6 @@
 # Design 08 — Configurable body hierarchy
 
-**Status:** 08a implemented (2026-09-24) · 08b and 08c deferred  
+**Status:** 08a implemented (2026-09-24) · 08b implemented (2026-09-24) · 08c deferred  
 **Plan:** [plans/08-configurable-body-hierarchy.md](../plans/08-configurable-body-hierarchy.md)  
 **Baseline:** [Design 02](02-attendance-bodies-sessions-taps.md) (D-T2). This design extends it; it does not reopen Plans 02–07.
 
@@ -70,9 +70,15 @@ Unknown cards are summed per body. The same card in two bodies is two unknown-ca
 
 Export and retention stay on the active body. A subtree workbook is 08c.
 
-### Deferred data (08b)
+### Vocabulary and custom fields (08b, shipped)
 
-`BodyTypeDef` (the admin’s saved vocabulary) and `BodyFieldDef` (which custom fields apply to which type label) are not tables yet. `customFields` can already be stored on a body. The admin UI that edits the vocabulary and the field definitions is 08b. Theme presets remain suggestions.
+`BodyTypeDef` `{ id, label, sortOrder }` (the admin's saved vocabulary) and `BodyFieldDef` `{ id, label, appliesToTypeLabel, required, sortOrder }` (which custom fields apply to which type label) are Dexie tables, schema v9. `customFields` on `AttendanceBody` (08a) is what they drive: field defs decide which keys the editor offers for a body's `typeLabel`, and whether one may be left blank.
+
+Creating or renaming a body adds a one-off `typeLabel` to the vocabulary automatically, matched case-insensitively — the vocabulary is a record of labels in use, not a closed set the admin must pre-declare. Renaming a vocabulary entry cascades onto every body and field def that used the old label, in one transaction, so neither silently falls off the vocabulary. Deleting a vocabulary entry leaves bodies already carrying that label untouched — `typeLabel` stays free text, not a foreign key.
+
+The admin UI (`BodySwitcherDialog`'s create/structure-edit forms, and a new `BodyVocabularyDialog`) lives on the same PIN-gated dashboard route as 08a's structure edits — no new role. Theme `bodyTypePresets` remain suggestions, merged behind the saved vocabulary in the datalist.
+
+An upgraded device seeds its vocabulary from every distinct `typeLabel` already on a body (first-appearance order), so an upgrade never starts with an emptier picker than the bodies already on it.
 
 ### Deferred exchange (08c)
 

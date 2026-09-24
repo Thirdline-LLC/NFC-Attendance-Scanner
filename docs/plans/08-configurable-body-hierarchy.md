@@ -1,7 +1,7 @@
 # Plan 08 — Configurable body hierarchy
 
 **Design:** [design/08-configurable-body-hierarchy.md](../design/08-configurable-body-hierarchy.md)  
-**Status:** 08a done · 08b deferred · 08c deferred  
+**Status:** 08a done · 08b done · 08c deferred  
 **Baseline:** Plans 02–07 on `main` (`fb7c142` at the time this plan was approved).
 
 Bodies, labels, and depth are configuration. This plan does not add a club mode or a class mode.
@@ -27,13 +27,23 @@ Data model, tree operations, picker, desk subtitle, and dashboard roll-up.
 - `artifacts/nfc-attendance-scanner/src/dashboard/DashboardPage.tsx` — wires scope and structure edits
 - `artifacts/nfc-attendance-scanner/src/scanner/ScannerScreen.tsx` — subtitle only
 
-## 08b — deferred
+## 08b — shipped
 
 Body-type vocabulary and custom-field definitions as admin UI.
 
-- `BodyTypeDef` `{ id, label, sortOrder }` stored locally. Admin can rename and delete entries. Creating a body can add a one-off label to that list.
-- `BodyFieldDef` `{ id, label, appliesToTypeLabel, required, sortOrder }`. Values already have a home on `AttendanceBody.customFields`.
-- Screens to edit those definitions. Not in 08a.
+1. `BodyTypeDef` `{ id, label, sortOrder }` and `BodyFieldDef` `{ id, label, appliesToTypeLabel, required, sortOrder }`, Dexie schema v9. Upgraded devices seed `BodyTypeDef` from every distinct `typeLabel` already on a body, first-appearance order. `customFields` (08a) is unchanged; field defs decide which keys the editor offers and whether one may stay blank.
+2. `createBody`/`renameBody` add a one-off `typeLabel` to the vocabulary automatically, matched case-insensitively. `renameBodyTypeDef` cascades the new label onto every body and field def that used the old one, in one transaction. Deleting a vocabulary entry leaves bodies already using that label untouched.
+3. `BodySwitcherDialog`'s create and structure-edit forms merge the saved vocabulary with theme `bodyTypePresets` in the type-label datalist (vocabulary first), and render one input per matching `BodyFieldDef` for the type label in play; a required-and-blank field disables the save button.
+4. `BodyVocabularyDialog` — a new PIN-gated admin screen, reachable from the dashboard body card, for renaming/deleting vocabulary entries and adding/editing/deleting field defs. Same security boundary as 08a's structure edits; no new role.
+5. Tests: schema v8 → v9 migration and vocabulary seeding, vocab and field-def CRUD (including the rename cascade and case-insensitive dedupe), required-field enforcement in `updateBodyCustomFields`, pure matching helpers (`body-vocabulary.ts`), and dashboard UI coverage for create-time and edit-time custom fields and the vocabulary dialog.
+
+### Files
+
+- `artifacts/nfc-attendance-scanner/src/data/attendance-store.ts` — schema v9, vocab/field-def CRUD, `updateBodyCustomFields`
+- `artifacts/nfc-attendance-scanner/src/data/body-vocabulary.ts` — matching and validation helpers
+- `artifacts/nfc-attendance-scanner/src/ui/BodySwitcherDialog.tsx` — vocab-driven suggestions, custom-field inputs
+- `artifacts/nfc-attendance-scanner/src/ui/BodyVocabularyDialog.tsx` — vocabulary admin screen
+- `artifacts/nfc-attendance-scanner/src/ui/Dashboard.tsx`, `src/dashboard/DashboardPage.tsx` — wiring
 
 ## 08c — deferred
 
@@ -53,9 +63,17 @@ Exchange of a whole subtree.
 - A flat database migrates with every body as a root and the same active body.
 - Single-body roster import/export still works. Records stay on the device.
 
+## Acceptance (08b)
+
+- An admin can save, rename, and delete body-type vocabulary entries without touching any body's own `typeLabel`, except a rename, which rewrites bodies and field defs that used the old label.
+- Creating or renaming a body with a label not yet on the list adds it automatically.
+- A required custom field, for the body's own type label, blocks the create or edit save until filled; an optional one never does.
+- Theme `bodyTypePresets` still show as suggestions, never as a closed list, alongside the saved vocabulary.
+- Vocabulary and field-def edits live behind the same teacher-PIN gate as body structure edits. No student PII in any activity log.
+
 ## Commands
 
 ```bash
-pnpm --filter @workspace/nfc-attendance-scanner run test -- body-hierarchy attendance-store.hierarchy attendance-store.migrations attendance-metrics DashboardPage ScannerScreen
+pnpm --filter @workspace/nfc-attendance-scanner run test -- body-hierarchy body-vocabulary attendance-store.hierarchy attendance-store.migrations attendance-store.vocab attendance-metrics DashboardPage ScannerScreen
 pnpm --filter @workspace/nfc-attendance-scanner run typecheck
 ```
