@@ -66,12 +66,19 @@ type DashboardProps = {
   /** Opens the change-PIN dialog. Optional: without it the card is not shown. */
   onChangePin?: () => void;
   /**
-   * The class/club this device is currently attached to (D-T2). Optional,
+   * The body this device is currently attached to (D-T2). Optional,
    * paired with `onChangeBody` — without both the card is not shown.
    */
   activeBody?: AttendanceBody;
+  /** `name · typeLabel`, or the path for a nested body. */
+  activeBodyLabel?: string;
   /** Opens the body switcher: create a body, or attach to a different one. */
   onChangeBody?: () => void;
+  /**
+   * Switches the figures above between the active body and that body plus
+   * its descendants. Omitted in presentational tests that only render numbers.
+   */
+  onMetricsScopeChange?: (scope: 'body' | 'subtree') => void;
   /**
    * The two retention actions with their previews. Optional: the
    * presentational tests render without a page. A `null` preview means the
@@ -116,7 +123,9 @@ export function Dashboard({
   activity = [],
   onChangePin,
   activeBody,
+  activeBodyLabel,
   onChangeBody,
+  onMetricsScopeChange,
   retention,
 }: DashboardProps) {
   const { ytd, gradeBreakdown, enrolledStudents, unidentified } = metrics;
@@ -188,6 +197,13 @@ export function Dashboard({
       </p>
 
       <div className="mt-6 grid gap-4">
+        {onMetricsScopeChange ? (
+          <MetricsScopeToggle
+            scope={metrics.scope}
+            onChange={onMetricsScopeChange}
+          />
+        ) : null}
+
         <TargetCard
             ytd={ytd}
             percent={percent}
@@ -205,6 +221,16 @@ export function Dashboard({
               <span data-testid="text-enrolled-students">{enrolledStudents}</span>{' '}
               enrolled have attended this school year
             </p>
+            {metrics.scope === 'subtree' ? (
+              <p
+                className="mt-2 text-xs leading-5 text-[hsl(var(--muted-foreground))]"
+                data-testid="text-rollup-identity"
+              >
+                Same email counts once across these bodies. With no email, the
+                card is the identity. Two enrollments that share neither still
+                count twice.
+              </p>
+            ) : null}
           </Card>
 
           <Card eyebrow="Grade breakdown" icon={<BarChart3 aria-hidden="true" size={16} />}>
@@ -223,6 +249,7 @@ export function Dashboard({
           tapCount={unidentified.tapCount}
           cardCount={unidentified.cardCount}
           cards={unidentified.cards}
+          summedAcrossBodies={metrics.scope === 'subtree'}
         />
 
         <ActivitySection entries={activity} />
@@ -230,7 +257,11 @@ export function Dashboard({
         {retention ? <RetentionSection {...retention} /> : null}
 
         {activeBody && onChangeBody ? (
-          <BodyCard body={activeBody} onChangeBody={onChangeBody} />
+          <BodyCard
+            body={activeBody}
+            label={activeBodyLabel}
+            onChangeBody={onChangeBody}
+          />
         ) : null}
 
         {onChangePin ? <TeacherPinCard onChangePin={onChangePin} /> : null}
@@ -491,14 +522,62 @@ function GradeRow({ row }: { row: GradeBreakdownRow }) {
   );
 }
 
+function MetricsScopeToggle({
+  scope,
+  onChange,
+}: {
+  scope: 'body' | 'subtree';
+  onChange: (scope: 'body' | 'subtree') => void;
+}) {
+  const buttonClass = (selected: boolean) =>
+    `rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] ${
+      selected
+        ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+        : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+    }`;
+
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-[1.35rem] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+      data-testid="metrics-scope"
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]">
+        Metrics
+      </p>
+      <div className="flex w-fit rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] p-1">
+        <button
+          type="button"
+          className={buttonClass(scope === 'body')}
+          aria-pressed={scope === 'body'}
+          onClick={() => onChange('body')}
+          data-testid="button-metrics-this-body"
+        >
+          This body
+        </button>
+        <button
+          type="button"
+          className={buttonClass(scope === 'subtree')}
+          aria-pressed={scope === 'subtree'}
+          onClick={() => onChange('subtree')}
+          data-testid="button-metrics-subtree"
+        >
+          This body + descendants
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function UnidentifiedCardSection({
   tapCount,
   cardCount,
   cards,
+  summedAcrossBodies,
 }: {
   tapCount: number;
   cardCount: number;
   cards: UnidentifiedCard[];
+  summedAcrossBodies: boolean;
 }) {
   const listed = cards.slice(0, MAX_LISTED_CARDS);
   const unlisted = cards.length - listed.length;
@@ -508,7 +587,9 @@ function UnidentifiedCardSection({
       {/* Every other figure on this page is year to date, which the header
           says once; these two are all-time, so they say their own scope. */}
       <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-        Across all time, not just this year
+        {summedAcrossBodies
+          ? 'Sum of each body’s unknown cards — the same card in two bodies counts twice. Across all time, not just this year.'
+          : 'Across all time, not just this year'}
       </p>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] p-3">
@@ -524,7 +605,7 @@ function UnidentifiedCardSection({
             <span data-testid="text-unidentified-cards">{cardCount}</span>
           </p>
           <p className="mt-1 text-[10px] font-semibold uppercase leading-4 tracking-[0.12em] text-[hsl(var(--muted-foreground))]">
-            Distinct cards
+            {summedAcrossBodies ? 'Sum of each body’s unknown cards' : 'Distinct cards'}
           </p>
         </div>
       </div>
@@ -546,7 +627,7 @@ function UnidentifiedCardSection({
           <ul className="mt-3 grid gap-2" data-testid="list-unidentified-cards">
             {listed.map((card) => (
               <li
-                key={card.uid}
+                key={`${card.bodyId ?? 'body'}-${card.uid}`}
                 className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] px-3 py-2.5 text-sm"
               >
                 <span className="font-mono font-bold tracking-[0.16em] text-[hsl(var(--foreground))]">
@@ -626,28 +707,36 @@ function ActivitySection({ entries }: { entries: ActivityEntry[] }) {
 }
 
 /**
- * The class/club this kiosk is attached to (D-T2). Reassignment points the
- * device at a different body; it never wipes the one just left, and never
- * requires exporting first.
+ * The body this kiosk is attached to (D-T2). Reassignment points the device
+ * at a different body; it never wipes the one just left, and never requires
+ * exporting first. Export stays this body only — a subtree workbook is not
+ * this screen.
  */
 function BodyCard({
   body,
+  label,
   onChangeBody,
 }: {
   body: AttendanceBody;
+  label?: string;
   onChangeBody: () => void;
 }) {
   return (
-    <Card eyebrow="Attendance body" icon={<Layers aria-hidden="true" size={16} />}>
+    <Card eyebrow="Active body" icon={<Layers aria-hidden="true" size={16} />}>
       <p
         className="mt-1 text-sm font-semibold text-[hsl(var(--foreground))]"
         data-testid="text-active-body"
       >
-        {body.name} <span className="text-[hsl(var(--muted-foreground))]">· {body.typeLabel}</span>
+        {label ?? (
+          <>
+            {body.name} <span className="text-[hsl(var(--muted-foreground))]">· {body.typeLabel}</span>
+          </>
+        )}
       </p>
       <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-        The class or club this device is scanning for. Every body keeps its
-        own roster and history — switching never deletes another body's data.
+        The body this device is scanning for. Every body keeps its own roster
+        and history — switching never deletes another body's data. Export stays
+        this body only.
       </p>
       <button
         type="button"

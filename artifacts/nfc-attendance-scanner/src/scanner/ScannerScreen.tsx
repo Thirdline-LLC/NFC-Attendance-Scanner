@@ -14,7 +14,13 @@ import {
   UserRoundCheck,
   Users,
 } from 'lucide-react';
-import { getActiveBody, recordActivity, type AttendanceBody } from '@/data/attendance-store';
+import { formatBodySubtitle } from '@/data/body-hierarchy';
+import {
+  getActiveBody,
+  listBodies,
+  recordActivity,
+  type AttendanceBody,
+} from '@/data/attendance-store';
 import { hasOperatorPin } from '@/data/operator-pin';
 import { useOperatorLock } from '@/lock/OperatorLockProvider';
 import { PinDialog } from '@/lock/PinDialog';
@@ -58,6 +64,9 @@ export function ScannerScreen() {
   // leaves this null and the columns simply come back blank, same as no body
   // at all; it never blocks the export itself.
   const [activeBody, setActiveBody] = useState<AttendanceBody | null>(null);
+  // Subtitle only. The desk never flips bodies mid-queue; attachment changes
+  // on the dashboard, before this screen opens the next session.
+  const [bodySubtitle, setBodySubtitle] = useState<string | null>(null);
   const {
     count,
     sessionStartedAt,
@@ -133,9 +142,15 @@ export function ScannerScreen() {
   }, []);
 
   useEffect(() => {
-    void getActiveBody()
-      .then(setActiveBody)
-      .catch(() => setActiveBody(null));
+    void Promise.all([getActiveBody(), listBodies()])
+      .then(([body, bodies]) => {
+        setActiveBody(body);
+        setBodySubtitle(formatBodySubtitle(body, bodies));
+      })
+      .catch(() => {
+        setActiveBody(null);
+        setBodySubtitle(null);
+      });
   }, []);
 
   useEffect(() => {
@@ -408,6 +423,14 @@ export function ScannerScreen() {
               <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.19em] text-[hsl(var(--muted-foreground))]">
                 Front desk station
               </p>
+              {bodySubtitle ? (
+                <p
+                  className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.19em] text-[hsl(var(--muted-foreground))]"
+                  data-testid="text-body-subtitle"
+                >
+                  {bodySubtitle}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

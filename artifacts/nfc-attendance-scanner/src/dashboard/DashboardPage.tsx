@@ -1,22 +1,28 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
+import { formatBodySubtitle, subtreeBodyIds } from '@/data/body-hierarchy';
 import {
   ACTIVITY_LOG_CAP,
+  BodyHierarchyError,
+  archiveBody,
   createBody,
   getActiveBody,
   listActivity,
   listBodies,
-  listPersons,
+  listPersonsForBodies,
+  listTapsForBodies,
   previewAlumniRemoval,
   previewHistoryPurge,
   purgeHistoryBefore,
   recordActivity,
   removeAlumni,
+  renameBody,
+  reparentBody,
+  restoreBody,
   setActiveBody,
   setAttendanceTarget,
   getAttendanceTarget,
-  listTapRecords,
   type ActivityEntry,
   type AlumniRemoval,
   type AttendanceBody,
@@ -27,6 +33,7 @@ import {
 import { deriveGrade, exportAttendanceWorkbook } from '@/lib/attendance-export';
 import {
   computeDashboardMetrics,
+  computeRollupDashboardMetrics,
   schoolYearStart,
   type DashboardMetrics,
 } from '@/lib/attendance-metrics';
@@ -44,6 +51,32 @@ import { PinDialog } from '@/lock/PinDialog';
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+function bodyFailure(error: unknown, fallback: string): string {
+  return error instanceof BodyHierarchyError ? error.message : fallback;
+}
+
+function metricsFromBundle(
+  scope: 'body' | 'subtree',
+  bundle: {
+    bodyTaps: TapRecord[];
+    bodyPersons: Person[];
+    subtreeTaps: TapRecord[];
+    subtreePersons: Person[];
+    target: number;
+  },
+  now: string,
+): DashboardMetrics {
+  if (scope === 'subtree') {
+    return computeRollupDashboardMetrics(
+      bundle.subtreeTaps,
+      bundle.subtreePersons,
+      now,
+      bundle.target,
+    );
+  }
+  return computeDashboardMetrics(bundle.bodyTaps, bundle.bodyPersons, now, bundle.target);
 }
 
 /**
@@ -92,6 +125,16 @@ export function DashboardPage() {
   const [bodies, setBodies] = useState<AttendanceBody[]>([]);
   const [bodyWorking, setBodyWorking] = useState(false);
   const [bodyError, setBodyError] = useState<string | null>(null);
+  // "This body" vs "this body + descendants". Export and retention stay on
+  // the active body either way; only the figures above the body card move.
+  const [metricsScope, setMetricsScope] = useState<'body' | 'subtree'>('body');
+  const [metricsBundle, setMetricsBundle] = useState<{
+    bodyTaps: TapRecord[];
+    bodyPersons: Person[];
+    subtreeTaps: TapRecord[];
+    subtreePersons: Person[];
+    target: number;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -101,28 +144,39 @@ export function DashboardPage() {
       // read once here and shared by the metrics and both retention previews.
       const now = new Date().toISOString();
       const start = schoolYearStart(now);
-      const [taps, persons, target, recent, stale, graduates, body] = await Promise.all([
-        listTapRecords(),
-        listPersons(),
+      const [body, allBodies, target, recent, stale, graduates] = await Promise.all([
+        getActiveBody(),
+        listBodies(),
         getAttendanceTarget(),
         listActivity(),
         previewHistoryPurge((scannedAt) => formatSessionDate(scannedAt) < start),
         previewAlumniRemoval((person) => deriveGrade(person.gradYear, now) === 'Alumni'),
-        getActiveBody(),
       ]);
-      setMetrics(computeDashboardMetrics(taps, persons, now, target));
-      setHistory({ taps, persons });
+      const ids =
+        body.id === undefined ? [] : subtreeBodyIds(body.id, allBodies);
+      const [subtreeTaps, subtreePersons] = await Promise.all([
+        listTapsForBodies(ids),
+        listPersonsForBodies(ids),
+      ]);
+      const bodyTaps = subtreeTaps.filter((tap) => tap.bodyId === body.id);
+      const bodyPersons = subtreePersons.filter((person) => person.bodyId === body.id);
+      const bundle = { bodyTaps, bodyPersons, subtreeTaps, subtreePersons, target };
+      setMetricsBundle(bundle);
+      setMetrics(metricsFromBundle(metricsScope, bundle, now));
+      // Export writes the active body only. Subtree workbook export is 08c.
+      setHistory({ taps: bodyTaps, persons: bodyPersons });
       setActivity(recent);
       setBoundary(start);
       setHistoryPreview(stale);
       setAlumniPreview(graduates);
       setActiveBodyState(body);
+      setBodies(allBodies);
     } catch {
       setLoadFailed(true);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [metricsScope]);
 
   useEffect(() => {
     void load();
@@ -147,19 +201,23 @@ export function DashboardPage() {
       } catch {
         return false;
       }
-      if (history) {
-        setMetrics(
-          computeDashboardMetrics(
-            history.taps,
-            history.persons,
-            new Date().toISOString(),
-            target,
-          ),
-        );
+      if (metricsBundle) {
+        const next = { ...metricsBundle, target };
+        setMetricsBundle(next);
+        setMetrics(metricsFromBundle(metricsScope, next, new Date().toISOString()));
       }
       return true;
     },
-    [history],
+    [metricsBundle, metricsScope],
+  );
+
+  const changeMetricsScope = useCallback(
+    (scope: 'body' | 'subtree') => {
+      setMetricsScope(scope);
+      if (!metricsBundle) return;
+      setMetrics(metricsFromBundle(scope, metricsBundle, new Date().toISOString()));
+    },
+    [metricsBundle],
   );
 
   const exportAll = useCallback(async () => {
@@ -287,8 +345,8 @@ export function DashboardPage() {
         await setActiveBody(bodyId);
         setSwitchingBody(false);
         await load();
-      } catch {
-        setBodyError("This device couldn't switch bodies. Try again.");
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't switch bodies. Try again."));
       } finally {
         setBodyWorking(false);
       }
@@ -297,7 +355,7 @@ export function DashboardPage() {
   );
 
   const createAndSwitchBody = useCallback(
-    async (input: { name: string; typeLabel: string }) => {
+    async (input: { name: string; typeLabel: string; parentId: number | null }) => {
       setBodyWorking(true);
       setBodyError(null);
       try {
@@ -305,13 +363,82 @@ export function DashboardPage() {
         await setActiveBody(created.id as number);
         setSwitchingBody(false);
         await load();
-      } catch {
-        setBodyError("This device couldn't create that body. Try again.");
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't create that body. Try again."));
       } finally {
         setBodyWorking(false);
       }
     },
     [load],
+  );
+
+  const refreshBodies = useCallback(async () => {
+    setBodies(await listBodies());
+    await load();
+  }, [load]);
+
+  const renameSelectedBody = useCallback(
+    async (input: { bodyId: number; name: string; typeLabel: string }) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      try {
+        await renameBody(input.bodyId, input);
+        await refreshBodies();
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't rename that body. Try again."));
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [refreshBodies],
+  );
+
+  const moveSelectedBody = useCallback(
+    async (input: { bodyId: number; parentId: number | null }) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      try {
+        await reparentBody(input.bodyId, input.parentId);
+        await refreshBodies();
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't move that body. Try again."));
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [refreshBodies],
+  );
+
+  const archiveSelectedBody = useCallback(
+    async (bodyId: number) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      try {
+        await archiveBody(bodyId);
+        await refreshBodies();
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't archive that body. Try again."));
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [refreshBodies],
+  );
+
+  const restoreSelectedBody = useCallback(
+    async (bodyId: number) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      try {
+        await restoreBody(bodyId);
+        await refreshBodies();
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't restore that body. Try again."));
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [refreshBodies],
   );
 
   return (
@@ -422,7 +549,11 @@ export function DashboardPage() {
               onSaveTarget={saveTarget}
               activity={activity}
               activeBody={activeBody ?? undefined}
+              activeBodyLabel={
+                activeBody ? formatBodySubtitle(activeBody, bodies) : undefined
+              }
               onChangeBody={() => void openBodySwitcher()}
+              onMetricsScopeChange={changeMetricsScope}
               onChangePin={() => {
                 setPinNotice(null);
                 setChangingPin(true);
@@ -492,6 +623,10 @@ export function DashboardPage() {
           error={bodyError}
           onSelect={(bodyId) => void selectBody(bodyId)}
           onCreate={(input) => void createAndSwitchBody(input)}
+          onRename={(input) => void renameSelectedBody(input)}
+          onReparent={(input) => void moveSelectedBody(input)}
+          onArchive={(bodyId) => void archiveSelectedBody(bodyId)}
+          onRestore={(bodyId) => void restoreSelectedBody(bodyId)}
           onCancel={() => setSwitchingBody(false)}
         />
       ) : null}

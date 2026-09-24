@@ -4,6 +4,7 @@ import { indexRoster } from '@/lib/tap-identity';
 import {
   DEFAULT_ATTENDANCE_TARGET,
   computeDashboardMetrics,
+  computeRollupDashboardMetrics,
   computeSessionAttendance,
   computeYtdSummary,
   distinctStudents,
@@ -444,5 +445,76 @@ describe('computeDashboardMetrics', () => {
     expect(metrics.enrolledStudents).toBe(0);
     expect(metrics.gradeBreakdown).toHaveLength(4);
     expect(metrics.unidentified).toEqual({ tapCount: 0, cardCount: 0, cards: [] });
+    expect(metrics.scope).toBe('body');
+  });
+});
+
+describe('subtree roll-up metrics', () => {
+  function enrolled(
+    id: number,
+    bodyId: number,
+    cardUid: string,
+    email: string,
+    gradYear = 2027,
+  ): Person {
+    return {
+      id,
+      bodyId,
+      cardUid,
+      firstName: 'Student',
+      lastName: `Row${id}`,
+      gradYear,
+      email,
+      enrolledAt: at('2026-09-01'),
+    };
+  }
+
+  it('counts a shared email once, then a shared card, and sums unknown cards per body', () => {
+    const parentJane = enrolled(1, 10, '04AAAAAAAAAAAA', 'Jane@school.test');
+    const childJane = enrolled(2, 20, '04BBBBBBBBBBBB', 'jane@school.test');
+    const childAda = enrolled(3, 20, '04CCCCCCCCCCCC', 'ada@school.test', 2028);
+    const sharedCardA = enrolled(4, 10, '04DDDDDDDDDDDD', '');
+    const sharedCardB = enrolled(5, 20, '04DDDDDDDDDDDD', '  ');
+    const soloA = enrolled(6, 10, '04EEEEEEEEEEEE', '');
+    const soloB = enrolled(7, 20, '04FFFFFFFFFFFF', '');
+    const people = [parentJane, childJane, childAda, sharedCardA, sharedCardB, soloA, soloB];
+
+    const taps: TapRecord[] = [
+      { ...tap('meet', parentJane.cardUid!, NOW, parentJane.id!), bodyId: 10 },
+      { ...tap('meet', childJane.cardUid!, NOW, childJane.id!), bodyId: 20 },
+      { ...tap('meet', childAda.cardUid!, NOW, childAda.id!), bodyId: 20 },
+      { ...tap('meet', sharedCardA.cardUid!, NOW, sharedCardA.id!), bodyId: 10 },
+      { ...tap('meet', sharedCardB.cardUid!, NOW, sharedCardB.id!), bodyId: 20 },
+      { ...tap('meet', soloA.cardUid!, NOW, soloA.id!), bodyId: 10 },
+      { ...tap('meet', soloB.cardUid!, NOW, soloB.id!), bodyId: 20 },
+      { ...tap('meet', '04UNK000000001', NOW, null), bodyId: 10 },
+      { ...tap('meet', '04UNK000000001', NOW, null), bodyId: 20 },
+    ];
+
+    const rolled = computeRollupDashboardMetrics(taps, people, NOW);
+    // Jane once (email), Ada once, the shared card once, two card-only solos.
+    expect(rolled.ytd.uniqueStudents).toBe(5);
+    expect(rolled.enrolledStudents).toBe(5);
+    expect(rolled.ytd.sessions).toHaveLength(1);
+    expect(rolled.ytd.sessions[0].attendance).toBe(5);
+    expect(rolled.unidentified.cardCount).toBe(2);
+    expect(rolled.unidentified.tapCount).toBe(2);
+    expect(rolled.unidentified.cards.map((card) => card.bodyId).sort()).toEqual([10, 20]);
+    expect(rolled.scope).toBe('subtree');
+
+    // The same rows, counted per roster row, do not collapse the two Janes.
+    const perRow = computeDashboardMetrics(taps, people, NOW);
+    expect(perRow.ytd.uniqueStudents).toBe(7);
+    expect(perRow.scope).toBe('body');
+  });
+
+  it('does not let one body’s roster identify another body’s unknown card', () => {
+    const known = enrolled(1, 20, '04AAAAAAAAAAAA', 'known@school.test');
+    const taps: TapRecord[] = [
+      { ...tap('meet', known.cardUid!, NOW, null), bodyId: 10 },
+    ];
+    const rolled = computeRollupDashboardMetrics(taps, [known], NOW);
+    expect(rolled.ytd.uniqueStudents).toBe(0);
+    expect(rolled.unidentified.cardCount).toBe(1);
   });
 });

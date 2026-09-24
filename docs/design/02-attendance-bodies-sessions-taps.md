@@ -42,3 +42,5 @@ Body name/type are organizational, not sensitive alone; members/taps are educati
 ## Out of scope
 
 Multi-lane devices merging live; server-side body directories.
+
+> **Amended by Plan 08.** Local body directories — a tree of bodies on this device — are in scope via [08-configurable-body-hierarchy.md](08-configurable-body-hierarchy.md). Server-side directories stay out of scope. D-T2 is unchanged: each body owns its roster and taps, and the device attaches with `activeBodyId`.

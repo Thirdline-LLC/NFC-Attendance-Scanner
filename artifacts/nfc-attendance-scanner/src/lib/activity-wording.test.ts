@@ -125,6 +125,14 @@ describe('describeActivity', () => {
       action: 'Teacher PIN changed',
       detail: '',
     });
+    expect(describeActivity({ at: AT, kind: 'body-reparent' })).toEqual({
+      action: 'Moved a body in the tree',
+      detail: '',
+    });
+    expect(describeActivity({ at: AT, kind: 'body-archive' })).toEqual({
+      action: 'Archived a body',
+      detail: '',
+    });
   });
 
   it('has no field it could print a name, an email or a UID from', () => {
