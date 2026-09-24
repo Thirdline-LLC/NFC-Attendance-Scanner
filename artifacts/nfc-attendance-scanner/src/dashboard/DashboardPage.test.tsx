@@ -20,6 +20,7 @@ import {
 import * as operatorPin from '@/data/operator-pin';
 import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
 import * as attendanceExport from '@/lib/attendance-export';
+import * as rosterTemplate from '@/lib/roster-template';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
 import { schoolYearStart } from '@/lib/attendance-metrics';
 import { OperatorLockProvider } from '@/lock/OperatorLockProvider';
@@ -914,6 +915,47 @@ describe('DashboardPage attendance body', () => {
       ),
     );
     expect(screen.getByTestId('text-active-body').textContent).toContain('section');
+  });
+
+  it('creates a class with periods, attaches to the class, and offers per-period templates', async () => {
+    const delivered = vi
+      .spyOn(rosterTemplate, 'deliverRosterTemplateWorkbook')
+      .mockResolvedValue({ filename: 'tapin-roster-template-period-3.xlsx', delivery: 'download' });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.click(await screen.findByTestId('button-add-mode-class'));
+    await user.type(screen.getByTestId('input-class-name'), 'English 11');
+    await user.click(screen.getByTestId('button-period-count-down'));
+    await user.click(screen.getByTestId('button-period-count-down'));
+    await user.click(screen.getByTestId('button-class-create'));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Add students to each period' }),
+    ).toBeTruthy();
+    const active = await getActiveBody();
+    expect(active.name).toBe('English 11');
+    const periods = (await listBodies()).filter((body) => body.parentId === active.id);
+    expect(periods.map((body) => body.name)).toEqual(['Period 1', 'Period 2', 'Period 3']);
+
+    await user.click(screen.getByRole('button', { name: 'Download template for Period 3' }));
+    expect(delivered).toHaveBeenCalledWith(expect.objectContaining({ id: periods[2].id }));
+    await user.click(await screen.findByRole('button', { name: 'Done' }));
+    expect(screen.queryByTestId('dialog-body-switcher')).toBeNull();
+    // Focus goes back to the button that opened the switcher.
+    expect(document.activeElement).toBe(screen.getByTestId('button-change-body'));
+    await waitFor(() =>
+      expect(screen.getByTestId('text-active-body').textContent).toContain('English 11'),
+    );
+    // Template downloads are not logged, as on the Students page; creating is not either.
+    expect(await attendanceStore.listActivity()).toEqual([]);
+
+    // Reopened, the class sits in the tree as a group.
+    await user.click(screen.getByTestId('button-change-body'));
+    expect((await screen.findByTestId(`button-body-${active.id}`)).textContent).toContain(
+      'English 11 · 3 periods',
+    );
   });
 
   it('shows a child body with its path and still switches to it', async () => {

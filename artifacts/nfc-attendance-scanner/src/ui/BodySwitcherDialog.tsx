@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronRight, Layers } from 'lucide-react';
-import type { AttendanceBody, BodyFieldDef, BodyTypeDef } from '@/data/attendance-store';
+import type {
+  AttendanceBody,
+  BodyFieldDef,
+  BodyTypeDef,
+  ClassWithPeriods,
+  CreateClassWithPeriodsInput,
+} from '@/data/attendance-store';
 import {
   bodyDepth,
   childCountLabel,
@@ -18,6 +24,7 @@ import {
 } from '@/data/body-vocabulary';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
+import { ClassSetupForm, ClassTemplateFollowUp } from '@/ui/ClassSetupForm';
 
 type BodySwitcherDialogProps = {
   bodies: AttendanceBody[];
@@ -44,6 +51,13 @@ type BodySwitcherDialogProps = {
     customFields: Record<string, string>;
   }) => void;
   onReparent: (input: { bodyId: number; parentId: number | null }) => void;
+  /** Design 09 §1: a class and its periods in one write. */
+  onCreateClass: (input: Required<CreateClassWithPeriodsInput>) => void;
+  /**
+   * Set once a class was just created: the dialog swaps to the "Add students
+   * to each period" step for it. Done / Skip for now closes via `onCancel`.
+   */
+  classSetup?: ClassWithPeriods | null;
   onArchive: (bodyId: number) => void;
   onRestore: (bodyId: number) => void;
   /** Writes `customFields` for an existing body (08b). */
@@ -71,6 +85,8 @@ export function BodySwitcherDialog({
   onCreate,
   onRename,
   onReparent,
+  onCreateClass,
+  classSetup = null,
   onArchive,
   onRestore,
   onSaveCustomFields,
@@ -87,6 +103,7 @@ export function BodySwitcherDialog({
   const [parentId, setParentId] = useState('');
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const [query, setQuery] = useState('');
+  const [createMode, setCreateMode] = useState<'single' | 'class'>('single');
   const [structureId, setStructureId] = useState('');
   const [structureName, setStructureName] = useState('');
   const [structureType, setStructureType] = useState('');
@@ -191,6 +208,19 @@ export function BodySwitcherDialog({
       data-testid="dialog-body-switcher"
     >
       <div className="m-auto w-full max-w-md rounded-[1.35rem] border border-[hsl(var(--primary)/.45)] bg-[hsl(var(--card))] p-5 shadow-[0_24px_90px_hsl(211_55%_5%/.5)] sm:p-6">
+        <datalist id="body-type-suggestions">
+          {suggestions.map((label) => (
+            <option key={label} value={label} />
+          ))}
+        </datalist>
+        {classSetup ? (
+          <ClassTemplateFollowUp
+            parent={classSetup.parent}
+            periods={classSetup.periods}
+            onDone={onCancel}
+          />
+        ) : (
+        <>
         <div className="flex items-start gap-2.5">
           <Layers aria-hidden="true" className="mt-0.5 shrink-0 text-[hsl(var(--primary))]" size={18} />
           <div className="min-w-0">
@@ -240,102 +270,143 @@ export function BodySwitcherDialog({
           </p>
         )}
 
-        <form
+        <section
           className="mt-5 grid gap-3 border-t border-[hsl(var(--border))] pt-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!canCreate) return;
-            onCreate({
-              name: name.trim(),
-              typeLabel: typeLabel.trim(),
-              parentId: parentId === '' ? null : Number(parentId),
-              customFields: customFieldValues,
-            });
-          }}
+          aria-labelledby="body-add-title"
         >
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]">
-            Or create a body
-          </p>
-          <label htmlFor="body-name" className="block">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]">
-              Name
-            </span>
-            <input
-              id="body-name"
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.6)] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-              data-testid="input-body-name"
-            />
-          </label>
-          <label htmlFor="body-type" className="block">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]">
-              Type label
-            </span>
-            <input
-              id="body-type"
-              type="text"
-              list="body-type-suggestions"
-              value={typeLabel}
-              onChange={(event) => setTypeLabel(event.target.value)}
-              placeholder="Any label you use"
-              className="mt-1.5 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.6)] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-              data-testid="input-body-type"
-            />
-            <datalist id="body-type-suggestions">
-              {suggestions.map((label) => (
-                <option key={label} value={label} />
-              ))}
-            </datalist>
-          </label>
-          <label htmlFor="body-parent" className="block">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]">
-              Under
-            </span>
-            <select
-              id="body-parent"
-              value={parentId}
-              onChange={(event) => setParentId(event.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.6)] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-              data-testid="select-body-parent"
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3
+              id="body-add-title"
+              className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]"
             >
-              <option value="">No parent (a new root)</option>
-              {creatableParents.map((row) => (
-                <option key={row.body.id} value={row.body.id}>
-                  {row.path}
-                </option>
+              Add a body
+            </h3>
+            <div
+              role="group"
+              aria-label="What to add"
+              className="flex rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] p-1"
+            >
+              {(
+                [
+                  ['single', 'Single body'],
+                  ['class', 'Class with periods'],
+                ] as const
+              ).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={createMode === mode}
+                  onClick={() => setCreateMode(mode)}
+                  className={`min-h-11 rounded-full px-3.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] ${
+                    createMode === mode
+                      ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+                      : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+                  }`}
+                  data-testid={`button-add-mode-${mode}`}
+                >
+                  {label}
+                </button>
               ))}
-            </select>
-          </label>
-          {createDepthWarning ? (
-            <p className="text-xs text-[hsl(var(--muted-foreground))]" data-testid="text-body-depth-warning">
-              {createDepthWarning}
-            </p>
-          ) : null}
-          <CustomFieldInputs
-            idPrefix="create"
-            defs={createFieldDefs}
-            values={customFieldValues}
-            onChange={(label, value) =>
-              setCustomFieldValues((prev) => ({ ...prev, [label]: value }))
-            }
-          />
-          {missingCreateFields.length > 0 ? (
-            <p className="text-xs text-[hsl(var(--muted-foreground))]" data-testid="text-create-fields-missing">
-              {missingCreateFields.map((field) => field.label).join(', ')}{' '}
-              {missingCreateFields.length === 1 ? 'is' : 'are'} required for this type.
-            </p>
-          ) : null}
-          <button
-            type="submit"
-            disabled={!canCreate}
-            className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60"
-            data-testid="button-body-create"
+            </div>
+          </div>
+          {createMode === 'single' ? (
+          <form
+            className="grid gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!canCreate) return;
+              onCreate({
+                name: name.trim(),
+                typeLabel: typeLabel.trim(),
+                parentId: parentId === '' ? null : Number(parentId),
+                customFields: customFieldValues,
+              });
+            }}
           >
-            {isWorking ? 'Working…' : 'Create and switch'}
-          </button>
-        </form>
+            <label htmlFor="body-name" className="block">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]">
+                Name
+              </span>
+              <input
+                id="body-name"
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.6)] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                data-testid="input-body-name"
+              />
+            </label>
+            <label htmlFor="body-type" className="block">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]">
+                Type label
+              </span>
+              <input
+                id="body-type"
+                type="text"
+                list="body-type-suggestions"
+                value={typeLabel}
+                onChange={(event) => setTypeLabel(event.target.value)}
+                placeholder="Any label you use"
+                className="mt-1.5 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.6)] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                data-testid="input-body-type"
+              />
+            </label>
+            <label htmlFor="body-parent" className="block">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]">
+                Under
+              </span>
+              <select
+                id="body-parent"
+                value={parentId}
+                onChange={(event) => setParentId(event.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.6)] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                data-testid="select-body-parent"
+              >
+                <option value="">No parent (a new root)</option>
+                {creatableParents.map((row) => (
+                  <option key={row.body.id} value={row.body.id}>
+                    {row.path}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {createDepthWarning ? (
+              <p className="text-xs text-[hsl(var(--muted-foreground))]" data-testid="text-body-depth-warning">
+                {createDepthWarning}
+              </p>
+            ) : null}
+            <CustomFieldInputs
+              idPrefix="create"
+              defs={createFieldDefs}
+              values={customFieldValues}
+              onChange={(label, value) =>
+                setCustomFieldValues((prev) => ({ ...prev, [label]: value }))
+              }
+            />
+            {missingCreateFields.length > 0 ? (
+              <p className="text-xs text-[hsl(var(--muted-foreground))]" data-testid="text-create-fields-missing">
+                {missingCreateFields.map((field) => field.label).join(', ')}{' '}
+                {missingCreateFields.length === 1 ? 'is' : 'are'} required for this type.
+              </p>
+            ) : null}
+            <button
+              type="submit"
+              disabled={!canCreate}
+              className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-4 py-3 text-sm font-bold text-[hsl(var(--primary-foreground))] transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid="button-body-create"
+            >
+              {isWorking ? 'Working…' : 'Create and switch'}
+            </button>
+          </form>
+          ) : (
+            <ClassSetupForm
+              isWorking={isWorking}
+              fieldDefs={fieldDefs}
+              typeSuggestionsId="body-type-suggestions"
+              onCreate={onCreateClass}
+            />
+          )}
+        </section>
 
         <form
           className="mt-5 grid gap-3 border-t border-[hsl(var(--border))] pt-4"
@@ -491,6 +562,9 @@ export function BodySwitcherDialog({
             </>
           ) : null}
         </form>
+
+        </>
+        )}
 
         {error ? (
           <p

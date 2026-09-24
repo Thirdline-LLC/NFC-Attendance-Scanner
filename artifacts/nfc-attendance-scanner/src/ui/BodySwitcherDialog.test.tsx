@@ -40,6 +40,7 @@ function renderDialog(overrides: Partial<Parameters<typeof BodySwitcherDialog>[0
     onCreate: vi.fn(),
     onRename: vi.fn(),
     onReparent: vi.fn(),
+    onCreateClass: vi.fn(),
     onArchive: vi.fn(),
     onRestore: vi.fn(),
     onSaveCustomFields: vi.fn(),

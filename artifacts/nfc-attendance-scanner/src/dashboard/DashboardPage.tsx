@@ -10,6 +10,7 @@ import {
   addBodyTypeDef,
   archiveBody,
   createBody,
+  createClassWithPeriods,
   deleteBodyFieldDef,
   deleteBodyTypeDef,
   getActiveBody,
@@ -38,6 +39,8 @@ import {
   type AttendanceBody,
   type BodyFieldDef,
   type BodyTypeDef,
+  type ClassWithPeriods,
+  type CreateClassWithPeriodsInput,
   type HistoryPurge,
   type Person,
   type TapRecord,
@@ -167,6 +170,9 @@ export function DashboardPage() {
   const [bodies, setBodies] = useState<AttendanceBody[]>([]);
   const [bodyWorking, setBodyWorking] = useState(false);
   const [bodyError, setBodyError] = useState<string | null>(null);
+  // A class just created from the switcher (Design 09 §1): while set, the
+  // switcher shows the "Add students to each period" step for it.
+  const [classSetup, setClassSetup] = useState<ClassWithPeriods | null>(null);
   // The admin's saved type-label vocabulary and field defs (08b). Loaded
   // with everything else and refreshed after any write that could change
   // them, including a rename cascade that moves bodies onto a new label.
@@ -580,6 +586,36 @@ export function DashboardPage() {
     },
     [load],
   );
+
+  /**
+   * Same attach rule as `createAndSwitchBody`: the device moves to what was
+   * just created — here the class itself, which is where the per-period
+   * roll-up lives. The figures switch to the class-wide view for the same
+   * reason. The switcher stays open on the template step.
+   */
+  const createClassAndSwitch = useCallback(
+    async (input: Required<CreateClassWithPeriodsInput>) => {
+      setBodyWorking(true);
+      setBodyError(null);
+      try {
+        const created = await createClassWithPeriods(input);
+        await setActiveBody(created.parent.id as number);
+        setClassSetup(created);
+        setMetricsScope('subtree');
+        await load();
+      } catch (error) {
+        setBodyError(bodyFailure(error, "This device couldn't create that class. Try again."));
+      } finally {
+        setBodyWorking(false);
+      }
+    },
+    [load],
+  );
+
+  const closeBodySwitcher = useCallback(() => {
+    setSwitchingBody(false);
+    setClassSetup(null);
+  }, []);
 
   const refreshBodies = useCallback(async () => {
     setBodies(await listBodies());
@@ -1017,12 +1053,14 @@ export function DashboardPage() {
           fieldDefs={fieldDefs}
           onSelect={(bodyId) => void selectBody(bodyId)}
           onCreate={(input) => void createAndSwitchBody(input)}
+          onCreateClass={(input) => void createClassAndSwitch(input)}
+          classSetup={classSetup}
           onRename={(input) => void renameSelectedBody(input)}
           onReparent={(input) => void moveSelectedBody(input)}
           onArchive={(bodyId) => void archiveSelectedBody(bodyId)}
           onRestore={(bodyId) => void restoreSelectedBody(bodyId)}
           onSaveCustomFields={(input) => void saveBodyCustomFields(input)}
-          onCancel={() => setSwitchingBody(false)}
+          onCancel={closeBodySwitcher}
         />
       ) : null}
 
