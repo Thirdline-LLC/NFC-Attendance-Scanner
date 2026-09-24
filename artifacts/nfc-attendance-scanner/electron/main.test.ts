@@ -87,7 +87,16 @@ vi.mock('./in-place-host', () => ({
   fetchReleaseAssetBytes: vi.fn(),
 }));
 
+// The real validator, wrapped so one test can hand the handler a request the
+// validator would never produce today (an empty payload) and prove the
+// handler's own empty-buffer guard holds regardless.
+vi.mock('./validation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./validation')>();
+  return { ...actual, parseSaveRequest: vi.fn(actual.parseSaveRequest) };
+});
+
 import fs from 'node:fs/promises';
+import { parseSaveRequest } from './validation';
 
 const writeFile = vi.mocked(fs.writeFile);
 const stat = vi.mocked(fs.stat);
@@ -283,5 +292,72 @@ describe('the attendance:save-workbook handler: Save dialog title', () => {
 
     const [options] = dialogMock.showSaveDialog.mock.calls[0];
     expect(options.title).toBe(title);
+  });
+});
+
+describe('the attendance:save-workbook handler: empty payloads', () => {
+  it('refuses an empty buffer before the Save dialog opens, so no 0-byte file is created', async () => {
+    vi.mocked(parseSaveRequest).mockReturnValueOnce({
+      filename: 'tapin-roster-template-robotics-club.csv',
+      base64: '',
+    });
+
+    const result = await saveWorkbook({
+      filename: 'tapin-roster-template-robotics-club.csv',
+      base64: '',
+    });
+
+    expect(dialogMock.showSaveDialog).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: 'failed', message: 'There was nothing to save.' });
+  });
+});
+
+describe('the attendance:save-workbook handler: renaming in the Save dialog', () => {
+  it('refuses a chosen path whose extension differs from the validated one, without writing', async () => {
+    dialogMock.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/Users/teacher/Desktop/my-roster.xlsx',
+    });
+
+    const result = await saveWorkbook({
+      filename: 'tapin-roster-template-robotics-club.csv',
+      base64: CSV_BASE64,
+    });
+
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'failed' });
+    expect((result as { message: string }).message).toContain('.csv');
+  });
+
+  it('refuses a chosen path with the extension removed, rather than re-appending it', async () => {
+    dialogMock.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/Users/teacher/Desktop/attendance',
+    });
+
+    const result = await saveWorkbook({
+      filename: 'attendance-2026-09-15-20260915T170000Z.xlsx',
+      base64: VALID_BASE64,
+    });
+
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'failed' });
+  });
+
+  it('accepts a renamed file that keeps the extension (case-insensitive)', async () => {
+    dialogMock.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/Users/teacher/Desktop/Period 3 roster.CSV',
+    });
+
+    const result = await saveWorkbook({
+      filename: 'tapin-roster-template-robotics-club.csv',
+      base64: CSV_BASE64,
+    });
+
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(writeFile.mock.calls[0][0]).toBe('/Users/teacher/Desktop/Period 3 roster.CSV');
+    expect(result).toMatchObject({ status: 'saved' });
   });
 });

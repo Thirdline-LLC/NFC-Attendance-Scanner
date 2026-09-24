@@ -10,6 +10,7 @@ import {
   parseSaveRequest,
   resolveBundledAsset,
   contentMatchesExtension,
+  hasSameExtension,
   saveDialogFilter,
   saveDialogTitle,
 } from './validation';
@@ -399,5 +400,20 @@ describe('contentMatchesExtension', () => {
 
   it('refuses any other extension', () => {
     expect(contentMatchesExtension('notes.txt', csv)).toBe(false);
+  });
+});
+
+describe('hasSameExtension', () => {
+  it('accepts a renamed path that keeps the suggested extension, in any case', () => {
+    expect(hasSameExtension('tapin-roster-template-robotics.csv', '/tmp/Anything.csv')).toBe(true);
+    expect(hasSameExtension('tapin-roster-template-robotics.csv', '/tmp/Anything.CSV')).toBe(true);
+  });
+
+  it('refuses a changed or missing extension', () => {
+    expect(hasSameExtension('tapin-roster-template-robotics.csv', '/tmp/a.xlsx')).toBe(false);
+    expect(hasSameExtension('roster-2026-09-15-20260915T210000Z.xlsx', '/tmp/roster')).toBe(false);
+    expect(hasSameExtension('roster-2026-09-15-20260915T210000Z.xlsx', '/tmp/roster.xlsx.csv')).toBe(
+      false,
+    );
   });
 });

@@ -27,6 +27,7 @@ import {
   parseDownloadVerifiedAssetRequest,
   parseInstallAppUpdateRequest,
   contentMatchesExtension,
+  hasSameExtension,
   parseSaveRequest,
   resolveBundledAsset,
   saveDialogFilter,
@@ -188,6 +189,11 @@ async function saveWorkbook(
   // Decoded once, up front: the bytes must match the extension before the
   // operator is ever asked where to put them.
   const bytes = Buffer.from(request.base64, 'base64');
+  // Nothing to save is refused before the dialog, so no 0-byte file is ever
+  // created on the operator's disk.
+  if (bytes.length === 0) {
+    return { status: 'failed', message: 'There was nothing to save.' };
+  }
   if (!contentMatchesExtension(request.filename, bytes)) {
     return {
       status: 'failed',
@@ -204,6 +210,17 @@ async function saveWorkbook(
     : dialog.showSaveDialog(saveDialogOptions(request.filename)));
 
   if (canceled || !filePath) return { status: 'cancelled' };
+
+  // The operator may rename the file in the dialog. The bytes were checked
+  // against the suggested name's extension, so the chosen path must keep it.
+  // Refused rather than re-appended: silently adding the extension could
+  // overwrite an existing file the dialog never asked about.
+  if (!hasSameExtension(request.filename, filePath)) {
+    return {
+      status: 'failed',
+      message: `Save it as a ${path.extname(request.filename).toLowerCase()} file — the name you chose changes its file type.`,
+    };
+  }
 
   try {
     await fs.writeFile(filePath, bytes);
