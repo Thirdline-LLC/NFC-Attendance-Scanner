@@ -171,6 +171,7 @@ export function DashboardPage() {
         history.taps,
         history.persons,
         await listActivity(ACTIVITY_LOG_CAP),
+        activeBody ?? undefined,
       );
       // The notice goes up as soon as the file is delivered; the log row
       // follows, and if it cannot be written the notice says so rather than
@@ -199,7 +200,7 @@ export function DashboardPage() {
         cancelled: error instanceof ExportCancelledError,
       });
     }
-  }, [history]);
+  }, [history, activeBody]);
 
   /**
    * Runs the confirmed retention action, logs it as counts only, and reloads

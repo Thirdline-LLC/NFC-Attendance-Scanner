@@ -53,6 +53,8 @@ export const ROSTER_COLUMNS: (keyof RosterSheetRow)[] = [
   'Email',
   'Grade',
   'Card (last 4)',
+  'Body Name',
+  'Body Type',
 ];
 
 /**
@@ -108,7 +110,10 @@ function cell(row: Record<string, unknown>, key: string): string {
   return String(value).trim();
 }
 
-export function buildRosterRows(persons: readonly Person[]): RosterSheetRow[] {
+export function buildRosterRows(
+  persons: readonly Person[],
+  body?: AttendanceBody,
+): RosterSheetRow[] {
   const ordered = [...persons].sort(
     (a, b) =>
       a.lastName.localeCompare(b.lastName, 'en', { sensitivity: 'base' }) ||
@@ -122,6 +127,8 @@ export function buildRosterRows(persons: readonly Person[]): RosterSheetRow[] {
     Email: person.email,
     Grade: deriveGrade(person.gradYear),
     'Card (last 4)': person.cardUid ? maskCardUid(person.cardUid) : '',
+    'Body Name': body?.name ?? '',
+    'Body Type': body?.typeLabel ?? '',
   }));
 }
 
@@ -136,8 +143,9 @@ export type RosterWorkbook = { filename: string; workbook: XLSX.WorkBook };
 export function buildRosterWorkbook(
   persons: readonly Person[],
   now: Date = new Date(),
+  body?: AttendanceBody,
 ): RosterWorkbook {
-  const worksheet = XLSX.utils.json_to_sheet(buildRosterRows(persons), {
+  const worksheet = XLSX.utils.json_to_sheet(buildRosterRows(persons, body), {
     header: ROSTER_COLUMNS,
   });
   const workbook = XLSX.utils.book_new();
@@ -158,8 +166,9 @@ export function buildRosterWorkbook(
  */
 export async function exportRosterWorkbook(
   persons: readonly Person[],
+  body?: AttendanceBody,
 ): Promise<DeliveredExport> {
-  return deliverWorkbook(buildRosterWorkbook(persons));
+  return deliverWorkbook(buildRosterWorkbook(persons, new Date(), body));
 }
 
 /** A row the import would not take, and the reason, in words a teacher can act on. */

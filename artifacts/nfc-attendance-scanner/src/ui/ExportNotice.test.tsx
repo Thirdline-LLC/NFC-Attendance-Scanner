@@ -1,9 +1,25 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_THEME, storeActiveTheme, type ThemePack } from '@workspace/themes';
 
 import { ExportNotice } from '@/ui/ExportNotice';
+import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
+
+/**
+ * Renders the active theme's id, invisibly, so a test can wait for the async
+ * pack load `ThemeProvider` does in its effect before asserting on
+ * `ExportNotice`'s text — otherwise a test whose overridden wording happens
+ * to match the default would pass before the pack ever loaded.
+ */
+function ThemeIdProbe() {
+  const { active } = useTheme();
+  return <span data-testid="theme-id-probe">{active.meta.id}</span>;
+}
 
 const FILENAME = 'attendance-2026-09-15-20260915T170000Z.xlsx';
 
@@ -111,6 +127,56 @@ describe('ExportNotice trailer', () => {
     render(<ExportNotice result={{ ok: true, filename: FILENAME, delivery: 'file' }} />);
     expect(screen.getByTestId('text-export-saved').textContent).not.toContain(
       'activity log',
+    );
+  });
+
+  it('takes the school-account wording from the active theme', async () => {
+    const pack: ThemePack = {
+      ...DEFAULT_THEME,
+      meta: { id: 'st-johns', orgName: "St. John's", version: '1.0.0' },
+      copy: {
+        ...DEFAULT_THEME.copy,
+        exportSchoolAccountNotice: 'Send this only to a St. John\'s account.',
+      },
+    };
+    storeActiveTheme(JSON.stringify(pack));
+
+    render(
+      <ThemeProvider>
+        <ExportNotice result={{ ok: true, filename: FILENAME, delivery: 'file' }} />
+      </ThemeProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-export-saved').textContent).toContain(
+        "Send this only to a St. John's account.",
+      ),
+    );
+  });
+
+  it('does not let a blank theme override delete the school-account duty', async () => {
+    const pack: ThemePack = {
+      ...DEFAULT_THEME,
+      meta: { id: 'st-johns', orgName: "St. John's", version: '1.0.0' },
+      copy: { ...DEFAULT_THEME.copy, exportSchoolAccountNotice: '   ' },
+    };
+    storeActiveTheme(JSON.stringify(pack));
+
+    render(
+      <ThemeProvider>
+        <ThemeIdProbe />
+        <ExportNotice result={{ ok: true, filename: FILENAME, delivery: 'file' }} />
+      </ThemeProvider>,
+    );
+
+    // Wait for the pack to actually load — the default wording already
+    // matches the assertion below, so without this the test would pass
+    // before the async load ran the guard at all.
+    await waitFor(() =>
+      expect(screen.getByTestId('theme-id-probe').textContent).toBe('st-johns'),
+    );
+    expect(screen.getByTestId('text-export-saved').textContent).toContain(
+      'Send this file only to a school account.',
     );
   });
 });
