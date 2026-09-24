@@ -20,6 +20,7 @@ import {
 } from '@/data/operator-pin';
 import { digitsOnly, isHumanEnter } from '@/lock/pin-entry';
 import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
+import { useTheme } from '@/theme/ThemeProvider';
 
 type PinDialogProps =
   | { mode: 'gate'; onUnlocked: () => void; onCancel: () => void }
@@ -32,6 +33,12 @@ type PinDialogProps =
  */
 type Phase = 'checking' | 'storage-error' | 'set' | 'unlock' | 'change';
 
+/**
+ * Fallback titles for a device with no theme pack installed, or one that
+ * leaves these copy fields unset. A theme may override `unlock` (via
+ * `copy.pinGateTitle`) and the generic heading (via `copy.teacherRoleLabel`)
+ * to relabel the gate — it cannot change what unlocks it.
+ */
 const TITLES: Record<Exclude<Phase, 'checking' | 'storage-error'>, string> = {
   set: 'Set a teacher PIN',
   unlock: 'Enter the teacher PIN',
@@ -142,6 +149,9 @@ export function PinDialog(props: PinDialogProps) {
   const firstFieldRef = useRef<HTMLInputElement>(null);
   const previouslyFocused = useRef<Element | null>(null);
   const { onCancel } = props;
+  const { active } = useTheme();
+  const titles = { ...TITLES, unlock: active.copy.pinGateTitle ?? TITLES.unlock };
+  const genericTitle = active.copy.teacherRoleLabel ?? 'Teacher PIN';
 
   useModalFocusTrap(dialogRef);
 
@@ -310,7 +320,7 @@ export function PinDialog(props: PinDialogProps) {
               // for it then waits for the phase to be known, not for a placeholder.
               data-testid={formPhase ? 'text-pin-title' : undefined}
             >
-              {formPhase ? TITLES[formPhase] : 'Teacher PIN'}
+              {formPhase ? titles[formPhase] : genericTitle}
             </h2>
             {formPhase ? (
               <p className="mt-2 text-sm leading-snug text-[hsl(var(--muted-foreground))]">

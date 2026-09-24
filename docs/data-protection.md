@@ -66,7 +66,9 @@ the UI still says "teacher PIN"):
 - **The Students page** — every name, email and class year on the device;
   editing; removing; **roster import** and **roster export**.
 - **The Dashboard** — the year's figures *for this device*, *Export all
-  history*, the activity log, the two retention actions, and changing the PIN.
+  history*, the activity log, the two retention actions, changing the PIN,
+  switching or creating the attendance body this device is attached to,
+  installing or switching a theme pack, and checking for app/theme updates.
 
 The PIN is 4 to 8 digits, stored only as a salted hash, and locked for
 30 seconds after five wrong attempts, doubling to five minutes. Two things

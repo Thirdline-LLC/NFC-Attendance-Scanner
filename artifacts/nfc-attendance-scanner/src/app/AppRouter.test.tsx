@@ -150,6 +150,19 @@ describe('AppRouter', () => {
     expect(await screen.findByTestId('roster-manager')).toBeTruthy();
   });
 
+  it('keeps the theme and update-check panels unmounted at /dashboard until the teacher unlocks', async () => {
+    const user = userEvent.setup();
+    renderAt('/dashboard');
+
+    expect(await screen.findByTestId('locked-page')).toBeTruthy();
+    expect(screen.queryByTestId('theme-admin-panel')).toBeNull();
+    expect(screen.queryByTestId('update-card')).toBeNull();
+
+    await passGate(user);
+    expect(await screen.findByTestId('theme-admin-panel')).toBeTruthy();
+    expect(await screen.findByTestId('update-card')).toBeTruthy();
+  });
+
   it('returns to the scanner when the gate is cancelled', async () => {
     const user = userEvent.setup();
     renderAt('/dashboard');
