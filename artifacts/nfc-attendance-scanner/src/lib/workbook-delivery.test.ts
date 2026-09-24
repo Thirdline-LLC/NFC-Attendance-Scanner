@@ -216,6 +216,8 @@ describe.each(['iOS', 'Android'] as const)(
           Name: 'Jordan Lee',
           Email: 'jlee27@stjohnschs.org',
           Grade: '12',
+          'Body Name': '',
+          'Body Type': '',
         },
         {
           Timestamp: '2026-09-15 12:05:00',
@@ -224,6 +226,8 @@ describe.each(['iOS', 'Android'] as const)(
           Name: 'Priya Nair',
           Email: 'pnair28@stjohnschs.org',
           Grade: '11',
+          'Body Name': '',
+          'Body Type': '',
         },
         {
           Timestamp: '2026-09-15 12:10:00',
@@ -232,6 +236,8 @@ describe.each(['iOS', 'Android'] as const)(
           Name: 'Unknown card',
           Email: '',
           Grade: '',
+          'Body Name': '',
+          'Body Type': '',
         },
       ]);
 

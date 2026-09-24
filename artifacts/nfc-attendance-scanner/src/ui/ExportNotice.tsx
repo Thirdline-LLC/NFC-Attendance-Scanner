@@ -1,6 +1,7 @@
 import { AlertTriangle, FileSpreadsheet, Info } from 'lucide-react';
 
 import type { DeliveredExport } from '@/lib/workbook-delivery';
+import { useTheme } from '@/theme/ThemeProvider';
 
 /**
  * What the last export attempt did, or null before one has been made.
@@ -40,6 +41,8 @@ export type ExportResult =
  * for.
  */
 export function ExportNotice({ result }: { result: ExportResult }) {
+  const { active } = useTheme();
+
   if (!result) return null;
 
   if (!result.ok && result.cancelled) {
@@ -111,7 +114,8 @@ export function ExportNotice({ result }: { result: ExportResult }) {
           minors' names, and the standing rule is that school data never lands
           on a personal account. */}
       <span className="basis-full pl-[22px]">
-        Send this file only to a school account.
+        {active.copy.exportSchoolAccountNotice?.trim() ||
+          'Send this file only to a school account.'}
         {result.logFailed ? (
           <>
             {' '}

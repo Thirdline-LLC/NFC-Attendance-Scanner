@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   addPerson,
+  type AttendanceBody,
   type BoundPerson,
   type Person,
 } from '@/data/attendance-store';
@@ -83,6 +84,35 @@ describe('buildRosterRows', () => {
     expect(serialised).not.toContain(jordan.cardUid);
     expect(serialised).not.toMatch(/[0-9A-F]{14}/);
   });
+
+  it('fills Body Name/Body Type from the active body, and leaves both blank without one', () => {
+    const body: AttendanceBody = {
+      id: 1,
+      name: 'Robotics Club',
+      typeLabel: 'club',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    };
+
+    const [withBody] = buildRosterRows([jordan], body);
+    expect(withBody['Body Name']).toBe('Robotics Club');
+    expect(withBody['Body Type']).toBe('club');
+
+    const [withoutBody] = buildRosterRows([jordan]);
+    expect(withoutBody['Body Name']).toBe('');
+    expect(withoutBody['Body Type']).toBe('');
+  });
+
+  it('keeps the card masked when body columns are present', () => {
+    const body: AttendanceBody = {
+      id: 1,
+      name: 'Robotics Club',
+      typeLabel: 'club',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    };
+    const [row] = buildRosterRows([jordan], body);
+    expect(row['Card (last 4)']).toBe('••••E5F6');
+    expect(JSON.stringify(row)).not.toContain(jordan.cardUid);
+  });
 });
 
 describe('buildRosterWorkbook', () => {
@@ -119,6 +149,21 @@ describe('buildRosterWorkbook', () => {
     // The bound student's card came back as a masked tail, which the parser
     // counts and drops: a file can report a card but can never set one.
     expect(parsed.cardsIgnored).toBe(1);
+  });
+
+  it('round-trips Body Name/Body Type through export and import against the same body', () => {
+    const body: AttendanceBody = {
+      id: 1,
+      name: 'Robotics Club',
+      typeLabel: 'club',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    };
+    const { workbook } = buildRosterWorkbook([jordan], new Date(), body);
+
+    const parsed = parseRosterWorkbook(workbook, body);
+
+    expect(parsed.rejected).toEqual([]);
+    expect(parsed.entries).toHaveLength(1);
   });
 });
 

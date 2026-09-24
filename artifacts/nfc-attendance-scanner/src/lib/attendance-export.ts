@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import type { ActivityEntry, Person, TapRecord } from '@/data/attendance-store';
+import type { ActivityEntry, AttendanceBody, Person, TapRecord } from '@/data/attendance-store';
 import { describeActivity } from '@/lib/activity-wording';
 import { maskCardUid } from '@/lib/scan-format';
 import { indexRoster, resolveTapPerson } from '@/lib/tap-identity';
@@ -36,6 +36,8 @@ export type AttendanceRow = {
   Name: string;
   Email: string;
   Grade: string;
+  'Body Name': string;
+  'Body Type': string;
 };
 
 const EXPORT_COLUMNS: (keyof AttendanceRow)[] = [
@@ -45,6 +47,8 @@ const EXPORT_COLUMNS: (keyof AttendanceRow)[] = [
   'Name',
   'Email',
   'Grade',
+  'Body Name',
+  'Body Type',
 ];
 
 /**
@@ -178,6 +182,7 @@ function formatPersonName(person: Person): string {
 export function buildAttendanceRows(
   taps: readonly TapRecord[],
   persons: readonly Person[],
+  body?: AttendanceBody,
 ): AttendanceRow[] {
   const roster = indexRoster(persons);
   // Callers may hand over taps in insertion order, which only matches time
@@ -196,6 +201,8 @@ export function buildAttendanceRows(
       Name: person ? formatPersonName(person) : UNKNOWN_CARD_NAME,
       Email: person?.email ?? '',
       Grade: person ? deriveGrade(person.gradYear, tap.scannedAt) : '',
+      'Body Name': body?.name ?? '',
+      'Body Type': body?.typeLabel ?? '',
     };
   });
 }
@@ -247,8 +254,9 @@ export function buildAttendanceWorkbook(
   persons: readonly Person[],
   now: Date = new Date(),
   activity?: readonly ActivityEntry[],
+  body?: AttendanceBody,
 ): AttendanceWorkbook {
-  const rows = buildAttendanceRows(taps, persons);
+  const rows = buildAttendanceRows(taps, persons, body);
   const worksheet = XLSX.utils.json_to_sheet(rows, { header: EXPORT_COLUMNS });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
@@ -284,8 +292,9 @@ export async function exportAttendanceWorkbook(
   taps: readonly TapRecord[],
   persons: readonly Person[],
   activity?: readonly ActivityEntry[],
+  body?: AttendanceBody,
 ): Promise<DeliveredExport> {
   return deliverWorkbook(
-    buildAttendanceWorkbook(taps, persons, new Date(), activity),
+    buildAttendanceWorkbook(taps, persons, new Date(), activity, body),
   );
 }

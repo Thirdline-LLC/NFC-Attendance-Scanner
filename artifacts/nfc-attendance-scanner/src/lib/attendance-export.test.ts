@@ -5,6 +5,7 @@ import { maskCardUid } from '@/lib/scan-format';
 import {
   listPersons,
   listTapRecords,
+  type AttendanceBody,
   type Person,
   type TapRecord,
 } from '@/data/attendance-store';
@@ -259,6 +260,8 @@ describe('buildAttendanceRows', () => {
         Name: 'Jordan Lee',
         Email: 'jlee27@stjohnschs.org',
         Grade: '12',
+        'Body Name': '',
+        'Body Type': '',
       },
     ]);
   });
@@ -287,6 +290,8 @@ describe('buildAttendanceRows', () => {
       Name: UNKNOWN_CARD_NAME,
       Email: '',
       Grade: '',
+      'Body Name': '',
+      'Body Type': '',
     });
     expect(row.Name).toBe('Unknown card');
   });
@@ -348,6 +353,46 @@ describe('buildAttendanceRows', () => {
     // give two answers for the same person.
     expect(rows.map((row) => row.Grade)).toEqual(['11', '12']);
   });
+
+  it('fills Body Name/Body Type from the active body, and leaves both blank without one', () => {
+    const body: AttendanceBody = {
+      id: 1,
+      name: 'Robotics Club',
+      typeLabel: 'club',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    };
+
+    const withBody = buildAttendanceRows(
+      [tapAt(jordan.cardUid, FALL_2026, { personId: 1 })],
+      [jordan],
+      body,
+    );
+    expect(withBody[0]['Body Name']).toBe('Robotics Club');
+    expect(withBody[0]['Body Type']).toBe('club');
+
+    const withoutBody = buildAttendanceRows(
+      [tapAt(jordan.cardUid, FALL_2026, { personId: 1 })],
+      [jordan],
+    );
+    expect(withoutBody[0]['Body Name']).toBe('');
+    expect(withoutBody[0]['Body Type']).toBe('');
+  });
+
+  it('keeps the card masked when body columns are present', () => {
+    const body: AttendanceBody = {
+      id: 1,
+      name: 'Robotics Club',
+      typeLabel: 'club',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    };
+    const [row] = buildAttendanceRows(
+      [tapAt(jordan.cardUid, FALL_2026, { personId: 1 })],
+      [jordan],
+      body,
+    );
+    expect(row['Card (last 4)']).toBe(maskCardUid(jordan.cardUid));
+    expect(JSON.stringify(row)).not.toContain(jordan.cardUid);
+  });
 });
 
 describe('buildAttendanceWorkbook', () => {
@@ -358,6 +403,8 @@ describe('buildAttendanceWorkbook', () => {
     'Name',
     'Email',
     'Grade',
+    'Body Name',
+    'Body Type',
   ];
 
   it('keeps every column, in order, through xlsx bytes and back', () => {
@@ -384,8 +431,8 @@ describe('buildAttendanceWorkbook', () => {
     expect(XLSX.utils.sheet_to_json(sheet, { header: 1 })[0]).toEqual(
       EXPORT_HEADERS,
     );
-    // `defval` because an unknown card's Email and Grade are empty strings,
-    // which xlsx stores as no cell at all.
+    // `defval` because an unknown card's Email, Grade, Body Name and Body Type
+    // are empty strings, which xlsx stores as no cell at all.
     expect(XLSX.utils.sheet_to_json(sheet, { defval: '' })).toEqual(
       buildAttendanceRows(
         [
@@ -439,7 +486,11 @@ describe('exportAttendanceWorkbook', () => {
       /^attendance-\d{4}-\d{2}-\d{2}-\d{8}T\d{6}Z\.xlsx$/,
     );
     expect(options).toEqual({ bookType: 'xlsx', compression: true });
-    expect(XLSX.utils.sheet_to_json(workbook.Sheets.Attendance)).toEqual(
+    // `defval` because the blank Body Name/Body Type columns are empty
+    // strings, which xlsx stores as no cell at all.
+    expect(
+      XLSX.utils.sheet_to_json(workbook.Sheets.Attendance, { defval: '' }),
+    ).toEqual(
       buildAttendanceRows(
         [tapAt(jordan.cardUid, FALL_2026, { personId: 1, counted: true })],
         [jordan],
@@ -507,6 +558,8 @@ describe('exporting migrated records', () => {
         Name: 'Jordan Lee',
         Email: jordan.email,
         Grade: '11',
+        'Body Name': '',
+        'Body Type': '',
       },
       {
         Timestamp: '2026-03-10 12:05:00',
@@ -515,6 +568,8 @@ describe('exporting migrated records', () => {
         Name: UNKNOWN_CARD_NAME,
         Email: '',
         Grade: '',
+        'Body Name': '',
+        'Body Type': '',
       },
       {
         Timestamp: '2026-03-10 12:10:00',
@@ -523,6 +578,8 @@ describe('exporting migrated records', () => {
         Name: 'Jordan Lee',
         Email: jordan.email,
         Grade: '11',
+        'Body Name': '',
+        'Body Type': '',
       },
       {
         Timestamp: '2026-09-15 12:00:00',
@@ -531,6 +588,8 @@ describe('exporting migrated records', () => {
         Name: 'Jordan Lee',
         Email: jordan.email,
         Grade: '12',
+        'Body Name': '',
+        'Body Type': '',
       },
     ]);
     for (const row of rows) {

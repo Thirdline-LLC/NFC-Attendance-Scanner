@@ -14,7 +14,7 @@ import {
   UserRoundCheck,
   Users,
 } from 'lucide-react';
-import { recordActivity } from '@/data/attendance-store';
+import { getActiveBody, recordActivity, type AttendanceBody } from '@/data/attendance-store';
 import { hasOperatorPin } from '@/data/operator-pin';
 import { useOperatorLock } from '@/lock/OperatorLockProvider';
 import { PinDialog } from '@/lock/PinDialog';
@@ -54,6 +54,10 @@ export function ScannerScreen() {
   const { unlocked, unlock, relock } = useOperatorLock();
   const [pinOpen, setPinOpen] = useState(false);
   const [pinIsSet, setPinIsSet] = useState<boolean | null>(null);
+  // Metadata only, for the export's Body Name/Type columns — a failed read
+  // leaves this null and the columns simply come back blank, same as no body
+  // at all; it never blocks the export itself.
+  const [activeBody, setActiveBody] = useState<AttendanceBody | null>(null);
   const {
     count,
     sessionStartedAt,
@@ -129,6 +133,12 @@ export function ScannerScreen() {
   }, []);
 
   useEffect(() => {
+    void getActiveBody()
+      .then(setActiveBody)
+      .catch(() => setActiveBody(null));
+  }, []);
+
+  useEffect(() => {
     if (storageStatus === 'unavailable') setSawStorageUnavailable(true);
     else if (storageStatus === 'ready') setSawStorageUnavailable(false);
   }, [storageStatus]);
@@ -190,7 +200,12 @@ export function ScannerScreen() {
   // v3 upgrade stamped 'legacy' — is exported from the dashboard instead.
   const handleExport = useCallback(async () => {
     try {
-      const delivered = await exportAttendanceWorkbook(taps, persons);
+      const delivered = await exportAttendanceWorkbook(
+        taps,
+        persons,
+        undefined,
+        activeBody ?? undefined,
+      );
       // The notice goes up the moment the file is delivered — that is the
       // fact the operator is waiting for. The log row is written after it, so
       // a cancelled Save dialog leaves no row; the row is counts and a
@@ -222,7 +237,7 @@ export function ScannerScreen() {
         cancelled: error instanceof ExportCancelledError,
       });
     }
-  }, [persons, taps]);
+  }, [persons, taps, activeBody]);
 
   const handleEnrollPerson = useCallback(
     async (details: {

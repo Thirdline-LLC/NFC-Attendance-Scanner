@@ -216,7 +216,7 @@ export function RosterPage() {
     setExportResult(null);
     setImportResult(null);
     try {
-      const delivered = await exportRosterWorkbook(persons);
+      const delivered = await exportRosterWorkbook(persons, activeBody ?? undefined);
       setExportResult({ ok: true, ...delivered });
       try {
         await recordActivity({
@@ -239,7 +239,7 @@ export function RosterPage() {
     } finally {
       setIsExporting(false);
     }
-  }, [persons]);
+  }, [persons, activeBody]);
 
   const handleSave = useCallback(
     async (personId: number, changes: PersonChanges): Promise<boolean> => {

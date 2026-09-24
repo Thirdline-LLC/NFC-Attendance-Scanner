@@ -127,6 +127,10 @@ never an open door.
 
 ## Exports
 
+See [design/06-export-and-sor.md](design/06-export-and-sor.md) and
+[plans/06-export-and-sor.md](plans/06-export-and-sor.md) for the full
+export/system-of-record picture — this section covers what a teacher sees.
+
 Both exports ask for the teacher PIN first.
 
 | Platform | Route | Can it promise the file exists? |
@@ -141,7 +145,8 @@ device, including sessions that have rotated away and the taps the v3 upgrade
 stamped `'legacy'`, and adds a second sheet, *Activity*, with the device's
 activity log. The card column in both is the card's last four (`••••1F90`),
 never the full UID. Every export notice ends with *Send this file only to a
-school account.*
+school account* (a theme pack may reword this; the duty itself cannot be
+removed).
 
 ## The procedure for teachers
 
