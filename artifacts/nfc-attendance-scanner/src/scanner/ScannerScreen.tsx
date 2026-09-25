@@ -144,8 +144,12 @@ export function ScannerScreen() {
   useEffect(() => {
     // The PIN dialog counts as a modal for the same reason the others do: the
     // reader types into whatever has focus, and here that is the PIN field.
+    // A period switch in flight turns capture off too: `submitScan` already
+    // drops a card read then, and the chip should say so rather than claim
+    // the scanner is listening.
     setCaptureEnabled(
-      !enrollmentCandidate &&
+      !isSwitching &&
+        !enrollmentCandidate &&
         !bindCandidate &&
         !sessionSummary &&
         !isConfirmingNewSession &&
@@ -161,6 +165,7 @@ export function ScannerScreen() {
     pinOpen,
     chooserOpen,
     switchPinTarget,
+    isSwitching,
   ]);
 
   useEffect(() => {
@@ -219,7 +224,9 @@ export function ScannerScreen() {
    */
   const scannerChip = !captureEnabled
     ? {
-        label: enrollmentCandidate
+        label: isSwitching
+          ? 'Scanner off — switching'
+          : enrollmentCandidate
           ? 'Scanner off — finish enrolling'
           : bindCandidate
             ? 'Scanner off — finish linking this card'
