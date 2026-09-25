@@ -40,7 +40,7 @@ export type AttendanceRow = {
   'Body Type': string;
 };
 
-const EXPORT_COLUMNS: (keyof AttendanceRow)[] = [
+export const EXPORT_COLUMNS: (keyof AttendanceRow)[] = [
   'Timestamp',
   'Card (last 4)',
   'Meeting Date',
@@ -210,7 +210,7 @@ export function buildAttendanceRows(
 /** One row of the export's second sheet. Keys are the headers, verbatim. */
 export type ActivitySheetRow = { When: string; Action: string; Detail: string };
 
-const ACTIVITY_COLUMNS: (keyof ActivitySheetRow)[] = ['When', 'Action', 'Detail'];
+export const ACTIVITY_COLUMNS: (keyof ActivitySheetRow)[] = ['When', 'Action', 'Detail'];
 
 /** The log as sheet rows, in the order it was handed over (newest first). */
 export function buildActivityRows(

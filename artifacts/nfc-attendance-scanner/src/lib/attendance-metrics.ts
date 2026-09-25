@@ -5,6 +5,12 @@ import {
 } from '@/lib/attendance-export';
 import { formatSessionDate } from '@/lib/session-formatting';
 import {
+  rangeContainsDay,
+  schoolYearRange,
+  schoolYearStart,
+  type DateRange,
+} from '@/lib/date-range';
+import {
   compareSiblingOrder,
   isArchived,
   subtreeBodyIds,
@@ -105,14 +111,9 @@ export type DashboardMetrics = {
   scope: 'body' | 'subtree';
 };
 
-/**
- * First day of the school year in session on `now`. The senior class
- * graduates the spring after the year starts, so the year began on August 1
- * of the calendar year before their graduation year.
- */
-export function schoolYearStart(now: string): string {
-  return `${currentSeniorGradYear(now) - 1}-08-01`;
-}
+// Defined beside the range presets, which also start a range on it; kept
+// exported from here for the callers that already import it from the metrics.
+export { schoolYearStart };
 
 /**
  * Taps recorded on or after the school-year rollover. Classified tap by tap
@@ -552,6 +553,230 @@ function computeRollupSessionAttendance(
   return sessions.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
 }
 
+/**
+ * One meeting (session) inside a range, as the By meeting sheet and the
+ * average attendance % count it.
+ */
+export type RangeMeeting = {
+  sessionId: string;
+  /** Session-calendar day of the session's earliest tap in the range. */
+  date: string;
+  /** ISO timestamp of that earliest tap; orders meetings. */
+  startedAt: string;
+  /** Distinct students present who were on the roster that day. */
+  present: number;
+  /** The roster as of that meeting day (`isOnRosterAsOf`). */
+  rosterSize: number;
+};
+
+/** One person's line in a range: the export Summary row. */
+export type PersonRangeSummary = {
+  person: Person;
+  /** Person-clipped meetings they were present at. */
+  attended: number;
+  /** Meetings in the range on or after the day they joined the roster. */
+  held: number;
+  /** `attended ÷ held × 100`, or `null` when nothing was held for them. */
+  percent: number | null;
+  /** Their first and last check-in in the range, ISO, or `null`. */
+  firstCheckIn: string | null;
+  lastCheckIn: string | null;
+};
+
+export type RangeMetrics = {
+  range: DateRange;
+  /** The taps whose own session day is in the range, oldest first. */
+  taps: TapRecord[];
+  /** Meetings in the range, oldest first. */
+  meetings: RangeMeeting[];
+  meetingsHeld: number;
+  /**
+   * The mean over meetings of `present ÷ roster-as-of-that-day × 100`.
+   * Meetings held while the roster was empty cannot be divided and are left
+   * out; `null` when there is no meeting to average, or none with a roster.
+   */
+  averageAttendancePercent: number | null;
+  /**
+   * Distinct enrolled students with at least one tap in the range. Not
+   * clipped by `enrolledAt`: a card enrolled after it was first tapped still
+   * counts as having been here.
+   */
+  uniquePresent: number;
+  /** Everyone on the roster now, identity-deduped. */
+  enrolled: number;
+  /** One per roster identity, by last name then first name. */
+  people: PersonRangeSummary[];
+};
+
+/**
+ * The session-calendar day a person joined this roster: the day of their
+ * `enrolledAt`.
+ */
+export function enrolledDay(person: Pick<Person, 'enrolledAt'>): string {
+  return formatSessionDate(person.enrolledAt);
+}
+
+/**
+ * Whether a person counts in the roster as of a meeting day: they joined on
+ * or before it.
+ *
+ * Limitation: roster removals are hard deletes (`removeStudent`,
+ * `removeAlumni`), so a student removed after a meeting is gone from every
+ * past meeting's roster too, and a meeting's roster size — and with it the
+ * average attendance % — can shift after a removal. There is no `leftAt` to
+ * clip by. Additions are exact, because `enrolledAt` is kept.
+ */
+export function isOnRosterAsOf(person: Pick<Person, 'enrolledAt'>, day: string): boolean {
+  return enrolledDay(person) <= day;
+}
+
+type RangeIdentity = { key: string; person: Person; joinedDay: string };
+
+function comparePeopleByName(a: Person, b: Person): number {
+  return (
+    a.lastName.localeCompare(b.lastName, undefined, { sensitivity: 'base' }) ||
+    a.firstName.localeCompare(b.firstName, undefined, { sensitivity: 'base' })
+  );
+}
+
+/**
+ * The attendance metrics for one body (`identity: 'row'`) or a body plus its
+ * descendants (`identity: 'rollup'`) over a range. The one implementation
+ * behind the export Summary and By meeting sheets and the dashboard's
+ * per-period table, so the two can never disagree for the same range.
+ *
+ * Definitions (Design 09 §4, Asher's metrics definition):
+ * - **Meetings held** = sessions of the body whose day falls in the range.
+ *   Taps are classified by their own session day first and then grouped into
+ *   sessions — the rule `selectYearToDateTaps` already uses — so a session
+ *   straddling midnight keeps only its in-range taps and all three sheets
+ *   are cut from the same taps. A person's meetings held are only those on
+ *   or after the day they joined (`enrolledDay`), so a student added
+ *   mid-range is not marked absent from meetings before they were on it.
+ * - **Present** at a meeting = distinct students who tapped and were on the
+ *   roster that day. The same clip as the denominator: a tap credited
+ *   retroactively (a card enrolled after the tap) still shows in the
+ *   Attendance sheet and in `uniquePresent`, but cannot make a meeting read
+ *   5 of 4 or a student 3 of 2.
+ * - **Average attendance %** = mean over meetings of
+ *   `present ÷ roster-as-of-that-day × 100` (see `isOnRosterAsOf`).
+ *
+ * `'row'` resolves every tap against the one roster and keys people by
+ * roster row. `'rollup'` resolves each tap against its own body's roster and
+ * dedupes people with `rollupIdentityKey`, as the roll-up figures do; an
+ * identity joins on the earliest `enrolledAt` among its rows.
+ */
+export function computeRangeMetrics(
+  taps: readonly TapRecord[],
+  persons: readonly Person[],
+  range: DateRange,
+  identity: 'row' | 'rollup' = 'row',
+): RangeMetrics {
+  const keyOf = (person: Person): string =>
+    identity === 'rollup' ? rollupIdentityKey(person) : `row:${studentKey(person)}`;
+
+  const identities = new Map<string, RangeIdentity>();
+  for (const person of persons) {
+    const key = keyOf(person);
+    const joinedDay = enrolledDay(person);
+    const known = identities.get(key);
+    if (!known) identities.set(key, { key, person, joinedDay });
+    else if (joinedDay < known.joinedDay) known.joinedDay = joinedDay;
+  }
+
+  const singleRoster = indexRoster(persons);
+  const rosterByBody = new Map<number, RosterIndex>();
+  if (identity === 'rollup') {
+    for (const [bodyId, rows] of partitionByBodyId(persons)) {
+      rosterByBody.set(bodyId, indexRoster(rows));
+    }
+  }
+  const resolve = (tap: TapRecord): Person | undefined => {
+    if (identity === 'row') return resolveTapPerson(tap, singleRoster);
+    const roster = rosterByBody.get(typeof tap.bodyId === 'number' ? tap.bodyId : -1);
+    return roster ? resolveTapPerson(tap, roster) : undefined;
+  };
+
+  const inRange = taps
+    .filter((tap) => rangeContainsDay(range, formatSessionDate(tap.scannedAt)))
+    .sort((a, b) => Date.parse(a.scannedAt) - Date.parse(b.scannedAt));
+
+  const sessions = new Map<string, { startedAt: string; present: Set<string> }>();
+  const checkIns = new Map<string, { first: string; last: string }>();
+  for (const tap of inRange) {
+    // Oldest first, so the first tap seen for a session is its start.
+    let session = sessions.get(tap.sessionId);
+    if (!session) {
+      session = { startedAt: tap.scannedAt, present: new Set() };
+      sessions.set(tap.sessionId, session);
+    }
+    const person = resolve(tap);
+    if (!person) continue;
+    const key = keyOf(person);
+    session.present.add(key);
+    const seen = checkIns.get(key);
+    if (!seen) checkIns.set(key, { first: tap.scannedAt, last: tap.scannedAt });
+    else seen.last = tap.scannedAt;
+  }
+
+  const roster = [...identities.values()];
+  const meetings: RangeMeeting[] = [...sessions].map(([sessionId, session]) => {
+    const date = formatSessionDate(session.startedAt);
+    let present = 0;
+    for (const key of session.present) {
+      const who = identities.get(key);
+      if (who && who.joinedDay <= date) present += 1;
+    }
+    return {
+      sessionId,
+      date,
+      startedAt: session.startedAt,
+      present,
+      rosterSize: roster.filter((who) => who.joinedDay <= date).length,
+    };
+  });
+
+  const divisible = meetings.filter((meeting) => meeting.rosterSize > 0);
+  const averageAttendancePercent =
+    divisible.length > 0
+      ? divisible.reduce((sum, meeting) => sum + meeting.present / meeting.rosterSize, 0) /
+          divisible.length *
+        100
+      : null;
+
+  const people = roster
+    .map(({ key, person, joinedDay }): PersonRangeSummary => {
+      let held = 0;
+      let attended = 0;
+      for (const meeting of meetings) {
+        if (meeting.date < joinedDay) continue;
+        held += 1;
+        if (sessions.get(meeting.sessionId)?.present.has(key)) attended += 1;
+      }
+      const seen = checkIns.get(key);
+      return {
+        person,
+        attended,
+        held,
+        percent: held > 0 ? (attended / held) * 100 : null,
+        firstCheckIn: seen?.first ?? null,
+        lastCheckIn: seen?.last ?? null,
+      };
+    })
+    .sort((a, b) => comparePeopleByName(a.person, b.person));
+
+  return {
+    range,
+    taps: inRange,
+    meetings,
+    meetingsHeld: meetings.length,
+    averageAttendancePercent,
+    uniquePresent: checkIns.size,
+    enrolled: roster.length,
+    people,
+  };
+}
+
 /** One row of the class view's per-period table (Design 09 §2). */
 export type PeriodBreakdownRow = {
   bodyId: number;
@@ -563,20 +788,23 @@ export type PeriodBreakdownRow = {
   uniquePresent: number;
   enrolled: number;
   /**
-   * Average students present per meeting as a share of the roster, 0–100+.
-   * `null` when there is no roster or no meeting yet to divide by.
+   * Mean over this school year's meetings of present ÷ roster as of that
+   * meeting day, 0–100. `null` when there is no meeting yet, or no roster at
+   * any of them.
    */
   averageAttendancePercent: number | null;
 };
 
 /**
- * One row per direct child of `parentId`, in `sortOrder`, each computed the
- * way the "This body + descendants" figures are — the child plus its own
- * descendants, with the Design 08 roll-up identity — so the rows use the same
- * rules as the totals above them. Archived children are kept (their history
- * is still in the roll-up) and flagged. Year to date, like every figure on
- * the dashboard. `taps`/`persons` may be the whole subtree's; each row takes
- * only its own bodies' rows.
+ * One row per direct child of `parentId`, in `sortOrder`, each the child plus
+ * its own descendants with the Design 08 roll-up identity. Archived children
+ * are kept (their history is still in the roll-up) and flagged.
+ *
+ * Computed by `computeRangeMetrics` over `schoolYearRange(now)` — the same
+ * helper and the same range the Export dialog's "This school year" uses — so
+ * a row here matches that period's exported Summary figures exactly.
+ * `taps`/`persons` may be the whole subtree's; each row takes only its own
+ * bodies' rows.
  */
 export function computePeriodBreakdown(
   parentId: number,
@@ -585,28 +813,26 @@ export function computePeriodBreakdown(
   persons: readonly Person[],
   now: string,
 ): PeriodBreakdownRow[] {
+  const range = schoolYearRange(now);
   const children = bodies
     .filter((body) => body.id !== undefined && body.parentId === parentId)
     .sort(compareSiblingOrder);
   return children.map((child) => {
     const ids = new Set(subtreeBodyIds(child.id as number, bodies));
-    const metrics = computeRollupDashboardMetrics(
+    const metrics = computeRangeMetrics(
       taps.filter((tap) => tap.bodyId !== undefined && ids.has(tap.bodyId)),
       persons.filter((person) => person.bodyId !== undefined && ids.has(person.bodyId)),
-      now,
+      range,
+      'rollup',
     );
-    const { ytd, enrolledStudents } = metrics;
     return {
       bodyId: child.id as number,
       name: child.name,
       archived: isArchived(child),
-      meetingsHeld: ytd.sessionsCount,
-      uniquePresent: ytd.uniqueStudents,
-      enrolled: enrolledStudents,
-      averageAttendancePercent:
-        enrolledStudents > 0 && ytd.hasSessions
-          ? (ytd.averageAttendance / enrolledStudents) * 100
-          : null,
+      meetingsHeld: metrics.meetingsHeld,
+      uniquePresent: metrics.uniquePresent,
+      enrolled: metrics.enrolled,
+      averageAttendancePercent: metrics.averageAttendancePercent,
     };
   });
 }

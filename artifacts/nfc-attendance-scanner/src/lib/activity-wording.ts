@@ -41,6 +41,17 @@ export function describeActivity(entry: ActivityEntry): ActivityWording {
         action: 'Exported all history',
         detail: `${count(entry.taps, 'tap')} from ${count(entry.sessions, 'session')} — ${entry.filename ?? ''}, ${delivered(entry)}`,
       };
+    case 'export-range':
+      return {
+        action: 'Exported a date range',
+        detail: `${
+          entry.rangeFrom && entry.rangeTo
+            ? entry.rangeFrom === entry.rangeTo
+              ? formatSessionDateLabel(entry.rangeFrom)
+              : `${formatSessionDateLabel(entry.rangeFrom)} – ${formatSessionDateLabel(entry.rangeTo)}`
+            : 'A date range'
+        }: ${count(entry.taps, 'tap')} from ${count(entry.sessions, 'session')} — ${entry.filename ?? ''}, ${delivered(entry)}`,
+      };
     case 'export-roster':
       return {
         action: 'Exported the roster',
