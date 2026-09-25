@@ -8,6 +8,12 @@ It needs no Replit, no website, no server, and no Mac App Store. After
 installation the only network use is a teacher-initiated check of public
 GitHub Releases (the app binary and theme packs — never student records).
 
+> This is a build guide, for whoever is producing the `.dmg`. The product on
+> screen is called **Tapin**; the bundle is still named "SJC Attendance" for
+> identity-lock reasons (see the README's Application identity section). If
+> you just want to *install* a Release on a pilot Mac rather than build one,
+> see [`docs/pilot-install.md`](pilot-install.md) instead.
+
 > **A macOS build must be produced on macOS.** electron-builder can only make
 > an `.icns`, sign with a Developer ID certificate, or notarize on a Mac. The
 > source and configuration were written and verified on Linux; §3 says exactly
