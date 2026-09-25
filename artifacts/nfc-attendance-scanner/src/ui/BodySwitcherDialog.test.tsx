@@ -114,3 +114,58 @@ describe('BodySwitcherDialog tree', () => {
     expect(props.onRestore).toHaveBeenCalledWith(8);
   });
 });
+
+describe('BodySwitcherDialog active body inside a collapsed group', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('marks a collapsed parent that holds the active body', async () => {
+    const user = userEvent.setup();
+    renderDialog({ activeBodyId: 4 });
+    // Groups start open, so the active row itself is visible and checked.
+    expect(screen.getByTestId('button-body-4').hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByTestId('text-body-contains-active-2')).toBeNull();
+
+    await user.click(screen.getByTestId('button-toggle-body-2'));
+
+    expect(screen.getByTestId('text-body-contains-active-2').textContent).toBe('Current: Period 3');
+    expect(screen.getByTestId('button-toggle-body-2').getAttribute('aria-label')).toBe(
+      'English 11: 5 periods, includes the current body',
+    );
+    // A collapsed group without the active body says nothing extra.
+    await user.click(screen.getByTestId('button-toggle-body-2'));
+    expect(screen.queryByTestId('text-body-contains-active-2')).toBeNull();
+  });
+
+  it('keeps collapsed groups collapsed after a search that matched nothing', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByTestId('button-toggle-body-2'));
+    expect(screen.getByTestId('button-toggle-body-2').getAttribute('aria-expanded')).toBe('false');
+
+    await user.type(screen.getByTestId('input-body-search'), 'zzz');
+    expect(screen.getByTestId('text-body-search-empty')).toBeTruthy();
+    await user.clear(screen.getByTestId('input-body-search'));
+
+    expect(screen.getByTestId('button-toggle-body-2').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('gives a leaf a chevron-width spacer when a sibling at any depth is a group', () => {
+    const bodies: AttendanceBody[] = [
+      { id: 1, name: 'School', typeLabel: 'school', createdAt: at, parentId: null, sortOrder: 0 },
+      { id: 2, name: 'Science', typeLabel: 'dept', createdAt: at, parentId: 1, sortOrder: 0 },
+      { id: 3, name: 'Chemistry', typeLabel: 'class', createdAt: at, parentId: 2, sortOrder: 0 },
+      { id: 4, name: 'Period 1', typeLabel: 'period', createdAt: at, parentId: 3, sortOrder: 0 },
+      { id: 5, name: 'Physics', typeLabel: 'class', createdAt: at, parentId: 2, sortOrder: 1 },
+      { id: 6, name: 'Arts', typeLabel: 'dept', createdAt: at, parentId: 1, sortOrder: 1 },
+    ];
+    renderDialog({ bodies, activeBodyId: 4 });
+    // Depth 3: Physics (a leaf) sits beside Chemistry (a group).
+    expect(screen.getByTestId('spacer-body-5')).toBeTruthy();
+    // Depth 2: Arts beside Science.
+    expect(screen.getByTestId('spacer-body-6')).toBeTruthy();
+    // Period 1 has no group siblings, so no spacer.
+    expect(screen.queryByTestId('spacer-body-4')).toBeNull();
+  });
+});

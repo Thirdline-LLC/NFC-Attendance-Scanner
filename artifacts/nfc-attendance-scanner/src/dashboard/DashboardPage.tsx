@@ -61,6 +61,7 @@ import {
 } from '@/lib/session-formatting';
 import { RetentionDialog } from '@/ui/RetentionDialog';
 import { BodySwitcherDialog } from '@/ui/BodySwitcherDialog';
+import type { ClassSetupAttachment } from '@/ui/ClassSetupForm';
 import { BodyVocabularyDialog } from '@/ui/BodyVocabularyDialog';
 import { Dashboard } from '@/ui/Dashboard';
 import { ScansPausedNotice } from '@/ui/ScansPausedNotice';
@@ -180,7 +181,9 @@ export function DashboardPage() {
   const [bodyError, setBodyError] = useState<string | null>(null);
   // A class just created from the switcher (Design 09 §1): while set, the
   // switcher shows the "Add students to each period" step for it.
-  const [classSetup, setClassSetup] = useState<ClassWithPeriods | null>(null);
+  const [classSetup, setClassSetup] = useState<
+    (ClassWithPeriods & { attachment: ClassSetupAttachment }) | null
+  >(null);
   // The admin's saved type-label vocabulary and field defs (08b). Loaded
   // with everything else and refreshed after any write that could change
   // them, including a rename cascade that moves bodies onto a new label.
@@ -747,23 +750,25 @@ export function DashboardPage() {
         return;
       }
       // The class exists from here on: a failure to attach must not read as
-      // a failed create (a retry would make a second class).
-      setClassSetup(created);
+      // a failed create (a retry would make a second class). The template
+      // step says which body the device is actually on, so it is only shown
+      // once that is known.
       try {
         await setActiveBody(created.parent.id as number);
-        setMetricsScope('subtree');
-        await load('subtree');
-      } catch (error) {
-        setBodyError(
-          bodyFailure(
-            error,
-            `${created.parent.name} was created, but this device couldn't switch to it. Pick it in Change body.`,
-          ),
-        );
-        await load().catch(() => undefined);
-      } finally {
+      } catch {
+        const current = await getActiveBody().catch(() => null);
+        setClassSetup({
+          ...created,
+          attachment: { attached: false, currentBodyName: current?.name ?? null },
+        });
+        await load();
         setBodyWorking(false);
+        return;
       }
+      setClassSetup({ ...created, attachment: { attached: true } });
+      setMetricsScope('subtree');
+      await load('subtree');
+      setBodyWorking(false);
     },
     [load],
   );

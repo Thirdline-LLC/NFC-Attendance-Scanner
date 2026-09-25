@@ -20,7 +20,7 @@ import { deliverRosterTemplateWorkbook } from '@/lib/roster-template';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
 
 const INPUT_CLASS =
-  'w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.6)] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] aria-[invalid=true]:border-[hsl(var(--destructive)/.7)]';
+  'min-h-11 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.6)] px-3 py-2.5 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] aria-[invalid=true]:border-[hsl(var(--destructive)/.7)]';
 const LABEL_CLASS =
   'text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--muted-foreground))]';
 const FIELD_ERROR_CLASS = 'mt-1 text-xs font-semibold text-[hsl(var(--destructive))]';
@@ -197,7 +197,7 @@ export function ClassSetupForm({
                     aria-label={`Name of ${childWord} ${index + 1}`}
                     aria-invalid={rowError ? true : undefined}
                     aria-describedby={rowError ? `${inputId}-error` : undefined}
-                    className={`min-h-11 ${INPUT_CLASS}`}
+                    className={INPUT_CLASS}
                     data-testid={`input-period-name-${index}`}
                   />
                   {rowError ? (
@@ -333,9 +333,20 @@ type TemplateStatus =
   | { state: 'cancelled' }
   | { state: 'failed' };
 
+/**
+ * Where the device ended up after Create. The class is created either way;
+ * attaching to it is a second write that can fail on its own, and the step
+ * must not say the device is on the new class when it is not.
+ */
+export type ClassSetupAttachment =
+  | { attached: true }
+  | { attached: false; currentBodyName: string | null };
+
 type ClassTemplateFollowUpProps = {
   parent: AttendanceBody;
   periods: AttendanceBody[];
+  /** Defaults to attached, the ordinary outcome. */
+  attachment?: ClassSetupAttachment;
   onDone: () => void;
   /** Injectable for tests; defaults to the Students page's own delivery. */
   deliverTemplate?: typeof deliverRosterTemplateWorkbook;
@@ -350,6 +361,7 @@ type ClassTemplateFollowUpProps = {
 export function ClassTemplateFollowUp({
   parent,
   periods,
+  attachment = { attached: true },
   onDone,
   deliverTemplate = deliverRosterTemplateWorkbook,
 }: ClassTemplateFollowUpProps) {
@@ -393,11 +405,22 @@ export function ClassTemplateFollowUp({
       </h2>
       <p className="mt-2 text-sm leading-snug text-[hsl(var(--muted-foreground))]">
         {parent.name} is set up with {periods.length}{' '}
-        {periods.length === 1 ? childWord : childPlural}, and this device is now on{' '}
-        {parent.name}. Each {childWord} keeps its own roster: download its template, fill it
-        in, then import it on the Students page after picking that {childWord} in Change
-        body.
+        {periods.length === 1 ? childWord : childPlural}
+        {attachment.attached ? `, and this device is now on ${parent.name}` : ''}. Each{' '}
+        {childWord} keeps its own roster: download its template, fill it in, then import it
+        on the Students page after picking that {childWord} in Change body.
       </p>
+      {attachment.attached ? null : (
+        <p
+          role="alert"
+          className="mt-3 rounded-xl border border-[hsl(var(--destructive)/.45)] bg-[hsl(var(--destructive)/.08)] px-3 py-2.5 text-sm leading-snug text-[hsl(var(--destructive))]"
+          data-testid="text-class-not-attached"
+        >
+          This device couldn’t switch to {parent.name}, so it is still on{' '}
+          {attachment.currentBodyName ?? 'the body it was on before'}. To take attendance for{' '}
+          {parent.name}, open Change body and pick it or one of its {childPlural}.
+        </p>
+      )}
 
       <ul className="mt-4 grid gap-2" data-testid="list-class-templates">
         {periods.map((period) => {
