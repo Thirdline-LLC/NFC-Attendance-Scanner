@@ -199,4 +199,31 @@ describe('describeActivity', () => {
       detail: '',
     });
   });
+
+  it('says when an export covered the body and its descendants, by count only', () => {
+    expect(
+      describeActivity({
+        at: AT,
+        kind: 'export-range',
+        filename: 'English 11 - All periods - 2026-09-01 to 2026-09-24.xlsx',
+        delivery: 'saved',
+        taps: 120,
+        sessions: 20,
+        rangeFrom: '2026-09-01',
+        rangeTo: '2026-09-24',
+        scope: 'subtree',
+        bodies: 5,
+      }),
+    ).toEqual({
+      action: 'Exported a date range, with descendants',
+      detail:
+        'Sep 1, 2026 – Sep 24, 2026: 120 taps from 20 sessions across 5 bodies — English 11 - All periods - 2026-09-01 to 2026-09-24.xlsx, saved',
+    });
+    expect(
+      describeActivity({ at: AT, kind: 'export-all', filename: FILE, delivery: 'saved', taps: 1, sessions: 1, scope: 'subtree', bodies: 1 }),
+    ).toEqual({
+      action: 'Exported all history, with descendants',
+      detail: `1 tap from 1 session across 1 body — ${FILE}, saved`,
+    });
+  });
 });

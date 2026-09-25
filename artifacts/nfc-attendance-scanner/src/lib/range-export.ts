@@ -4,12 +4,21 @@ import type { ActivityEntry, AttendanceBody, Person, TapRecord } from '@/data/at
 import {
   ACTIVITY_COLUMNS,
   EXPORT_COLUMNS,
+  attendanceRowFor,
   buildActivityRows,
   buildAttendanceRows,
   deriveGrade,
+  type AttendanceRow,
   type AttendanceWorkbook,
 } from '@/lib/attendance-export';
-import { computeRangeMetrics, type RangeMetrics } from '@/lib/attendance-metrics';
+import {
+  computeRangeMetrics,
+  computeSubtreeRangeMetrics,
+  type RangeMetrics,
+  type SubtreePeriodMetrics,
+  type SubtreeRangeMetrics,
+} from '@/lib/attendance-metrics';
+import { BODY_PATH_SEPARATOR, childrenNoun } from '@/data/body-hierarchy';
 import {
   RANGE_PRESET_LABELS,
   formatRangeForFilename,
@@ -21,6 +30,7 @@ import {
   formatSessionDateLabel,
   formatSessionTimestamp,
 } from '@/lib/session-formatting';
+import { indexRoster, resolveTapPerson } from '@/lib/tap-identity';
 import { deliverWorkbook, type DeliveredExport } from '@/lib/workbook-delivery';
 
 /**
@@ -35,6 +45,9 @@ const UNSAFE_FILENAME_CHARS = /[^\p{L}\p{N} _.,'()&+#-]/gu;
 
 /** Long enough for "English 11 - Period 3 - Room 114", short enough for any disk. */
 const MAX_BODY_PATH_LENGTH = 100;
+
+/** A class-wide scope segment (`All periods`) never takes more than this. */
+const MAX_SCOPE_LENGTH = 40;
 
 function sanitizeFilenamePart(part: string): string {
   return part
@@ -59,14 +72,32 @@ function sanitizeFilenamePart(part: string): string {
  * Android the newer file replaces the older one in Documents, which is the
  * same range with newer data.
  */
-export function buildRangeExportFilename(bodyPath: readonly string[], range: DateRange): string {
+export function buildRangeExportFilename(
+  bodyPath: readonly string[],
+  range: DateRange,
+  /**
+   * A class-wide export's scope, e.g. `All periods`, kept after the path so
+   * a long path is cut before it rather than cutting it off.
+   */
+  scope?: string,
+): string {
+  // The scope comes from a free-text type label, so it is capped too: the
+  // path keeps at least half the room and the whole stays in the allowlist.
+  const suffix = scope
+    ? Array.from(sanitizeFilenamePart(scope))
+        .slice(0, MAX_SCOPE_LENGTH)
+        .join('')
+        .replace(/[\s.-]+$/, '')
+    : '';
+  const room = MAX_BODY_PATH_LENGTH - (suffix ? Array.from(suffix).length + 3 : 0);
   // Cut by characters, not UTF-16 units, so a name in a non-Latin script is
   // never left ending in half a character (which the allowlist would refuse).
-  const path = Array.from(bodyPath.map(sanitizeFilenamePart).filter(Boolean).join(' - '))
-    .slice(0, MAX_BODY_PATH_LENGTH)
-    .join('')
-    .replace(/[\s.-]+$/, '');
-  return `${path || 'Attendance'} - ${formatRangeForFilename(range)}.xlsx`;
+  const path =
+    Array.from(bodyPath.map(sanitizeFilenamePart).filter(Boolean).join(' - '))
+      .slice(0, room)
+      .join('')
+      .replace(/[\s.-]+$/, '') || 'Attendance';
+  return `${suffix ? `${path} - ${suffix}` : path} - ${formatRangeForFilename(range)}.xlsx`;
 }
 
 /** The earliest session day among `taps`, or `null` for none. */
@@ -88,12 +119,17 @@ export function oldestTapDay(taps: readonly TapRecord[]): string | null {
  * retention or simply predate this body's first meeting: the device cannot
  * tell the two apart once the taps are gone.
  */
-export function retentionCaveat(range: DateRange, oldest: string | null): string | null {
+export function retentionCaveat(
+  range: DateRange,
+  oldest: string | null,
+  /** What the file covers, for the sentence: `this body and its periods`. */
+  subject = 'this body',
+): string | null {
   if (oldest === null) {
-    return 'This device holds no taps for this body, so this file has no attendance in it.';
+    return `This device holds no taps for ${subject}, so this file has no attendance in it.`;
   }
   if (range.from !== null && range.from >= oldest) return null;
-  return `The oldest tap this device still holds for this body is from ${formatSessionDateLabel(
+  return `The oldest tap this device still holds for ${subject} is from ${formatSessionDateLabel(
     oldest,
   )}. Nothing earlier is in this file: earlier meetings, if there were any, were deleted by data retention or were never recorded on this device.`;
 }
@@ -292,4 +328,265 @@ export async function exportRangeWorkbook(
   const { tapCount, sessionCount, ...built } = buildRangeWorkbook(input);
   const delivered = await deliverWorkbook(built);
   return { ...delivered, tapCount, sessionCount };
+}
+
+/*
+ * Class-wide scope (Design 09 §5, the export half of 08c): the active body
+ * plus every descendant at any depth, archived or not.
+ */
+
+/** `periods` / `children`: what the scope control and file name call the descendants. */
+export function subtreeScopeNoun(rootId: number, bodies: readonly AttendanceBody[]): string {
+  return childrenNoun(rootId, bodies);
+}
+
+/** The file-name segment for a class-wide export: `All periods`. */
+export function subtreeFilenameScope(noun: string): string {
+  return `All ${noun}`;
+}
+
+/**
+ * What a class-wide sheet's Period column holds for a body: its full path,
+ * `English 11 › Period 3`, marked `(archived)` when it is. This is the 08c
+ * Body Path column.
+ */
+export function periodLabel(period: Pick<SubtreePeriodMetrics, 'pathNames' | 'archived'>): string {
+  const path = period.pathNames.join(BODY_PATH_SEPARATOR);
+  return period.archived ? `${path} (archived)` : path;
+}
+
+/** What the Summary by period sheet's last row says in its Period column. */
+export const SUBTREE_TOTAL_LABEL = 'Total (each person counted once)';
+
+/** One Summary by period row. Keys are the column headers, verbatim. */
+export type PeriodSummaryRow = {
+  Period: string;
+  'Meetings held': number;
+  'Unique present': number;
+  Enrolled: number;
+  'Average attendance %': number | string;
+};
+
+const PERIOD_SUMMARY_COLUMNS: (keyof PeriodSummaryRow)[] = [
+  'Period',
+  'Meetings held',
+  'Unique present',
+  'Enrolled',
+  'Average attendance %',
+];
+
+/**
+ * One row per body in the subtree, then the total. A person enrolled in two
+ * periods counts in each period's row and once in the total.
+ */
+export function buildPeriodSummaryRows(subtree: SubtreeRangeMetrics): PeriodSummaryRow[] {
+  return [
+    ...subtree.periods.map((period) => ({
+      Period: periodLabel(period),
+      'Meetings held': period.metrics.meetingsHeld,
+      'Unique present': period.metrics.uniquePresent,
+      Enrolled: period.metrics.enrolled,
+      'Average attendance %': roundPercent(period.metrics.averageAttendancePercent),
+    })),
+    {
+      Period: SUBTREE_TOTAL_LABEL,
+      'Meetings held': subtree.meetingsHeld,
+      'Unique present': subtree.uniquePresent,
+      Enrolled: subtree.enrolled,
+      'Average attendance %': roundPercent(subtree.averageAttendancePercent),
+    },
+  ];
+}
+
+export type SubtreeSummaryPersonRow = { Period: string } & SummaryPersonRow;
+const SUBTREE_SUMMARY_COLUMNS: (keyof SubtreeSummaryPersonRow)[] = ['Period', ...SUMMARY_COLUMNS];
+
+/** Every period's Summary rows, period by period: a person in two periods has two rows. */
+export function buildSubtreeSummaryPersonRows(
+  subtree: SubtreeRangeMetrics,
+  now: string,
+): SubtreeSummaryPersonRow[] {
+  return subtree.periods.flatMap((period) =>
+    buildSummaryPersonRows(period.metrics, now).map((row) => ({ Period: periodLabel(period), ...row })),
+  );
+}
+
+export type SubtreeAttendanceRow = AttendanceRow & { Period: string };
+/** Design 06's columns in their places, with the body path added last. */
+export const SUBTREE_EXPORT_COLUMNS: (keyof SubtreeAttendanceRow)[] = [...EXPORT_COLUMNS, 'Period'];
+
+/**
+ * Every in-range tap of the subtree, oldest first. Each tap is resolved
+ * against the roster of the body that recorded it, never a merged one: a
+ * card enrolled in Period 3 must not name an unknown tap in Period 5.
+ */
+export function buildSubtreeAttendanceRows(subtree: SubtreeRangeMetrics): SubtreeAttendanceRow[] {
+  const byBody = new Map(
+    subtree.periods.map((period) => [
+      period.bodyId,
+      {
+        period,
+        label: periodLabel(period),
+        roster: indexRoster(period.persons),
+      },
+    ]),
+  );
+  return subtree.taps.map((tap) => {
+    const entry = byBody.get(tap.bodyId as number);
+    const person = entry ? resolveTapPerson(tap, entry.roster) : undefined;
+    return { ...attendanceRowFor(tap, person, entry?.period.body), Period: entry?.label ?? '' };
+  });
+}
+
+export type SubtreeMeetingRow = { Period: string } & MeetingRow;
+const SUBTREE_MEETING_COLUMNS: (keyof SubtreeMeetingRow)[] = ['Period', ...MEETING_COLUMNS];
+
+/** Every body's meetings in one list, oldest first, each labelled with its period. */
+export function buildSubtreeMeetingRows(subtree: SubtreeRangeMetrics): SubtreeMeetingRow[] {
+  return subtree.periods
+    .flatMap((period) =>
+      buildMeetingRows(period.metrics).map((row, index) => ({
+        startedAt: period.metrics.meetings[index].startedAt,
+        row: { Period: periodLabel(period), ...row },
+      })),
+    )
+    .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))
+    .map(({ row }) => row);
+}
+
+/**
+ * The class-wide Summary: the same header block as a single body's, with the
+ * whole-subtree totals (people counted once), then one row per person per
+ * period with the Period column first.
+ */
+function buildSubtreeSummarySheet(input: {
+  bodyPath: readonly string[];
+  noun: string;
+  range: DateRange;
+  now: string;
+  subtree: SubtreeRangeMetrics;
+  caveat: string | null;
+}): XLSX.WorkSheet {
+  const { subtree } = input;
+  const header: (string | number)[][] = [
+    ['Attendance summary'],
+    ['Body', `${input.bodyPath.join(BODY_PATH_SEPARATOR)} + all ${input.noun}`],
+    ['Range', describeRange(input.range)],
+    ['Exported at', `${formatSessionTimestamp(input.now)} (${SESSION_TIME_ZONE})`],
+    ['Meetings held', subtree.meetingsHeld],
+    ['Average attendance %', roundPercent(subtree.averageAttendancePercent)],
+    ['Unique present', `${subtree.uniquePresent} of ${subtree.enrolled} enrolled (each person counted once)`],
+  ];
+  if (input.caveat) header.push(['Note', input.caveat]);
+  header.push([]);
+
+  const people = buildSubtreeSummaryPersonRows(subtree, input.now);
+  const table: (string | number)[][] = [
+    SUBTREE_SUMMARY_COLUMNS,
+    ...people.map((row) => SUBTREE_SUMMARY_COLUMNS.map((column) => row[column])),
+  ];
+  if (people.length === 0) table.push([`No students are enrolled on this body or its ${input.noun}.`]);
+  else if (subtree.meetingsHeld === 0) table.push(['No meetings in this range.']);
+
+  return XLSX.utils.aoa_to_sheet([...header, ...table]);
+}
+
+export type SubtreeRangeExportInput = Omit<RangeExportInput, 'body' | 'taps' | 'persons'> & {
+  /** The active body, the root of the export. */
+  rootId: number;
+  /** Every body on the device; the subtree is read from it. */
+  bodies: readonly AttendanceBody[];
+  /** The whole subtree's taps (whole history; filtered here). */
+  taps: readonly TapRecord[];
+  /** The whole subtree's roster rows as they stand now. */
+  persons: readonly Person[];
+};
+
+export type SubtreeRangeWorkbook = RangeWorkbook & {
+  /** Bodies with a row in Summary by period. */
+  bodyCount: number;
+};
+
+/** The class-wide workbook's file name, its preview and its figures, from one call. */
+export function describeSubtreeExport(input: Omit<SubtreeRangeExportInput, 'activity' | 'now'>): {
+  subtree: SubtreeRangeMetrics;
+  noun: string;
+  filename: string;
+  caveat: string | null;
+} {
+  const noun = subtreeScopeNoun(input.rootId, input.bodies);
+  const subtree = computeSubtreeRangeMetrics(
+    input.rootId,
+    input.bodies,
+    input.taps,
+    input.persons,
+    input.range,
+  );
+  const ids = new Set(subtree.periods.map((period) => period.bodyId));
+  return {
+    subtree,
+    noun,
+    filename: buildRangeExportFilename(input.bodyPath, input.range, subtreeFilenameScope(noun)),
+    caveat: retentionCaveat(
+      input.range,
+      oldestTapDay(input.taps.filter((tap) => ids.has(tap.bodyId as number))),
+      `this body and its ${noun}`,
+    ),
+  };
+}
+
+/**
+ * The class-wide date-range workbook (Design 09 §5): Summary (with Period),
+ * Summary by period, Attendance (with Period), By meeting (with Period), and
+ * — for All time only, as for a single body — the device's Activity log.
+ */
+export function buildSubtreeRangeWorkbook(input: SubtreeRangeExportInput): SubtreeRangeWorkbook {
+  const now = (input.now ?? new Date()).toISOString();
+  const { subtree, noun, filename, caveat } = describeSubtreeExport(input);
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    workbook,
+    buildSubtreeSummarySheet({ bodyPath: input.bodyPath, noun, range: input.range, now, subtree, caveat }),
+    'Summary',
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(buildPeriodSummaryRows(subtree), { header: PERIOD_SUMMARY_COLUMNS }),
+    'Summary by period',
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(buildSubtreeAttendanceRows(subtree), { header: SUBTREE_EXPORT_COLUMNS }),
+    'Attendance',
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(buildSubtreeMeetingRows(subtree), { header: SUBTREE_MEETING_COLUMNS }),
+    'By meeting',
+  );
+  if (input.range.preset === 'all-time' && input.activity) {
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(buildActivityRows(input.activity), { header: ACTIVITY_COLUMNS }),
+      'Activity',
+    );
+  }
+
+  return {
+    filename,
+    workbook,
+    tapCount: subtree.taps.length,
+    sessionCount: subtree.meetingsHeld,
+    bodyCount: subtree.periods.length,
+  };
+}
+
+/** Builds the class-wide workbook and hands it to the platform. */
+export async function exportSubtreeRangeWorkbook(
+  input: SubtreeRangeExportInput,
+): Promise<DeliveredExport & { tapCount: number; sessionCount: number; bodyCount: number }> {
+  const { tapCount, sessionCount, bodyCount, ...built } = buildSubtreeRangeWorkbook(input);
+  const delivered = await deliverWorkbook(built);
+  return { ...delivered, tapCount, sessionCount, bodyCount };
 }

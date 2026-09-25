@@ -12,6 +12,7 @@ import {
 } from '@/lib/date-range';
 import {
   compareSiblingOrder,
+  flattenBodyTree,
   isArchived,
   subtreeBodyIds,
   type BodyNode,
@@ -835,4 +836,110 @@ export function computePeriodBreakdown(
       averageAttendancePercent: metrics.averageAttendancePercent,
     };
   });
+}
+
+/** One body's line in a subtree export's Summary by period (Design 09 §5). */
+export type SubtreePeriodMetrics = {
+  body: BodyNode;
+  bodyId: number;
+  /** Root-first names, e.g. `['English 11', 'Period 3']`. */
+  pathNames: string[];
+  archived: boolean;
+  /** This body's own roster rows, as stored (not deduped). */
+  persons: Person[];
+  /** This body's own taps and roster only, never its descendants'. */
+  metrics: RangeMetrics;
+};
+
+export type SubtreeRangeMetrics = {
+  range: DateRange;
+  /**
+   * One entry per body with rows of its own, preorder (a parent before its
+   * children, siblings in sibling order): every descendant at any depth,
+   * archived or not. The root itself is listed only when it has a roster or
+   * taps of its own; a class that is only a folder for its periods is not a
+   * line of its own.
+   */
+  periods: SubtreePeriodMetrics[];
+  /** Every in-range tap of every body, oldest first. */
+  taps: TapRecord[];
+  /** Meetings across all bodies: a meeting is one session of one body. */
+  meetingsHeld: number;
+  /**
+   * The mean over every body's meetings of `present ÷ that body's roster as
+   * of that day × 100` — the per-period definition, pooled. `null` when no
+   * meeting had a roster.
+   */
+  averageAttendancePercent: number | null;
+  /** Distinct people present, deduped across bodies with `rollupIdentityKey`. */
+  uniquePresent: number;
+  /** Everyone on any roster in the subtree, deduped the same way. */
+  enrolled: number;
+};
+
+/**
+ * The class-wide figures for a body plus all its descendants over a range
+ * (Design 09 §5): the Summary by period rows and the whole-class total.
+ *
+ * Each body's row is `computeRangeMetrics` over that body's own rows with the
+ * roll-up identity — for a class whose periods are leaves, exactly what
+ * `computePeriodBreakdown` shows for the school year. A person enrolled in
+ * two periods is counted in both rows. The total pools the per-body
+ * meetings, because sessions belong to one body and a period's meeting must
+ * be divided by that period's roster, not the whole class's; unique present
+ * and enrolled are deduped with `rollupIdentityKey` (Design 08).
+ */
+export function computeSubtreeRangeMetrics(
+  rootId: number,
+  bodies: readonly BodyNode[],
+  taps: readonly TapRecord[],
+  persons: readonly Person[],
+  range: DateRange,
+): SubtreeRangeMetrics {
+  const tapsByBody = partitionByBodyId(taps);
+  const personsByBody = partitionByBodyId(persons);
+  const pathById = new Map(
+    flattenBodyTree(bodies).map((row) => [row.body.id as number, row.pathNames]),
+  );
+  const bodyById = new Map(bodies.map((body) => [body.id as number, body]));
+
+  const periods: SubtreePeriodMetrics[] = [];
+  for (const bodyId of subtreeBodyIds(rootId, bodies)) {
+    const body = bodyById.get(bodyId);
+    if (!body) continue;
+    const ownTaps = tapsByBody.get(bodyId) ?? [];
+    const ownPersons = personsByBody.get(bodyId) ?? [];
+    if (bodyId === rootId && ownTaps.length === 0 && ownPersons.length === 0) continue;
+    periods.push({
+      body,
+      bodyId,
+      pathNames: pathById.get(bodyId) ?? [body.name],
+      archived: isArchived(body),
+      persons: ownPersons,
+      metrics: computeRangeMetrics(ownTaps, ownPersons, range, 'rollup'),
+    });
+  }
+
+  const meetings = periods.flatMap((period) => period.metrics.meetings);
+  const divisible = meetings.filter((meeting) => meeting.rosterSize > 0);
+  const present = periods.flatMap((period) =>
+    period.metrics.people.filter((row) => row.firstCheckIn !== null).map((row) => row.person),
+  );
+
+  return {
+    range,
+    periods,
+    taps: periods
+      .flatMap((period) => period.metrics.taps)
+      .sort((a, b) => Date.parse(a.scannedAt) - Date.parse(b.scannedAt)),
+    meetingsHeld: meetings.length,
+    averageAttendancePercent:
+      divisible.length > 0
+        ? (divisible.reduce((sum, meeting) => sum + meeting.present / meeting.rosterSize, 0) /
+            divisible.length) *
+          100
+        : null,
+    uniquePresent: dedupeByRollupIdentity(present).length,
+    enrolled: dedupeByRollupIdentity(periods.flatMap((period) => period.persons)).length,
+  };
 }

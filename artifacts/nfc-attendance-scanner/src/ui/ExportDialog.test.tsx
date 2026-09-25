@@ -2,8 +2,8 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Person, TapRecord } from '@/data/attendance-store';
-import { ExportDialog } from './ExportDialog';
+import type { AttendanceBody, Person, TapRecord } from '@/data/attendance-store';
+import { ExportDialog, type ExportSubtree } from './ExportDialog';
 
 // Noon in New York on Thursday, September 24, 2026.
 const NOW = '2026-09-24T16:00:00.000Z';
@@ -125,7 +125,10 @@ describe('ExportDialog', () => {
     const { dialog, onExport } = renderDialog();
     await user.click(within(dialog).getByRole('radio', { name: 'Last 7 days' }));
     await user.click(within(dialog).getByRole('button', { name: 'Export workbook' }));
-    expect(onExport).toHaveBeenCalledWith({ preset: 'last-7-days', from: '2026-09-18', to: '2026-09-24' });
+    expect(onExport).toHaveBeenCalledWith(
+      { preset: 'last-7-days', from: '2026-09-18', to: '2026-09-24' },
+      'body',
+    );
   });
 
   it('closes on Escape and Cancel, but not while exporting', async () => {
@@ -150,5 +153,75 @@ describe('ExportDialog', () => {
       await user.tab();
       expect(dialog.contains(document.activeElement)).toBe(true);
     }
+  });
+
+  describe('class-wide scope', () => {
+    const created = '2026-08-01T00:00:00.000Z';
+    const bodies: AttendanceBody[] = [
+      { id: 10, name: 'English 11', typeLabel: 'class', createdAt: created, parentId: null },
+      { id: 11, name: 'Period 1', typeLabel: 'period', createdAt: created, parentId: 10, sortOrder: 0 },
+      { id: 12, name: 'Period 3', typeLabel: 'period', createdAt: created, parentId: 10, sortOrder: 1, archivedAt: created },
+    ];
+    const inP1 = { ...casey, bodyId: 11 };
+    const inP3 = { ...casey, id: 2, cardUid: '04000000000002', bodyId: 12 };
+    const subtree: ExportSubtree = {
+      rootId: 10,
+      bodies,
+      taps: [
+        { ...taps[0], bodyId: 11 },
+        { id: 3, uid: inP3.cardUid!, scannedAt: '2026-09-03T16:00:00.000Z', personId: 2, sessionId: 'c', counted: true, bodyId: 12 },
+      ],
+      persons: [inP1, inP3],
+      noun: 'periods',
+    };
+
+    it('is not offered for a body without descendants', () => {
+      renderDialog();
+      expect(screen.queryByTestId('export-scope-options')).toBeNull();
+      expect(screen.queryByRole('group', { name: 'Covers' })).toBeNull();
+    });
+
+    it('offers This body only / This body + all periods, worded from the children’s label, focused first', () => {
+      const { dialog } = renderDialog({ bodyPath: ['English 11'], taps: [], persons: [], subtree });
+      const group = within(dialog).getByRole('group', { name: 'Covers' });
+      expect(within(group).getAllByRole('radio').map((radio) => radio.closest('label')?.querySelector('span > span')?.textContent)).toEqual([
+        'This body only',
+        'This body + all periods',
+      ]);
+      expect(within(group).getByRole('radio', { name: 'This body only' })).toHaveProperty('checked', true);
+      expect(document.activeElement).toBe(within(group).getByRole('radio', { name: 'This body only' }));
+      cleanup();
+
+      renderDialog({ bodyPath: ['Robotics'], subtree: { ...subtree, noun: 'children' } });
+      expect(screen.getByRole('radio', { name: 'This body + all children' })).toBeTruthy();
+    });
+
+    it('previews the class-wide file and exports with the subtree scope', async () => {
+      const user = userEvent.setup();
+      const { dialog, onExport } = renderDialog({ bodyPath: ['English 11'], taps: [], persons: [], subtree });
+      expect(screen.getByTestId('text-export-filename').textContent).toBe('English 11 - 2026-08-01 to 2026-09-24.xlsx');
+      await user.click(within(dialog).getByRole('radio', { name: 'This body + all periods' }));
+      expect(screen.getByTestId('text-export-filename').textContent).toBe(
+        'English 11 - All periods - 2026-08-01 to 2026-09-24.xlsx',
+      );
+      // Casey is in both periods: two taps, two meetings, one student.
+      const counts = screen.getByTestId('list-export-counts');
+      expect(within(counts).getAllByRole('definition').map((node) => node.textContent)).toEqual(['2', '2', '1']);
+      expect(screen.getByTestId('text-export-bodies').textContent).toContain('2 rows in Summary by period, 1 archived');
+      expect(within(dialog).getByTestId('export-preview').textContent).toContain(
+        'Sheets: Summary, Summary by period, Attendance, By meeting',
+      );
+      await user.click(within(dialog).getByRole('button', { name: 'Export workbook' }));
+      expect(onExport).toHaveBeenCalledWith(
+        { preset: 'school-year', from: '2026-08-01', to: '2026-09-24' },
+        'subtree',
+      );
+    });
+
+    it('starts on the scope the dashboard figures show', () => {
+      renderDialog({ bodyPath: ['English 11'], subtree, initialScope: 'subtree' });
+      expect(screen.getByRole('radio', { name: 'This body + all periods' })).toHaveProperty('checked', true);
+      expect(screen.getByTestId('text-export-filename').textContent).toContain('All periods');
+    });
   });
 });

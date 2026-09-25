@@ -150,7 +150,8 @@ session. Second taps never raise it.
    and still appear in the dashboard's export.
 
 To get everything ever recorded, not just today: **Dashboard** →
-**Export** → **All time**.
+**Export** → **All time**. On a class with periods, choose **This body + all
+periods** in the same dialog for one file covering every period.
 
 ## The other two screens
 

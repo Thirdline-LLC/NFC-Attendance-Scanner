@@ -146,7 +146,10 @@ stamped `'legacy'`. Its workbook has *Summary* (per-student meetings attended
 and held), *Attendance* (every tap), *By meeting*, and *Activity* (the device's
 activity log). The same dialog exports a shorter range — Today, a single day,
 the last 7 days, the past month or year, this school year, or custom dates —
-with the same sheets minus *Activity*; share only the range that is needed. The card column in both is the card's last four (`••••1F90`),
+with the same sheets minus *Activity*; share only the range that is needed. On a
+class (any body with bodies under it) the dialog also offers **This body + all
+periods**: one file for the whole class, with a *Period* column and a *Summary by
+period* sheet. The card column in both is the card's last four (`••••1F90`),
 never the full UID. Every export notice ends with *Send this file only to a
 school account* (a theme pack may reword this; the duty itself cannot be
 removed).
