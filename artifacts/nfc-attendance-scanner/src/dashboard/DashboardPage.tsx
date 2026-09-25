@@ -205,8 +205,8 @@ export function DashboardPage() {
   const [managingVocab, setManagingVocab] = useState(false);
   const [vocabWorking, setVocabWorking] = useState(false);
   const [vocabError, setVocabError] = useState<string | null>(null);
-  // "This body" vs "this body + descendants". Export and retention stay on
-  // the active body either way; only the figures above the body card move.
+  // "This body" vs "this body + descendants". Retention stays on the active
+  // body either way; Export offers both scopes and starts on this one.
   const [metricsScope, setMetricsScope] = useState<'body' | 'subtree'>('body');
   const [metricsBundle, setMetricsBundle] = useState<{
     bodyTaps: TapRecord[];
@@ -1275,7 +1275,14 @@ export function DashboardPage() {
           taps={history.taps}
           persons={history.persons}
           subtree={exportSubtree}
-          initialScope={metricsScope}
+          // The scope the figures on screen show — or the class-wide one when
+          // this body has no rows of its own (a class that only holds its
+          // periods), where "This body only" would be an empty file.
+          initialScope={
+            metricsScope === 'subtree' || (history.taps.length === 0 && history.persons.length === 0)
+              ? 'subtree'
+              : 'body'
+          }
           isWorking={exportWorking}
           onExport={(range, scope) => void exportRange(range, scope)}
           onCancel={() => setExportOpen(false)}

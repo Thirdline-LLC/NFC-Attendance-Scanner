@@ -848,8 +848,8 @@ function ActivitySection({ entries }: { entries: ActivityEntry[] }) {
 /**
  * The body this kiosk is attached to (D-T2). Reassignment points the device
  * at a different body; it never wipes the one just left, and never requires
- * exporting first. Export stays this body only — a subtree workbook is not
- * this screen.
+ * exporting first. Export covers this body, or this body plus its
+ * descendants when the Export dialog is asked to.
  */
 function BodyCard({
   body,
@@ -876,8 +876,8 @@ function BodyCard({
       </p>
       <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
         The body this device is scanning for. Every body keeps its own roster
-        and history — switching never deletes another body's data. Export stays
-        this body only.
+        and history — switching never deletes another body's data. Export can
+        cover this body alone or with everything below it.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
         <button

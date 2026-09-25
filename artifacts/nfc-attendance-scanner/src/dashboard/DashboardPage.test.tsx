@@ -1215,8 +1215,10 @@ describe('DashboardPage attendance body', () => {
 
     await user.click(await screen.findByTestId('button-export-history'));
     const dialog = await screen.findByTestId('dialog-export');
-    // The dashboard shows "This body", so the dialog starts there too.
-    expect(within(dialog).getByRole('radio', { name: 'This body only' })).toHaveProperty('checked', true);
+    // The class holds no rows of its own, so the dialog starts class-wide.
+    expect(within(dialog).getByRole('radio', { name: 'This body + all periods' })).toHaveProperty('checked', true);
+    await user.click(within(dialog).getByRole('radio', { name: 'This body only' }));
+    expect(within(dialog).getByTestId('text-export-filename').textContent).not.toContain('All periods');
     await user.click(within(dialog).getByRole('radio', { name: 'This body + all periods' }));
     await user.click(within(dialog).getByTestId('radio-range-all-time'));
     await user.click(within(dialog).getByTestId('button-export-confirm'));

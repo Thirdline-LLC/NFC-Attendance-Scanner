@@ -165,7 +165,7 @@ export function ExportDialog({
         {
           value: 'subtree',
           label: `This body + all ${subtree.noun}`,
-          hint: 'Adds a Period column and a Summary by period sheet',
+          hint: 'Adds a Period column and Summary by period',
         },
       ]
     : [];
@@ -229,7 +229,7 @@ export function ExportDialog({
                       </span>
                       <span
                         id={`${baseId}-scope-${option.value}`}
-                        className="mt-0.5 truncate text-xs text-[hsl(var(--muted-foreground))]"
+                        className="mt-0.5 break-words text-xs text-[hsl(var(--muted-foreground))]"
                       >
                         {option.hint}
                       </span>
