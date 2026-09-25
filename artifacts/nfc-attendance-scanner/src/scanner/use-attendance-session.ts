@@ -345,14 +345,19 @@ export function useAttendanceSession(mode: ScannerMode) {
         }
         setLastUid(uid);
         setLastScannedAt(new Date().toISOString());
+        // The ref is set here, not only by the effect that mirrors the
+        // state: the next queued job (a period switch) runs before React
+        // commits, and must already see that the form is open.
         if (existing) {
           setLastPerson(existing);
-          setEnrollmentCandidate({ uid, person: existing });
+          candidateRef.current = { uid, person: existing };
+          setEnrollmentCandidate(candidateRef.current);
           announce('editing');
           return;
         }
         setLastPerson(undefined);
-        setEnrollmentCandidate({ uid });
+        candidateRef.current = { uid };
+        setEnrollmentCandidate(candidateRef.current);
         announce('enrollment');
         return;
       }

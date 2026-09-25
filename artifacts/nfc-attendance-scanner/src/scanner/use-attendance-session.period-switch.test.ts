@@ -220,6 +220,28 @@ describe('useAttendanceSession.switchBody (Design 09 §3)', () => {
     expect(result.current.pendingTap).toBe('unknown-card');
   });
 
+  it('refuses the switch when a card read just before it opened the enrollment form', async () => {
+    const { periods } = await setUpClass();
+    const hook = renderHook(() => useAttendanceSession('enroll'));
+    await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
+
+    let scan!: Promise<void>;
+    let switched!: Promise<void>;
+    act(() => {
+      scan = hook.result.current.handleScan('04CCCC00000003');
+      switched = hook.result.current.switchBody(periods[1]);
+    });
+    await act(async () => {
+      await scan;
+      await expect(switched).rejects.toBeInstanceOf(TapPendingError);
+    });
+
+    // The form stays with the body the card was read on.
+    expect(await getActiveBodyId()).toBe(periods[0]);
+    expect(hook.result.current.enrollmentCandidate?.uid).toBe('04CCCC00000003');
+    expect(hook.result.current.pendingTap).toBe('enroll');
+  });
+
   it('changes nothing when the store refuses the switch', async () => {
     const { periods } = await setUpClass();
     const { result } = await renderReady();
