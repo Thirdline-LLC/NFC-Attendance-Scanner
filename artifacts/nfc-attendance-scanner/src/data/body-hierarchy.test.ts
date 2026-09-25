@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   SOFT_BODY_DEPTH,
   childCountLabel,
+  childrenNoun,
   depthWarning,
   flattenBodyTree,
   formatBodySubtitle,
   pluralizeTypeLabel,
+  sharedTypeLabel,
   subtreeBodyIds,
   wouldCycle,
   type BodyNode,
@@ -113,5 +115,33 @@ describe('childCountLabel', () => {
     expect(pluralizeTypeLabel('activity')).toBe('activities');
     expect(pluralizeTypeLabel('day')).toBe('days');
     expect(pluralizeTypeLabel('section')).toBe('sections');
+  });
+});
+
+describe('sharedTypeLabel and childrenNoun', () => {
+  const body = (id: number, parentId: number | null, typeLabel: string, archivedAt: string | null = null): BodyNode => ({
+    id,
+    name: `Row ${id}`,
+    typeLabel,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    parentId,
+    archivedAt,
+  });
+
+  it('finds a label shared case-insensitively, or none for a mixed or empty set', () => {
+    expect(sharedTypeLabel([body(2, 1, 'Period'), body(3, 1, ' period ')])).toBe('Period');
+    expect(sharedTypeLabel([body(2, 1, 'period'), body(3, 1, 'team')])).toBeNull();
+    expect(sharedTypeLabel([])).toBeNull();
+    expect(sharedTypeLabel([body(2, 1, '  ')])).toBeNull();
+  });
+
+  it('names the children by their shared label, live ones first, and falls back to children', () => {
+    const class1 = [body(1, null, 'class'), body(2, 1, 'Period'), body(3, 1, 'period'), body(4, 1, 'lab', '2026-09-02')];
+    expect(childrenNoun(1, class1)).toBe('periods');
+    expect(childrenNoun(1, [body(1, null, 'club'), body(2, 1, 'team'), body(3, 1, 'squad')])).toBe('children');
+    // Every child archived: they still decide the word.
+    expect(childrenNoun(1, [body(1, null, 'org'), body(2, 1, 'class', '2026-09-02')])).toBe('classes');
+    // A grandchild is not a child.
+    expect(childrenNoun(1, [body(1, null, 'org'), body(2, 1, 'team'), body(3, 2, 'squad')])).toBe('teams');
   });
 });

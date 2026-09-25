@@ -191,20 +191,29 @@ export function buildAttendanceRows(
     (a, b) => Date.parse(a.scannedAt) - Date.parse(b.scannedAt),
   );
 
-  return ordered.map((tap) => {
-    const person = resolveTapPerson(tap, roster);
+  return ordered.map((tap) => attendanceRowFor(tap, resolveTapPerson(tap, roster), body));
+}
 
-    return {
-      Timestamp: formatExportTimestamp(tap.scannedAt),
-      'Card (last 4)': maskCardUid(tap.uid),
-      'Meeting Date': formatSessionDate(tap.scannedAt),
-      Name: person ? formatPersonName(person) : UNKNOWN_CARD_NAME,
-      Email: person?.email ?? '',
-      Grade: person ? deriveGrade(person.gradYear, tap.scannedAt) : '',
-      'Body Name': body?.name ?? '',
-      'Body Type': body?.typeLabel ?? '',
-    };
-  });
+/**
+ * One Attendance row for a tap already resolved to `person` (or to nobody).
+ * Split out so a multi-body export can resolve each tap against the roster
+ * of the body that recorded it rather than one merged roster.
+ */
+export function attendanceRowFor(
+  tap: TapRecord,
+  person: Person | undefined,
+  body?: Pick<AttendanceBody, 'name' | 'typeLabel'>,
+): AttendanceRow {
+  return {
+    Timestamp: formatExportTimestamp(tap.scannedAt),
+    'Card (last 4)': maskCardUid(tap.uid),
+    'Meeting Date': formatSessionDate(tap.scannedAt),
+    Name: person ? formatPersonName(person) : UNKNOWN_CARD_NAME,
+    Email: person?.email ?? '',
+    Grade: person ? deriveGrade(person.gradYear, tap.scannedAt) : '',
+    'Body Name': body?.name ?? '',
+    'Body Type': body?.typeLabel ?? '',
+  };
 }
 
 /** One row of the export's second sheet. Keys are the headers, verbatim. */

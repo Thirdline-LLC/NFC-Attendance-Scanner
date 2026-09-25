@@ -189,6 +189,30 @@ export function pluralizeTypeLabel(label: string): string {
 }
 
 /**
+ * The type label every body in `bodies` shares (compared trimmed and
+ * case-insensitively), as the first of them spells it, or `null` for an
+ * empty or mixed set.
+ */
+export function sharedTypeLabel(bodies: readonly BodyNode[]): string | null {
+  const labels = bodies.map((body) => body.typeLabel.trim());
+  if (labels.length === 0 || !labels[0]) return null;
+  const first = labels[0].toLowerCase();
+  return labels.every((label) => label.toLowerCase() === first) ? labels[0] : null;
+}
+
+/**
+ * The plural noun for a body's children, lowercased: `periods` when the
+ * children share the type label Period, `children` otherwise. Non-archived
+ * children decide it; when every child is archived, all of them do.
+ */
+export function childrenNoun(parentId: number, bodies: readonly BodyNode[]): string {
+  const children = bodies.filter((body) => body.id !== undefined && body.parentId === parentId);
+  const live = children.filter((child) => !isArchived(child));
+  const shared = sharedTypeLabel(live.length > 0 ? live : children);
+  return shared ? pluralizeTypeLabel(shared.toLowerCase()) : 'children';
+}
+
+/**
  * The count a parent row shows beside its name (Design 09 §2), e.g.
  * `5 periods`. Counts non-archived children only. The word follows the
  * children's own type label when they all share one; a mixed set reads
@@ -196,11 +220,7 @@ export function pluralizeTypeLabel(label: string): string {
  */
 export function childCountLabel(children: readonly BodyNode[]): string {
   const live = children.filter((child) => !isArchived(child));
-  const labels = live.map((child) => child.typeLabel.trim());
-  const shared =
-    labels.length > 0 && labels.every((label) => label.toLowerCase() === labels[0].toLowerCase())
-      ? labels[0]
-      : null;
+  const shared = sharedTypeLabel(live);
   const count = live.length;
   if (!shared) return `${count} ${count === 1 ? 'child' : 'children'}`;
   return `${count} ${count === 1 ? shared : pluralizeTypeLabel(shared)}`;
