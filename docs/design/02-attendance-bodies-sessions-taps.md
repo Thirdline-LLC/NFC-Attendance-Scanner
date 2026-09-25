@@ -14,6 +14,7 @@ Domain model for **first-class AttendanceBody entities** (class, club, faculty, 
 - **Reassignment** = point the device at a different body. Roster and history **stay with the entity**; nothing is wiped because the device “moved.”
 - Export remains available but **not required** before switch.
 - No desk UI to flip bodies mid-queue.
+  - *Amended by [Design 09](09-multi-period-classes-and-range-export.md) §3 (slice 4):* a sibling-only period switcher on the scanner may change `activeBodyId` without the PIN, unless the per-device "Require PIN to switch periods" setting is on. The no-flip-mid-queue rule is kept: switching is disabled while any tap is pending and runs through the scan queue. Sessions stay per body: the left body's session is untouched; taps after the switch join the new body's session for today if it has one, otherwise a new session is started for it (`createNewSessionId`).
 
 ## Model
 
