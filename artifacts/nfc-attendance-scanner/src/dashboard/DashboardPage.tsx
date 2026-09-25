@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, RotateCcw, Users } from 'lucide-react';
-import { formatBodySubtitle, isArchived, subtreeBodyIds } from '@/data/body-hierarchy';
+import {
+  flattenBodyTree,
+  formatBodySubtitle,
+  isArchived,
+  subtreeBodyIds,
+} from '@/data/body-hierarchy';
 import {
   ACTIVITY_LOG_CAP,
   BodyHierarchyError,
@@ -47,7 +52,9 @@ import {
   getSwitchPinRequired,
 } from '@/data/attendance-store';
 import { setSwitchPinRequired } from '@/data/switch-pin';
-import { deriveGrade, exportAttendanceWorkbook } from '@/lib/attendance-export';
+import { deriveGrade } from '@/lib/attendance-export';
+import type { DateRange } from '@/lib/date-range';
+import { exportRangeWorkbook } from '@/lib/range-export';
 import {
   computeDashboardMetrics,
   computePeriodBreakdown,
@@ -60,6 +67,7 @@ import {
   formatSessionDateLabel,
 } from '@/lib/session-formatting';
 import { RetentionDialog } from '@/ui/RetentionDialog';
+import { ExportDialog } from '@/ui/ExportDialog';
 import { BodySwitcherDialog } from '@/ui/BodySwitcherDialog';
 import type { ClassSetupAttachment } from '@/ui/ClassSetupForm';
 import { BodyVocabularyDialog } from '@/ui/BodyVocabularyDialog';
@@ -272,7 +280,7 @@ export function DashboardPage() {
       const bundle = { bodyTaps, bodyPersons, subtreeTaps, subtreePersons, target };
       setMetricsBundle(bundle);
       setMetrics(metricsFromBundle(scope, bundle, now));
-      // Export writes the active body only. Subtree workbook export is 08c.
+      // Export writes the active body only. The subtree workbook is Design 09 step 6.
       setHistory({ taps: bodyTaps, persons: bodyPersons });
       setActivity(recent);
       setBoundary(start);
@@ -301,6 +309,8 @@ export function DashboardPage() {
    * upgrade stamped `legacy` — reaches the workbook that is the record.
    */
   const [exportResult, setExportResult] = useState<ExportResult>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportWorking, setExportWorking] = useState(false);
 
   /**
    * Stores a new target and recomputes against it. Only the percentage moves;
@@ -574,45 +584,73 @@ export function DashboardPage() {
       .catch(() => undefined);
   }, []);
 
-  const exportAll = useCallback(async () => {
-    if (!history) return;
-    try {
-      // The whole log rides along as the second sheet: this file is the record
-      // a school keeps, and the log is what says where earlier copies went.
-      const delivered = await exportAttendanceWorkbook(
-        history.taps,
-        history.persons,
-        await listActivity(ACTIVITY_LOG_CAP),
-        activeBody ?? undefined,
-      );
-      // The notice goes up as soon as the file is delivered; the log row
-      // follows, and if it cannot be written the notice says so rather than
-      // calling a finished export a failure.
-      setExportResult({ ok: true, ...delivered });
+  // Root-first names of the active body, for the dialog and the file name.
+  const activeBodyPath = useMemo(() => {
+    if (!activeBody) return [];
+    const row = flattenBodyTree(bodies).find((entry) => entry.body.id === activeBody.id);
+    return row?.pathNames ?? [activeBody.name];
+  }, [activeBody, bodies]);
+
+  /**
+   * The Export dialog's confirm (Design 09 §4). Writes the active body's
+   * workbook for `range` from the history the numbers on screen came from.
+   * All time carries the whole activity log as its last sheet and is logged
+   * as `export-all`, as the one-shot whole-history export was; any other
+   * range is logged as `export-range` with its dates. Counts and the file
+   * name only — never who is in it.
+   */
+  const exportRange = useCallback(
+    async (range: DateRange) => {
+      if (!history) return;
+      setExportWorking(true);
       try {
-        await recordActivity({
-          at: new Date().toISOString(),
-          kind: 'export-all',
-          filename: delivered.filename,
-          delivery: delivered.delivery,
-          taps: history.taps.length,
-          sessions: new Set(history.taps.map((tap) => tap.sessionId)).size,
+        const allTime = range.preset === 'all-time';
+        const delivered = await exportRangeWorkbook({
+          taps: history.taps,
+          persons: history.persons,
+          body: activeBody ?? undefined,
+          bodyPath: activeBodyPath,
+          range,
+          activity: allTime ? await listActivity(ACTIVITY_LOG_CAP) : undefined,
         });
-        // Only the log is re-read: the numbers on screen are still true.
-        setActivity(await listActivity());
-      } catch {
-        setExportResult((current) =>
-          current?.ok ? { ...current, logFailed: true } : current,
-        );
+        const { tapCount, sessionCount, ...result } = delivered;
+        // The notice goes up as soon as the file is delivered; the log row
+        // follows, and if it cannot be written the notice says so rather than
+        // calling a finished export a failure.
+        setExportOpen(false);
+        setExportResult({ ok: true, ...result });
+        try {
+          await recordActivity({
+            at: new Date().toISOString(),
+            kind: allTime ? 'export-all' : 'export-range',
+            filename: result.filename,
+            delivery: result.delivery,
+            taps: tapCount,
+            sessions: sessionCount,
+            ...(allTime || range.from === null || range.to === null
+              ? {}
+              : { rangeFrom: range.from, rangeTo: range.to }),
+          });
+          // Only the log is re-read: the numbers on screen are still true.
+          setActivity(await listActivity());
+        } catch {
+          setExportResult((current) =>
+            current?.ok ? { ...current, logFailed: true } : current,
+          );
+        }
+      } catch (error) {
+        // See ScannerScreen: a cancelled Save dialog must not read as a failure.
+        setExportOpen(false);
+        setExportResult({
+          ok: false,
+          cancelled: error instanceof ExportCancelledError,
+        });
+      } finally {
+        setExportWorking(false);
       }
-    } catch (error) {
-      // See ScannerScreen: a cancelled Save dialog must not read as a failure.
-      setExportResult({
-        ok: false,
-        cancelled: error instanceof ExportCancelledError,
-      });
-    }
-  }, [history, activeBody]);
+    },
+    [history, activeBody, activeBodyPath],
+  );
 
   /**
    * Runs the confirmed retention action, logs it as counts only, and reloads
@@ -1101,7 +1139,14 @@ export function DashboardPage() {
               metrics={metrics}
               isLoading={isLoading}
               onRefresh={() => void load()}
-              onExportAll={history ? () => void exportAll() : undefined}
+              onExport={
+                history
+                  ? () => {
+                      setExportResult(null);
+                      setExportOpen(true);
+                    }
+                  : undefined
+              }
               onSaveTarget={saveTarget}
               activity={activity}
               activeBody={activeBody ?? undefined}
@@ -1188,6 +1233,17 @@ export function DashboardPage() {
           </div>
         ) : null}
       </div>
+
+      {exportOpen && history ? (
+        <ExportDialog
+          bodyPath={activeBodyPath}
+          taps={history.taps}
+          persons={history.persons}
+          isWorking={exportWorking}
+          onExport={(range) => void exportRange(range)}
+          onCancel={() => setExportOpen(false)}
+        />
+      ) : null}
 
       {retentionAction ? (
         <RetentionDialog

@@ -89,7 +89,7 @@ export function RetentionDialog({
         </p>
 
         <p className="mt-3 text-sm leading-6 text-[hsl(var(--muted-foreground))]">
-          There is no server copy and no recycle bin. Export all history first
+          There is no server copy and no recycle bin. Export with the All time range first
           if these numbers have already been reported to anyone.
         </p>
 
