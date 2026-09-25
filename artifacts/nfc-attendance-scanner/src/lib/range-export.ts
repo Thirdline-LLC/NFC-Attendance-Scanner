@@ -46,6 +46,9 @@ const UNSAFE_FILENAME_CHARS = /[^\p{L}\p{N} _.,'()&+#-]/gu;
 /** Long enough for "English 11 - Period 3 - Room 114", short enough for any disk. */
 const MAX_BODY_PATH_LENGTH = 100;
 
+/** A class-wide scope segment (`All periods`) never takes more than this. */
+const MAX_SCOPE_LENGTH = 40;
+
 function sanitizeFilenamePart(part: string): string {
   return part
     .normalize('NFC')
@@ -78,8 +81,15 @@ export function buildRangeExportFilename(
    */
   scope?: string,
 ): string {
-  const suffix = scope ? sanitizeFilenamePart(scope) : '';
-  const room = MAX_BODY_PATH_LENGTH - (suffix ? suffix.length + 3 : 0);
+  // The scope comes from a free-text type label, so it is capped too: the
+  // path keeps at least half the room and the whole stays in the allowlist.
+  const suffix = scope
+    ? Array.from(sanitizeFilenamePart(scope))
+        .slice(0, MAX_SCOPE_LENGTH)
+        .join('')
+        .replace(/[\s.-]+$/, '')
+    : '';
+  const room = MAX_BODY_PATH_LENGTH - (suffix ? Array.from(suffix).length + 3 : 0);
   // Cut by characters, not UTF-16 units, so a name in a non-Latin script is
   // never left ending in half a character (which the allowlist would refuse).
   const path =

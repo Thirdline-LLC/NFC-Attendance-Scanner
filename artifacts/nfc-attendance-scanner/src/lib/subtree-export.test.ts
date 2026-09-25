@@ -391,6 +391,9 @@ describe('class-wide file names', () => {
       buildRangeExportFilename(['English 11'], SEPTEMBER, subtreeFilenameScope('periods')),
       buildRangeExportFilename(['Robotics: A/B'], range({ preset: 'all-time' }), subtreeFilenameScope('children')),
       buildRangeExportFilename(['a' + '𠀀'.repeat(120)], range({ preset: 'today' }), subtreeFilenameScope('classes')),
+      // A type label of any length still leaves a name the desktop will save.
+      buildRangeExportFilename(['English 11'], SEPTEMBER, subtreeFilenameScope('p'.repeat(150))),
+      buildRangeExportFilename(['x'.repeat(300)], SEPTEMBER, subtreeFilenameScope('𠀀'.repeat(150))),
     ];
     for (const filename of names) {
       expect(parseSaveRequest({ filename, base64 }), filename).toEqual({ filename, base64 });
