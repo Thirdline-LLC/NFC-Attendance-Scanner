@@ -23,6 +23,13 @@ function delivered(entry: ActivityEntry): string {
   }
 }
 
+/** `, 6 bodies` after a class-wide export's figures; nothing otherwise. */
+function acrossBodies(entry: ActivityEntry): string {
+  if (entry.scope !== 'subtree') return '';
+  const n = entry.bodies ?? 0;
+  return ` across ${n} ${n === 1 ? 'body' : 'bodies'}`;
+}
+
 /**
  * Turns a log row into words for the dashboard and the export's second sheet.
  * One place, so the two never disagree — and so the rule that a row holds no
@@ -38,19 +45,19 @@ export function describeActivity(entry: ActivityEntry): ActivityWording {
       };
     case 'export-all':
       return {
-        action: 'Exported all history',
-        detail: `${count(entry.taps, 'tap')} from ${count(entry.sessions, 'session')} — ${entry.filename ?? ''}, ${delivered(entry)}`,
+        action: entry.scope === 'subtree' ? 'Exported all history, with descendants' : 'Exported all history',
+        detail: `${count(entry.taps, 'tap')} from ${count(entry.sessions, 'session')}${acrossBodies(entry)} — ${entry.filename ?? ''}, ${delivered(entry)}`,
       };
     case 'export-range':
       return {
-        action: 'Exported a date range',
+        action: entry.scope === 'subtree' ? 'Exported a date range, with descendants' : 'Exported a date range',
         detail: `${
           entry.rangeFrom && entry.rangeTo
             ? entry.rangeFrom === entry.rangeTo
               ? formatSessionDateLabel(entry.rangeFrom)
               : `${formatSessionDateLabel(entry.rangeFrom)} – ${formatSessionDateLabel(entry.rangeTo)}`
             : 'A date range'
-        }: ${count(entry.taps, 'tap')} from ${count(entry.sessions, 'session')} — ${entry.filename ?? ''}, ${delivered(entry)}`,
+        }: ${count(entry.taps, 'tap')} from ${count(entry.sessions, 'session')}${acrossBodies(entry)} — ${entry.filename ?? ''}, ${delivered(entry)}`,
       };
     case 'export-roster':
       return {

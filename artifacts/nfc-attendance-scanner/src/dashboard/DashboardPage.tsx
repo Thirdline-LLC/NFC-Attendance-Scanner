@@ -5,6 +5,7 @@ import {
   flattenBodyTree,
   formatBodySubtitle,
   isArchived,
+  sharedTypeLabel,
   subtreeBodyIds,
 } from '@/data/body-hierarchy';
 import {
@@ -54,7 +55,11 @@ import {
 import { setSwitchPinRequired } from '@/data/switch-pin';
 import { deriveGrade } from '@/lib/attendance-export';
 import type { DateRange } from '@/lib/date-range';
-import { exportRangeWorkbook } from '@/lib/range-export';
+import {
+  exportRangeWorkbook,
+  exportSubtreeRangeWorkbook,
+  subtreeScopeNoun,
+} from '@/lib/range-export';
 import {
   computeDashboardMetrics,
   computePeriodBreakdown,
@@ -67,7 +72,7 @@ import {
   formatSessionDateLabel,
 } from '@/lib/session-formatting';
 import { RetentionDialog } from '@/ui/RetentionDialog';
-import { ExportDialog } from '@/ui/ExportDialog';
+import { ExportDialog, type ExportScope, type ExportSubtree } from '@/ui/ExportDialog';
 import { BodySwitcherDialog } from '@/ui/BodySwitcherDialog';
 import type { ClassSetupAttachment } from '@/ui/ClassSetupForm';
 import { BodyVocabularyDialog } from '@/ui/BodyVocabularyDialog';
@@ -222,8 +227,7 @@ export function DashboardPage() {
     const children = bodies.filter((body) => body.parentId === parentId);
     if (children.length === 0) return undefined;
     const live = children.filter((body) => !isArchived(body));
-    const labels = new Set((live.length > 0 ? live : children).map((body) => body.typeLabel.trim().toLowerCase()));
-    const childLabel = labels.size === 1 ? [...labels][0] : 'child';
+    const childLabel = sharedTypeLabel(live.length > 0 ? live : children)?.toLowerCase() ?? 'child';
     return {
       childLabel,
       rows: computePeriodBreakdown(
@@ -280,7 +284,8 @@ export function DashboardPage() {
       const bundle = { bodyTaps, bodyPersons, subtreeTaps, subtreePersons, target };
       setMetricsBundle(bundle);
       setMetrics(metricsFromBundle(scope, bundle, now));
-      // Export writes the active body only. The subtree workbook is Design 09 step 6.
+      // The single-body export's rows; the class-wide scope reads the
+      // subtree rows from the bundle above.
       setHistory({ taps: bodyTaps, persons: bodyPersons });
       setActivity(recent);
       setBoundary(start);
@@ -591,29 +596,58 @@ export function DashboardPage() {
     return row?.pathNames ?? [activeBody.name];
   }, [activeBody, bodies]);
 
+  // The class-wide scope (Design 09 §5): offered only when the active body
+  // has at least one descendant, from the same subtree rows the roll-up
+  // figures on screen were computed from.
+  const exportSubtree = useMemo((): ExportSubtree | undefined => {
+    if (!metricsBundle || activeBody?.id === undefined) return undefined;
+    if (subtreeBodyIds(activeBody.id, bodies).length < 2) return undefined;
+    return {
+      rootId: activeBody.id,
+      bodies,
+      taps: metricsBundle.subtreeTaps,
+      persons: metricsBundle.subtreePersons,
+      noun: subtreeScopeNoun(activeBody.id, bodies),
+    };
+  }, [metricsBundle, activeBody, bodies]);
+
   /**
-   * The Export dialog's confirm (Design 09 §4). Writes the active body's
-   * workbook for `range` from the history the numbers on screen came from.
-   * All time carries the whole activity log as its last sheet and is logged
-   * as `export-all`, as the one-shot whole-history export was; any other
-   * range is logged as `export-range` with its dates. Counts and the file
-   * name only — never who is in it.
+   * The Export dialog's confirm (Design 09 §4, §5). Writes the active body's
+   * workbook — or, for the class-wide scope, the body plus every descendant —
+   * for `range` from the history the numbers on screen came from. All time
+   * carries the whole activity log as its last sheet and is logged as
+   * `export-all`, as the one-shot whole-history export was; any other range
+   * is logged as `export-range` with its dates. A class-wide export adds
+   * `scope: 'subtree'` and how many bodies it covered. Counts, dates and the
+   * file name only — never who is in it.
    */
   const exportRange = useCallback(
-    async (range: DateRange) => {
+    async (range: DateRange, scope: ExportScope) => {
       if (!history) return;
       setExportWorking(true);
       try {
         const allTime = range.preset === 'all-time';
-        const delivered = await exportRangeWorkbook({
-          taps: history.taps,
-          persons: history.persons,
-          body: activeBody ?? undefined,
-          bodyPath: activeBodyPath,
-          range,
-          activity: allTime ? await listActivity(ACTIVITY_LOG_CAP) : undefined,
-        });
-        const { tapCount, sessionCount, ...result } = delivered;
+        const activity = allTime ? await listActivity(ACTIVITY_LOG_CAP) : undefined;
+        const delivered =
+          scope === 'subtree' && exportSubtree
+            ? await exportSubtreeRangeWorkbook({
+                ...exportSubtree,
+                bodyPath: activeBodyPath,
+                range,
+                activity,
+              })
+            : await exportRangeWorkbook({
+                taps: history.taps,
+                persons: history.persons,
+                body: activeBody ?? undefined,
+                bodyPath: activeBodyPath,
+                range,
+                activity,
+              });
+        // `bodyCount` is only on a class-wide export's result.
+        const { tapCount, sessionCount, bodyCount, ...result }: typeof delivered & {
+          bodyCount?: number;
+        } = delivered;
         // The notice goes up as soon as the file is delivered; the log row
         // follows, and if it cannot be written the notice says so rather than
         // calling a finished export a failure.
@@ -630,6 +664,7 @@ export function DashboardPage() {
             ...(allTime || range.from === null || range.to === null
               ? {}
               : { rangeFrom: range.from, rangeTo: range.to }),
+            ...(bodyCount === undefined ? {} : { scope: 'subtree' as const, bodies: bodyCount }),
           });
           // Only the log is re-read: the numbers on screen are still true.
           setActivity(await listActivity());
@@ -649,7 +684,7 @@ export function DashboardPage() {
         setExportWorking(false);
       }
     },
-    [history, activeBody, activeBodyPath],
+    [history, activeBody, activeBodyPath, exportSubtree],
   );
 
   /**
@@ -1239,8 +1274,10 @@ export function DashboardPage() {
           bodyPath={activeBodyPath}
           taps={history.taps}
           persons={history.persons}
+          subtree={exportSubtree}
+          initialScope={metricsScope}
           isWorking={exportWorking}
-          onExport={(range) => void exportRange(range)}
+          onExport={(range, scope) => void exportRange(range, scope)}
           onCancel={() => setExportOpen(false)}
         />
       ) : null}

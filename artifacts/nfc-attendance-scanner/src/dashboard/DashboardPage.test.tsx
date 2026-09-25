@@ -1182,6 +1182,71 @@ describe('DashboardPage attendance body', () => {
     expect(screen.queryByTestId('table-period-breakdown')).toBeNull();
   });
 
+  it('exports the class with all its periods, and logs the scope by count only', async () => {
+    const seniorYear = currentSeniorGradYear(new Date().toISOString());
+    const { parent, periods } = await attendanceStore.createClassWithPeriods({
+      className: 'English 11',
+      periodNames: ['Period 1', 'Period 3'],
+    });
+    const [first, third] = periods;
+    for (const [index, period] of [first, third].entries()) {
+      await setActiveBody(period.id as number);
+      const person = await addPerson({
+        cardUid: `04000000000D${index}0`,
+        firstName: `Student${index}`,
+        lastName: 'Class',
+        gradYear: seniorYear,
+        email: `class-${index}@example.com`,
+        enrolledAt: secondsAgo(200),
+      });
+      await recordSessionTap({
+        sessionId: `class-${index}`,
+        uid: person.cardUid,
+        scannedAt: secondsAgo(100 - index),
+        personId: person.id,
+      });
+    }
+    await setActiveBody(parent.id as number);
+    const exportSpy = vi
+      .spyOn(rangeExport, 'exportSubtreeRangeWorkbook')
+      .mockResolvedValue({ ...delivered('English 11 - All periods - All time.xlsx'), bodyCount: 2 });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId('button-export-history'));
+    const dialog = await screen.findByTestId('dialog-export');
+    // The dashboard shows "This body", so the dialog starts there too.
+    expect(within(dialog).getByRole('radio', { name: 'This body only' })).toHaveProperty('checked', true);
+    await user.click(within(dialog).getByRole('radio', { name: 'This body + all periods' }));
+    await user.click(within(dialog).getByTestId('radio-range-all-time'));
+    await user.click(within(dialog).getByTestId('button-export-confirm'));
+
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledTimes(1));
+    const [call] = exportSpy.mock.calls[0];
+    expect(call.rootId).toBe(parent.id);
+    expect(call.bodyPath).toEqual(['English 11']);
+    expect(new Set(call.taps.map((tap) => tap.bodyId))).toEqual(new Set([first.id, third.id]));
+    expect(call.activity).toBeDefined();
+    await waitFor(async () =>
+      expect((await attendanceStore.listActivity())[0]).toMatchObject({
+        kind: 'export-all',
+        filename: 'English 11 - All periods - All time.xlsx',
+        scope: 'subtree',
+        bodies: 2,
+      }),
+    );
+    const row = (await attendanceStore.listActivity())[0];
+    expect(JSON.stringify(row)).not.toMatch(/example\.com|Student|04000000000D/);
+  });
+
+  it('offers no class-wide scope for a body without descendants', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByTestId('button-export-history'));
+    const dialog = await screen.findByTestId('dialog-export');
+    expect(within(dialog).queryByTestId('export-scope-options')).toBeNull();
+  });
+
   it('shows a child body with its path and still switches to it', async () => {
     const parent = await getActiveBody();
     const child = await createBody({

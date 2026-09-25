@@ -206,6 +206,13 @@ export type ActivityEntry = {
   rangeFrom?: string;
   rangeTo?: string;
   /**
+   * A class-wide export (Design 09 §5): `subtree` when the file covered the
+   * active body plus its descendants, and how many bodies had a row in it.
+   * Absent for a single-body export. Counts only; not indexed.
+   */
+  scope?: 'subtree';
+  bodies?: number;
+  /**
    * A scanner period switch (Design 09 §3): which body the desk left and
    * which it moved to, by id and by the admin's own name for it. Bodies are
    * classes and periods, not people, so these carry no student data. Not
