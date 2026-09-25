@@ -260,8 +260,10 @@ export function PeriodChooserDialog({
                     {body.name}
                   </span>
                   {current ? (
-                    <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-[hsl(var(--primary))]">
-                      <Check aria-hidden="true" size={14} />
+                    // Text in the foreground colour: primary on its own tint
+                    // falls under 4.5:1 in the light SJC skin.
+                    <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-[hsl(var(--foreground))]">
+                      <Check aria-hidden="true" size={14} className="text-[hsl(var(--primary))]" />
                       Current
                     </span>
                   ) : null}
