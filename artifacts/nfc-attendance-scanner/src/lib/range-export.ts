@@ -60,11 +60,11 @@ function sanitizeFilenamePart(part: string): string {
  * same range with newer data.
  */
 export function buildRangeExportFilename(bodyPath: readonly string[], range: DateRange): string {
-  const path = bodyPath
-    .map(sanitizeFilenamePart)
-    .filter(Boolean)
-    .join(' - ')
+  // Cut by characters, not UTF-16 units, so a name in a non-Latin script is
+  // never left ending in half a character (which the allowlist would refuse).
+  const path = Array.from(bodyPath.map(sanitizeFilenamePart).filter(Boolean).join(' - '))
     .slice(0, MAX_BODY_PATH_LENGTH)
+    .join('')
     .replace(/[\s.-]+$/, '');
   return `${path || 'Attendance'} - ${formatRangeForFilename(range)}.xlsx`;
 }

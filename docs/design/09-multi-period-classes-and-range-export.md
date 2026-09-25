@@ -80,7 +80,7 @@ Optional: seed a 08b `BodyFieldDef` "Period" (and "Room") for `typeLabel` "perio
 "Export" on the dashboard opens an **Export dialog**:
 
 - **Range:** Today · Single day (date picker) · Last 7 days · Past month · Past year · This school year (from August 1) · All time · Custom (from/to).
-- Day boundaries are local midnight on the device clock; both ends inclusive.
+- Day boundaries are local midnight on the school's session calendar (`formatSessionDate`, the zone the device clock reads at the school); both ends inclusive. *(Step 5: "device clock" read as the session calendar so ranges agree with Meeting Date, YTD and retention; see Build order step 5.)*
 - File name carries body and range, e.g. `English 11 – Period 3 – 2026-09-01 to 2026-09-24.xlsx`.
 
 ### Workbook

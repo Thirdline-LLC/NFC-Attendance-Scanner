@@ -358,6 +358,7 @@ describe('range export file names', () => {
       buildRangeExportFilename(['Español 2', 'Section "B" <new>'], SEPTEMBER),
       buildRangeExportFilename(['🚀'], SEPTEMBER),
       buildRangeExportFilename(['x'.repeat(300)], SEPTEMBER),
+      buildRangeExportFilename(['a' + '𠀀'.repeat(120)], SEPTEMBER),
     ];
     for (const filename of names) {
       expect(parseSaveRequest({ filename, base64 }), filename).toEqual({ filename, base64 });
