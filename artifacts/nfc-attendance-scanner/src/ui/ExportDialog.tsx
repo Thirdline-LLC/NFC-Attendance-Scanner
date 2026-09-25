@@ -159,7 +159,7 @@ export function ExportDialog({
                     className="peer sr-only"
                     data-testid={`radio-range-${option}`}
                   />
-                  <span className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-[hsl(var(--border))] px-2 text-center text-sm font-semibold text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--secondary))] peer-checked:border-[hsl(var(--primary))] peer-checked:bg-[hsl(var(--primary))] peer-checked:text-[hsl(var(--primary-foreground))] peer-focus-visible:ring-2 peer-focus-visible:ring-[hsl(var(--ring))] peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[hsl(var(--card))]">
+                  <span className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-[hsl(var(--border))] px-2 text-center text-sm font-semibold text-[hsl(var(--foreground))] transition hover:border-[hsl(var(--primary)/.6)] peer-checked:border-[hsl(var(--primary))] peer-checked:bg-[hsl(var(--primary))] peer-checked:text-[hsl(var(--primary-foreground))] peer-focus-visible:ring-2 peer-focus-visible:ring-[hsl(var(--ring))] peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[hsl(var(--card))]">
                     {RANGE_PRESET_LABELS[option]}
                   </span>
                 </label>
