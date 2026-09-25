@@ -150,7 +150,7 @@ session. Second taps never raise it.
    and still appear in the dashboard's export.
 
 To get everything ever recorded, not just today: **Dashboard** →
-**Export all history**.
+**Export** → **All time**.
 
 ## The other two screens
 
@@ -163,7 +163,7 @@ Both ask for the **teacher PIN** before they show anything.
   still belong to nobody. Also three cards for the teacher: **Activity** (every
   export and deletion this device has made, as counts and filenames — never a
   name), **Data retention** (at the start of each school year, after
-  *Export all history*: delete last year's taps, and remove graduated
+  *Export → All time*: delete last year's taps, and remove graduated
   students — each shows what it will delete before asking, and neither can be
   undone), and **Teacher PIN** (change it).
 

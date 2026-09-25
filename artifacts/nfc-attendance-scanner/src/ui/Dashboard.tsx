@@ -45,12 +45,13 @@ type DashboardProps = {
   isLoading?: boolean;
   onRefresh?: () => void;
   /**
-   * Writes the whole tap history to a workbook. The scanner's own export is
-   * scoped to the session on screen, so without this a rotated-away session —
-   * and the taps a v3 upgrade stamped `legacy` — could never reach the .xlsx
-   * that is the actual system of record.
+   * Opens the Export dialog (Design 09 §4): a date range of the active body,
+   * All time included. The scanner's own export is scoped to the session on
+   * screen, so without this a rotated-away session — and the taps a v3
+   * upgrade stamped `legacy` — could never reach the .xlsx that is the
+   * actual system of record.
    */
-  onExportAll?: () => void;
+  onExport?: () => void;
   /**
    * Stores a new per-session target. Resolves false when it could not be
    * written, so the editor can stay open rather than pretend it saved.
@@ -154,7 +155,7 @@ export function Dashboard({
   metrics,
   isLoading = false,
   onRefresh,
-  onExportAll,
+  onExport,
   onSaveTarget,
   activity = [],
   onChangePin,
@@ -197,15 +198,16 @@ export function Dashboard({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {onExportAll ? (
+          {onExport ? (
             <button
               type="button"
-              onClick={onExportAll}
-              className="flex items-center gap-2 self-start rounded-full border border-[hsl(var(--primary)/.55)] bg-[hsl(var(--primary)/.12)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--primary))] transition hover:bg-[hsl(var(--primary)/.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:self-auto"
+              onClick={onExport}
+              aria-haspopup="dialog"
+              className="flex min-h-11 items-center gap-2 self-start rounded-full border border-[hsl(var(--primary)/.55)] bg-[hsl(var(--primary)/.12)] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[hsl(var(--primary))] transition hover:bg-[hsl(var(--primary)/.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:self-auto"
               data-testid="button-export-history"
             >
               <FileSpreadsheet aria-hidden="true" size={14} />
-              Export all history
+              Export
             </button>
           ) : null}
           {onRefresh ? (
@@ -598,8 +600,9 @@ function PeriodBreakdownTable({
       <div className="mt-2 overflow-x-auto">
         <table className="w-full min-w-[26rem] text-sm" data-testid="table-period-breakdown">
           <caption className="pb-2 text-left text-xs leading-5 text-[hsl(var(--muted-foreground))]">
-            This school year. Average attendance is students present per meeting as a share of
-            that {childLabel}’s roster.
+            This school year. Average attendance takes each meeting’s students present as a share
+            of that {childLabel}’s roster on that day, averaged over its meetings — the same figure
+            the {childLabel}’s “This school year” export shows.
           </caption>
           <thead>
             <tr className="border-b border-[hsl(var(--border))] text-[11px] font-semibold text-[hsl(var(--muted-foreground))]">

@@ -323,6 +323,40 @@ describe('ScannerScreen period switcher (Design 09 §3)', () => {
     expect((screen.getByTestId('input-scanner-hidden') as HTMLInputElement).value).toBe('');
   });
 
+  it('turns capture off while the switch runs, then hands focus back to the reader', async () => {
+    const { p3 } = await setUpClass();
+    const user = userEvent.setup();
+    renderScanner();
+    await waitForReady();
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const real = attendanceStore.findTodaysSessionForBody;
+    vi.spyOn(attendanceStore, 'findTodaysSessionForBody').mockImplementationOnce(async (id) => {
+      await gate;
+      return real(id);
+    });
+
+    await user.click(await findTrigger());
+    await user.click(await screen.findByTestId(`button-period-option-${p3}`));
+    await waitFor(() =>
+      expect(screen.getByTestId('text-scanner-focus').textContent).toBe('Scanner off — switching'),
+    );
+
+    release();
+    await waitFor(() =>
+      expect(screen.getByTestId('text-period-switch-status').textContent).toBe(
+        'Now taking attendance for Period 3',
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('text-scanner-focus').textContent).toBe('Scanner active'),
+    );
+    expect(document.activeElement).toBe(screen.getByTestId('input-scanner-hidden'));
+  });
+
   it('drops a card read after the switch but before the new period is on screen', async () => {
     const { p1, p3, p5, p6 } = await setUpClass();
     const user = userEvent.setup();

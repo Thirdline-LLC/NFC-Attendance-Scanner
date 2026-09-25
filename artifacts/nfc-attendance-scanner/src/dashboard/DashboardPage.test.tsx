@@ -19,7 +19,7 @@ import {
 } from '@/data/attendance-store';
 import * as operatorPin from '@/data/operator-pin';
 import { setOperatorPin, verifyOperatorPin } from '@/data/operator-pin';
-import * as attendanceExport from '@/lib/attendance-export';
+import * as rangeExport from '@/lib/range-export';
 import * as rosterTemplate from '@/lib/roster-template';
 import { currentSeniorGradYear } from '@/lib/attendance-export';
 import { schoolYearStart } from '@/lib/attendance-metrics';
@@ -107,6 +107,21 @@ async function seedTwoSessions(): Promise<{ jane: BoundPerson; ada: BoundPerson 
   return { jane, ada };
 }
 
+/** Opens the Export dialog, picks a range and confirms it. */
+async function exportRange(
+  user: ReturnType<typeof userEvent.setup>,
+  preset: 'all-time' | 'today' | 'school-year' = 'all-time',
+) {
+  await user.click(await screen.findByTestId('button-export-history'));
+  const dialog = await screen.findByTestId('dialog-export');
+  await user.click(within(dialog).getByTestId(`radio-range-${preset}`));
+  await user.click(within(dialog).getByTestId('button-export-confirm'));
+}
+
+function delivered(filename: string) {
+  return { filename, delivery: 'download' as const, tapCount: 4, sessionCount: 2 };
+}
+
 describe('DashboardPage', () => {
   beforeEach(async () => {
     localStorage.clear();
@@ -154,19 +169,17 @@ describe('DashboardPage', () => {
       personId: jane.id as number,
     });
     const exportSpy = vi
-      .spyOn(attendanceExport, 'exportAttendanceWorkbook')
-      .mockResolvedValue({
-        filename: 'attendance-2026-09-07-20260907T000000Z.xlsx',
-        delivery: 'download',
-      });
+      .spyOn(rangeExport, 'exportRangeWorkbook')
+      .mockResolvedValue(delivered('Robotics Club - All time.xlsx'));
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('dashboard');
 
-    await user.click(screen.getByTestId('button-export-history'));
+    await exportRange(user, 'all-time');
 
-    expect(exportSpy).toHaveBeenCalledTimes(1);
-    const [exportedTaps, exportedPersons] = exportSpy.mock.calls[0];
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledTimes(1));
+    const [{ taps: exportedTaps, persons: exportedPersons, range }] = exportSpy.mock.calls[0];
+    expect(range).toEqual({ preset: 'all-time', from: null, to: null });
     expect(exportedTaps).toHaveLength(5);
     expect(new Set(exportedTaps.map((tap) => tap.sessionId))).toEqual(
       new Set(['legacy', 'session-one', 'session-two']),
@@ -176,19 +189,21 @@ describe('DashboardPage', () => {
 
   it('names the file it handed to the browser', async () => {
     await seedTwoSessions();
-    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockResolvedValue({
-      filename: 'attendance-2026-09-07-20260907T000000Z.xlsx',
-      delivery: 'download',
-    });
+    vi.spyOn(rangeExport, 'exportRangeWorkbook').mockResolvedValue(
+      delivered('Robotics Club - 2026-09-07.xlsx'),
+    );
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('dashboard');
 
-    await user.click(screen.getByTestId('button-export-history'));
+    await exportRange(user, 'today');
 
-    expect(screen.getByTestId('text-export-saved').textContent).toContain(
-      'attendance-2026-09-07-20260907T000000Z.xlsx',
+    expect((await screen.findByTestId('text-export-saved')).textContent).toContain(
+      'Robotics Club - 2026-09-07.xlsx',
     );
+    // The dialog closes on a delivered file, and focus goes back to Export.
+    expect(screen.queryByTestId('dialog-export')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('button-export-history'));
   });
 
   it('re-reads the store when refreshed', async () => {
@@ -367,15 +382,15 @@ describe('DashboardPage activity log', () => {
     await seedTwoSessions();
     await recordActivity({ at: secondsAgo(20), kind: 'pin-set' });
     const exportSpy = vi
-      .spyOn(attendanceExport, 'exportAttendanceWorkbook')
-      .mockResolvedValue({ filename: 'attendance-all.xlsx', delivery: 'download' });
+      .spyOn(rangeExport, 'exportRangeWorkbook')
+      .mockResolvedValue(delivered('attendance-all.xlsx'));
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByTestId('button-export-history'));
+    await exportRange(user, 'all-time');
 
     await waitFor(() => expect(exportSpy).toHaveBeenCalledTimes(1));
-    const [, , activity] = exportSpy.mock.calls[0];
+    const [{ activity }] = exportSpy.mock.calls[0];
     expect(activity?.map((entry) => entry.kind)).toEqual(['pin-set']);
 
     await waitFor(async () =>
@@ -399,17 +414,61 @@ describe('DashboardPage activity log', () => {
     );
   });
 
+  it('logs a date-range export by its dates, with no activity sheet', async () => {
+    await seedTwoSessions();
+    await recordActivity({ at: secondsAgo(20), kind: 'pin-set' });
+    const exportSpy = vi
+      .spyOn(rangeExport, 'exportRangeWorkbook')
+      .mockResolvedValue(delivered('Robotics Club - 2026-08-01 to 2026-09-24.xlsx'));
+    const user = userEvent.setup();
+    renderPage();
+
+    await exportRange(user, 'school-year');
+
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledTimes(1));
+    const [{ activity, range, bodyPath }] = exportSpy.mock.calls[0];
+    expect(activity).toBeUndefined();
+    expect(range.preset).toBe('school-year');
+    expect(bodyPath).toEqual([(await getActiveBody()).name]);
+    await waitFor(async () =>
+      expect((await attendanceStore.listActivity())[0]).toMatchObject({
+        kind: 'export-range',
+        filename: 'Robotics Club - 2026-08-01 to 2026-09-24.xlsx',
+        taps: 4,
+        sessions: 2,
+        rangeFrom: range.from,
+        rangeTo: range.to,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('list-activity')).getAllByRole('listitem')[0]
+          .textContent,
+      ).toContain('Exported a date range'),
+    );
+  });
+
+  it('delivers a real range workbook named for the body and the day', async () => {
+    await seedTwoSessions();
+    const user = userEvent.setup();
+    renderPage();
+
+    await exportRange(user, 'today');
+
+    await screen.findByTestId('text-export-saved');
+    expect(screen.getByTestId('text-export-saved').textContent).toMatch(/ - \d{4}-\d{2}-\d{2}\.xlsx/);
+  });
+
   it('keeps the export a success when the log row cannot be written', async () => {
     await seedTwoSessions();
-    vi.spyOn(attendanceExport, 'exportAttendanceWorkbook').mockResolvedValue({
-      filename: 'attendance-all.xlsx',
-      delivery: 'download',
-    });
+    vi.spyOn(rangeExport, 'exportRangeWorkbook').mockResolvedValue(
+      delivered('attendance-all.xlsx'),
+    );
     vi.spyOn(attendanceStore, 'recordActivity').mockRejectedValue(new Error('quota'));
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByTestId('button-export-history'));
+    await exportRange(user, 'all-time');
 
     await waitFor(() =>
       expect(screen.getByTestId('text-export-saved').textContent).toContain(

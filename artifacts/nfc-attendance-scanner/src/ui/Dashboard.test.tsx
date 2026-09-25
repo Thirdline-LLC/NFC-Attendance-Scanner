@@ -241,14 +241,17 @@ describe('Dashboard chrome', () => {
     expect(button.textContent).toBe('Refreshing');
   });
 
-  it('offers the whole-history export only when given a handler', async () => {
+  it('offers the export only when given a handler', async () => {
     const { rerender } = render(<Dashboard metrics={populated} />);
     expect(screen.queryByTestId('button-export-history')).toBeNull();
 
-    const onExportAll = vi.fn();
-    rerender(<Dashboard metrics={populated} onExportAll={onExportAll} />);
-    await userEvent.setup().click(screen.getByTestId('button-export-history'));
+    const onExport = vi.fn();
+    rerender(<Dashboard metrics={populated} onExport={onExport} />);
+    const button = screen.getByTestId('button-export-history');
+    expect(button.textContent).toBe('Export');
+    expect(button.getAttribute('aria-haspopup')).toBe('dialog');
+    await userEvent.setup().click(button);
 
-    expect(onExportAll).toHaveBeenCalledTimes(1);
+    expect(onExport).toHaveBeenCalledTimes(1);
   });
 });

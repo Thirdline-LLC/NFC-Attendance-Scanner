@@ -41,11 +41,24 @@ export const ROSTER_EXPORT_FILENAME =
 export const TEMPLATE_EXPORT_FILENAME =
   /^tapin-roster-template-[a-z0-9-]{1,64}\.(?:xlsx|csv)$/;
 
+/**
+ * The filename shape `buildRangeExportFilename` produces (Design 09 §4) —
+ * `English 11 - Period 3 - 2026-09-01 to 2026-09-24.xlsx`, a single
+ * `... - 2026-09-24.xlsx`, or `... - All time.xlsx`. The body path is the
+ * admin's own names, so it allows letters and digits in any script, spaces
+ * and a few harmless marks, and still no separator, colon, NUL or leading
+ * dot. The renderer's sanitiser (`src/lib/range-export.ts`) maps everything
+ * else to `-` before it gets here.
+ */
+export const RANGE_EXPORT_FILENAME =
+  /^(?![\s.])[\p{L}\p{N} _.,'()&+#-]{1,100} - (?:\d{4}-\d{2}-\d{2}(?: to \d{4}-\d{2}-\d{2})?|All time)\.xlsx$/u;
+
 /** Every filename shape a save request may name. */
 const ALLOWED_EXPORT_FILENAMES = [
   EXPORT_FILENAME,
   ROSTER_EXPORT_FILENAME,
   TEMPLATE_EXPORT_FILENAME,
+  RANGE_EXPORT_FILENAME,
 ];
 
 /** 64 MB of base64. A full school year of taps is a few hundred kilobytes. */

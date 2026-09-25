@@ -155,6 +155,7 @@ export class BodyVocabError extends Error {
 export type ActivityKind =
   | 'export-session'
   | 'export-all'
+  | 'export-range'
   | 'export-roster'
   | 'import-roster'
   | 'remove-student'
@@ -197,6 +198,13 @@ export type ActivityEntry = {
   rejected?: number;
   /** A history purge: the school-year boundary it deleted before, `YYYY-MM-DD`. */
   before?: string;
+  /**
+   * A date-range export (Design 09 §4): the inclusive range it covered, as
+   * session-calendar days `YYYY-MM-DD`. Dates, not people; not indexed, so
+   * the table's schema is unchanged. All time is logged as `export-all`.
+   */
+  rangeFrom?: string;
+  rangeTo?: string;
   /**
    * A scanner period switch (Design 09 §3): which body the desk left and
    * which it moved to, by id and by the admin's own name for it. Bodies are

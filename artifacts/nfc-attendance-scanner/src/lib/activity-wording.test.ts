@@ -60,6 +60,37 @@ describe('describeActivity', () => {
     });
   });
 
+  it('names the range, not the people, for a date-range export', () => {
+    expect(
+      describeActivity({
+        at: AT,
+        kind: 'export-range',
+        filename: 'English 11 - Period 3 - 2026-09-01 to 2026-09-24.xlsx',
+        delivery: 'saved',
+        taps: 40,
+        sessions: 5,
+        rangeFrom: '2026-09-01',
+        rangeTo: '2026-09-24',
+      }),
+    ).toEqual({
+      action: 'Exported a date range',
+      detail:
+        'Sep 1, 2026 – Sep 24, 2026: 40 taps from 5 sessions — English 11 - Period 3 - 2026-09-01 to 2026-09-24.xlsx, saved',
+    });
+    expect(
+      describeActivity({
+        at: AT,
+        kind: 'export-range',
+        filename: 'Chess - 2026-09-02.xlsx',
+        delivery: 'download',
+        taps: 1,
+        sessions: 1,
+        rangeFrom: '2026-09-02',
+        rangeTo: '2026-09-02',
+      }).detail,
+    ).toBe('Sep 2, 2026: 1 tap from 1 session — Chess - 2026-09-02.xlsx, handed to the browser');
+  });
+
   it('describes a roster import and export by count only', () => {
     expect(
       describeActivity({
