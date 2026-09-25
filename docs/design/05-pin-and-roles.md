@@ -17,6 +17,7 @@ Two roles — **Desk** and **Teacher** — gated by a 4–8 digit teacher PIN (P
   normal path to the dashboard already forces one to be set first — or when
   the requirement is already off with no PIN behind it, so a device stuck in
   that state still has a way back in.
+- *Amended by [Design 09](09-multi-period-classes-and-range-export.md) §3 (slice 4):* **Require PIN to switch periods** (`switch-switch-pin-required`, setting `switch-pin-required`, default off) sits on the same card. Switching periods on the scanner is not a teacher action and needs no PIN unless this is on. It follows the same protection-toggle rule: on needs no PIN, but a PIN must exist (the switch is disabled with an explanation otherwise); off asks for the current PIN; each change logs `switch-pin-enabled` / `switch-pin-disabled` with a timestamp only. With no PIN hash on the device the setting is not enforced, so the scanner never dead-ends on a PIN prompt nobody can answer.
 
 ## Data flow
 

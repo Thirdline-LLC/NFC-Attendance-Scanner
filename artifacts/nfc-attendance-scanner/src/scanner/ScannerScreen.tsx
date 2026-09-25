@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -14,7 +14,11 @@ import {
   UserRoundCheck,
   Users,
 } from 'lucide-react';
-import { formatBodySubtitle } from '@/data/body-hierarchy';
+import {
+  formatBodySubtitle,
+  periodSwitchOptions,
+  periodSwitchTitle,
+} from '@/data/body-hierarchy';
 import {
   getActiveBody,
   listBodies,
@@ -22,6 +26,7 @@ import {
   type AttendanceBody,
 } from '@/data/attendance-store';
 import { hasOperatorPin } from '@/data/operator-pin';
+import { isSwitchPinEnforced } from '@/data/switch-pin';
 import { useOperatorLock } from '@/lock/OperatorLockProvider';
 import { PinDialog } from '@/lock/PinDialog';
 import { exportAttendanceWorkbook } from '@/lib/attendance-export';
@@ -29,8 +34,10 @@ import { type ExportResult } from '@/ui/ExportNotice';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
 import {
   useAttendanceSession,
+  TapPendingError,
   type ScannerMode,
 } from '@/scanner/use-attendance-session';
+import { PeriodChooserDialog, PeriodSwitchBar } from '@/scanner/PeriodSwitcher';
 import { CardBindDialog } from '@/ui/CardBindDialog';
 import { EnrollmentForm } from '@/ui/EnrollmentForm';
 import { FeedbackPanel } from '@/ui/FeedbackPanel';
@@ -64,9 +71,24 @@ export function ScannerScreen() {
   // leaves this null and the columns simply come back blank, same as no body
   // at all; it never blocks the export itself.
   const [activeBody, setActiveBody] = useState<AttendanceBody | null>(null);
-  // Subtitle only. The desk never flips bodies mid-queue; attachment changes
-  // on the dashboard, before this screen opens the next session.
+  // The desk subtitle. The desk never flips bodies mid-queue: the dashboard
+  // changes attachment between visits, and the period switcher below only
+  // runs once no tap is pending.
   const [bodySubtitle, setBodySubtitle] = useState<string | null>(null);
+  // Every body on the device, for the period switcher's sibling list
+  // (Design 09 §3). Names and tree shape only — nothing about students.
+  const [bodies, setBodies] = useState<AttendanceBody[]>([]);
+  const [chooserOpen, setChooserOpen] = useState(false);
+  // A period picked while "Require PIN to switch periods" is on, waiting for
+  // the PIN dialog to confirm it.
+  const [switchPinTarget, setSwitchPinTarget] = useState<number | null>(null);
+  const [isSwitching, setIsSwitching] = useState(false);
+  // Set synchronously with `isSwitching`, so a card read in the same tick as
+  // the switch starting is already refused (see `submitScan`).
+  const isSwitchingRef = useRef(false);
+  const [switchConfirmation, setSwitchConfirmation] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const switchTriggerRef = useRef<HTMLButtonElement>(null);
   const {
     count,
     sessionStartedAt,
@@ -89,6 +111,8 @@ export function ScannerScreen() {
     storageStatus,
     saveErrorMessage,
     retryStorage,
+    pendingTap,
+    switchBody,
     handleScan,
     enrollPerson,
     cancelEnrollment,
@@ -125,7 +149,9 @@ export function ScannerScreen() {
         !bindCandidate &&
         !sessionSummary &&
         !isConfirmingNewSession &&
-        !pinOpen,
+        !pinOpen &&
+        !chooserOpen &&
+        switchPinTarget === null,
     );
   }, [
     enrollmentCandidate,
@@ -133,6 +159,8 @@ export function ScannerScreen() {
     sessionSummary,
     isConfirmingNewSession,
     pinOpen,
+    chooserOpen,
+    switchPinTarget,
   ]);
 
   useEffect(() => {
@@ -143,15 +171,30 @@ export function ScannerScreen() {
 
   useEffect(() => {
     void Promise.all([getActiveBody(), listBodies()])
-      .then(([body, bodies]) => {
+      .then(([body, allBodies]) => {
         setActiveBody(body);
-        setBodySubtitle(formatBodySubtitle(body, bodies));
+        setBodies(allBodies);
+        setBodySubtitle(formatBodySubtitle(body, allBodies));
       })
       .catch(() => {
         setActiveBody(null);
+        setBodies([]);
         setBodySubtitle(null);
       });
   }, []);
+
+  const periodSwitch = useMemo(() => {
+    const scope = periodSwitchOptions(activeBody?.id, bodies);
+    return scope ? { ...scope, title: periodSwitchTitle(scope.parent, scope.options) } : null;
+  }, [activeBody, bodies]);
+
+  // The confirmation is a moment, not a fixture: the strip already names the
+  // period in large type once the announcement has been made.
+  useEffect(() => {
+    if (!switchConfirmation) return;
+    const id = window.setTimeout(() => setSwitchConfirmation(null), 8000);
+    return () => window.clearTimeout(id);
+  }, [switchConfirmation]);
 
   useEffect(() => {
     if (storageStatus === 'unavailable') setSawStorageUnavailable(true);
@@ -206,6 +249,15 @@ export function ScannerScreen() {
 
   const submitScan = useCallback(() => {
     if (!rawInput) return;
+    // A card read while a period switch is under way is dropped, not queued:
+    // queued, it would run after the switch and land on the period the desk
+    // is moving to, while the screen still showed the one it was read on.
+    // This is the switch-then-scan half of the no-flip-mid-queue rule; the
+    // switcher being disabled while a tap is pending is the other half.
+    if (isSwitchingRef.current) {
+      setRawInput('');
+      return;
+    }
     void handleScan(rawInput);
     setRawInput('');
   }, [rawInput, handleScan]);
@@ -343,6 +395,109 @@ export function ScannerScreen() {
       if (captureEnabledRef.current) inputRef.current?.focus();
     }, 0);
   }, []);
+
+  const refocusReader = useCallback(() => {
+    window.setTimeout(() => {
+      if (captureEnabledRef.current) inputRef.current?.focus();
+    }, 0);
+  }, []);
+
+  /**
+   * Moves the desk to `bodyId` (Design 09 §3) once any PIN the device asks
+   * for has been given. The hook does the switch itself, through the scan
+   * queue; this re-reads the body for the subtitle and the export, announces
+   * it, and logs it by body id and name only.
+   */
+  const performSwitch = useCallback(
+    async (bodyId: number) => {
+      const from = activeBody;
+      const to = bodies.find((body) => body.id === bodyId);
+      setSwitchError(null);
+      setSwitchConfirmation(null);
+      // Held until the new period is on screen, not just until the hook has
+      // switched: a card read between the two would count for the new period
+      // while the subtitle still named the old one.
+      isSwitchingRef.current = true;
+      setIsSwitching(true);
+      try {
+        try {
+          await switchBody(bodyId);
+        } catch (error) {
+          setSwitchError(
+            error instanceof TapPendingError
+              ? `Still on ${from?.name ?? 'the same body'}. Finish the current tap first, then switch.`
+              : `This device couldn't switch to ${to?.name ?? 'that'}. It is still on ${from?.name ?? 'the same body'}; try again.`,
+          );
+          return;
+        }
+        // The export notice belonged to the session just left.
+        setExportResult(null);
+        try {
+          const [body, allBodies] = await Promise.all([getActiveBody(), listBodies()]);
+          setActiveBody(body);
+          setBodies(allBodies);
+          setBodySubtitle(formatBodySubtitle(body, allBodies));
+          setSwitchConfirmation(body.name);
+        } catch {
+          // The switch is made; only the labels could not be re-read. Name it
+          // from what was offered rather than leave the old period on screen.
+          if (to) {
+            setActiveBody(to);
+            setBodySubtitle(formatBodySubtitle(to, bodies));
+            setSwitchConfirmation(to.name);
+          }
+        }
+        try {
+          await recordActivity({
+            at: new Date().toISOString(),
+            kind: 'body-switch',
+            fromBodyId: from?.id,
+            fromBodyName: from?.name,
+            toBodyId: bodyId,
+            toBodyName: to?.name,
+          });
+        } catch {
+          // A courtesy row, like the PIN rows: the switch already happened and
+          // is on screen, so a log that could not be written stays silent. A
+          // successful switch with no body-switch row is therefore expected.
+        }
+      } finally {
+        isSwitchingRef.current = false;
+        setIsSwitching(false);
+        refocusReader();
+      }
+    },
+    [activeBody, bodies, switchBody, refocusReader],
+  );
+
+  const handleChoosePeriod = useCallback(
+    async (bodyId: number) => {
+      setChooserOpen(false);
+      let pinNeeded = false;
+      try {
+        pinNeeded = await isSwitchPinEnforced();
+      } catch {
+        // Settings unreadable: the store will not be writable either, so ask
+        // for the PIN anyway rather than skip a protection that may be on —
+        // and say so, rather than prompt for a PIN nobody expected.
+        pinNeeded = true;
+        setSwitchError(
+          "This device couldn't read its settings, so the teacher PIN is needed to switch.",
+        );
+      }
+      if (pinNeeded) {
+        setSwitchPinTarget(bodyId);
+        return;
+      }
+      await performSwitch(bodyId);
+    },
+    [performSwitch],
+  );
+
+  const handleCloseChooser = useCallback(() => {
+    setChooserOpen(false);
+    refocusReader();
+  }, [refocusReader]);
 
   /**
    * A press that lands on the station itself — the background, the count, the
@@ -498,6 +653,22 @@ export function ScannerScreen() {
             </div>
           </div>
         </header>
+
+        {periodSwitch && activeBody ? (
+          <PeriodSwitchBar
+            current={activeBody}
+            title={periodSwitch.title}
+            pendingTap={pendingTap}
+            isSwitching={isSwitching}
+            confirmation={switchConfirmation}
+            error={switchError}
+            triggerRef={switchTriggerRef}
+            onOpen={() => {
+              setSwitchError(null);
+              setChooserOpen(true);
+            }}
+          />
+        ) : null}
 
         {/* Whoever sets the PIN first owns this device's records, and nothing
             can tell a teacher from a student on day one. The app cannot
@@ -686,6 +857,43 @@ export function ScannerScreen() {
           onCancel={handlePinCancel}
         />
       )}
+
+      {chooserOpen && periodSwitch && activeBody?.id !== undefined ? (
+        <PeriodChooserDialog
+          title={periodSwitch.title}
+          parent={periodSwitch.parent}
+          options={periodSwitch.options}
+          currentId={activeBody.id}
+          onChoose={(bodyId) => void handleChoosePeriod(bodyId)}
+          onCancel={handleCloseChooser}
+        />
+      ) : null}
+
+      {switchPinTarget !== null ? (
+        <PinDialog
+          mode="verify"
+          title="Enter the teacher PIN to switch"
+          helper={`This device asks for the teacher PIN before switching to ${
+            bodies.find((body) => body.id === switchPinTarget)?.name ?? 'another body'
+          }.`}
+          onVerified={() => {
+            const target = switchPinTarget;
+            setSwitchPinTarget(null);
+            void performSwitch(target);
+          }}
+          // The PIN is gone (a cleared settings row): nothing could ever be
+          // typed here, so the switch goes ahead instead of dead-ending.
+          onPinMissing={() => {
+            const target = switchPinTarget;
+            setSwitchPinTarget(null);
+            void performSwitch(target);
+          }}
+          onCancel={() => {
+            setSwitchPinTarget(null);
+            refocusReader();
+          }}
+        />
+      ) : null}
 
       {bindCandidate && (
         <CardBindDialog

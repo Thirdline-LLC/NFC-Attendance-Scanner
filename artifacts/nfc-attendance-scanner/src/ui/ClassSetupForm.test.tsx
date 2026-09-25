@@ -239,4 +239,42 @@ describe('Add students to each period', () => {
     await user.click(screen.getByTestId('button-class-followup-done'));
     expect(props.onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it('says this device is now on the class only when it is', () => {
+    render(<ClassTemplateFollowUp parent={parent} periods={periods} onDone={vi.fn()} />);
+    expect(screen.getByTestId('class-followup').textContent).toContain(
+      'and this device is now on English 11',
+    );
+    expect(screen.queryByTestId('text-class-not-attached')).toBeNull();
+    cleanup();
+
+    render(
+      <ClassTemplateFollowUp
+        parent={parent}
+        periods={periods}
+        attachment={{ attached: false, currentBodyName: 'Chess club' }}
+        onDone={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('class-followup').textContent).not.toContain('now on');
+    const alert = screen.getByTestId('text-class-not-attached');
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.textContent).toContain('still on Chess club');
+    expect(alert.textContent).toContain('open Change body and pick it or one of its periods');
+  });
+});
+
+describe('Class with periods inputs', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('are at least 44px tall: class name and both type labels', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByTestId('button-add-mode-class'));
+    for (const id of ['input-class-name', 'input-class-type-label', 'input-period-type-label']) {
+      expect(screen.getByTestId(id).className.split(/\s+/)).toContain('min-h-11');
+    }
+  });
 });
