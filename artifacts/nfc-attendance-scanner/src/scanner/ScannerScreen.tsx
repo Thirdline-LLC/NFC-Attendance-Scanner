@@ -83,6 +83,9 @@ export function ScannerScreen() {
   // the PIN dialog to confirm it.
   const [switchPinTarget, setSwitchPinTarget] = useState<number | null>(null);
   const [isSwitching, setIsSwitching] = useState(false);
+  // Set synchronously with `isSwitching`, so a card read in the same tick as
+  // the switch starting is already refused (see `submitScan`).
+  const isSwitchingRef = useRef(false);
   const [switchConfirmation, setSwitchConfirmation] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const switchTriggerRef = useRef<HTMLButtonElement>(null);
@@ -246,6 +249,15 @@ export function ScannerScreen() {
 
   const submitScan = useCallback(() => {
     if (!rawInput) return;
+    // A card read while a period switch is under way is dropped, not queued:
+    // queued, it would run after the switch and land on the period the desk
+    // is moving to, while the screen still showed the one it was read on.
+    // This is the switch-then-scan half of the no-flip-mid-queue rule; the
+    // switcher being disabled while a tap is pending is the other half.
+    if (isSwitchingRef.current) {
+      setRawInput('');
+      return;
+    }
     void handleScan(rawInput);
     setRawInput('');
   }, [rawInput, handleScan]);
@@ -402,51 +414,58 @@ export function ScannerScreen() {
       const to = bodies.find((body) => body.id === bodyId);
       setSwitchError(null);
       setSwitchConfirmation(null);
+      // Held until the new period is on screen, not just until the hook has
+      // switched: a card read between the two would count for the new period
+      // while the subtitle still named the old one.
+      isSwitchingRef.current = true;
       setIsSwitching(true);
       try {
-        await switchBody(bodyId);
-      } catch (error) {
-        setSwitchError(
-          error instanceof TapPendingError
-            ? `Still on ${from?.name ?? 'the same body'}. Finish the current tap first, then switch.`
-            : `This device couldn't switch to ${to?.name ?? 'that'}. It is still on ${from?.name ?? 'the same body'}; try again.`,
-        );
+        try {
+          await switchBody(bodyId);
+        } catch (error) {
+          setSwitchError(
+            error instanceof TapPendingError
+              ? `Still on ${from?.name ?? 'the same body'}. Finish the current tap first, then switch.`
+              : `This device couldn't switch to ${to?.name ?? 'that'}. It is still on ${from?.name ?? 'the same body'}; try again.`,
+          );
+          return;
+        }
+        // The export notice belonged to the session just left.
+        setExportResult(null);
+        try {
+          const [body, allBodies] = await Promise.all([getActiveBody(), listBodies()]);
+          setActiveBody(body);
+          setBodies(allBodies);
+          setBodySubtitle(formatBodySubtitle(body, allBodies));
+          setSwitchConfirmation(body.name);
+        } catch {
+          // The switch is made; only the labels could not be re-read. Name it
+          // from what was offered rather than leave the old period on screen.
+          if (to) {
+            setActiveBody(to);
+            setBodySubtitle(formatBodySubtitle(to, bodies));
+            setSwitchConfirmation(to.name);
+          }
+        }
+        try {
+          await recordActivity({
+            at: new Date().toISOString(),
+            kind: 'body-switch',
+            fromBodyId: from?.id,
+            fromBodyName: from?.name,
+            toBodyId: bodyId,
+            toBodyName: to?.name,
+          });
+        } catch {
+          // A courtesy row, like the PIN rows: the switch already happened and
+          // is on screen, so a log that could not be written stays silent. A
+          // successful switch with no body-switch row is therefore expected.
+        }
+      } finally {
+        isSwitchingRef.current = false;
         setIsSwitching(false);
         refocusReader();
-        return;
       }
-      // The export notice belonged to the session just left.
-      setExportResult(null);
-      try {
-        const [body, allBodies] = await Promise.all([getActiveBody(), listBodies()]);
-        setActiveBody(body);
-        setBodies(allBodies);
-        setBodySubtitle(formatBodySubtitle(body, allBodies));
-        setSwitchConfirmation(body.name);
-      } catch {
-        // The switch is made; only the labels could not be re-read. Name it
-        // from what was offered rather than leave the old period on screen.
-        if (to) {
-          setActiveBody(to);
-          setBodySubtitle(formatBodySubtitle(to, bodies));
-          setSwitchConfirmation(to.name);
-        }
-      }
-      try {
-        await recordActivity({
-          at: new Date().toISOString(),
-          kind: 'body-switch',
-          fromBodyId: from?.id,
-          fromBodyName: from?.name,
-          toBodyId: bodyId,
-          toBodyName: to?.name,
-        });
-      } catch {
-        // A courtesy row, like the PIN rows: the switch already happened and
-        // is on screen, so a log that could not be written stays silent.
-      }
-      setIsSwitching(false);
-      refocusReader();
     },
     [activeBody, bodies, switchBody, refocusReader],
   );
@@ -459,8 +478,12 @@ export function ScannerScreen() {
         pinNeeded = await isSwitchPinEnforced();
       } catch {
         // Settings unreadable: the store will not be writable either, so ask
-        // for the PIN anyway rather than skip a protection that may be on.
+        // for the PIN anyway rather than skip a protection that may be on —
+        // and say so, rather than prompt for a PIN nobody expected.
         pinNeeded = true;
+        setSwitchError(
+          "This device couldn't read its settings, so the teacher PIN is needed to switch.",
+        );
       }
       if (pinNeeded) {
         setSwitchPinTarget(bodyId);

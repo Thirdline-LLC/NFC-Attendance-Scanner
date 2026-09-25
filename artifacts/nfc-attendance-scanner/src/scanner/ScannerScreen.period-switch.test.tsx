@@ -13,9 +13,11 @@ import {
   createClassWithPeriods,
   getActiveBodyId,
   listActivity,
+  listTapsForBodies,
   setActiveBody,
 } from '@/data/attendance-store';
 import { setOperatorPin } from '@/data/operator-pin';
+import * as switchPin from '@/data/switch-pin';
 import { setSwitchPinRequired } from '@/data/switch-pin';
 import { OperatorLockProvider } from '@/lock/OperatorLockProvider';
 import { ScannerScreen } from './ScannerScreen';
@@ -280,6 +282,92 @@ describe('ScannerScreen period switcher (Design 09 §3)', () => {
     await user.keyboard(`${AVA_CARD}{Enter}`);
 
     expect(screen.getByTestId('dialog-period-chooser')).toBeTruthy();
+    expect(await getActiveBodyId()).toBe(p1);
+  });
+
+  it('drops a card read while the switch is still running, so it never lands on the new period', async () => {
+    const { p1, p3, p5, p6 } = await setUpClass();
+    const user = userEvent.setup();
+    renderScanner();
+    await waitForReady();
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const real = attendanceStore.findTodaysSessionForBody;
+    vi.spyOn(attendanceStore, 'findTodaysSessionForBody').mockImplementationOnce(async (id) => {
+      await gate;
+      return real(id);
+    });
+
+    await user.click(await findTrigger());
+    await user.click(await screen.findByTestId(`button-period-option-${p3}`));
+    await waitFor(() =>
+      expect(screen.getByTestId('button-period-switch').hasAttribute('disabled')).toBe(true),
+    );
+    // The desk still shows Period 1; the card is read now, mid-switch.
+    expect(screen.getByTestId('text-period-current').textContent).toBe('Period 1');
+    await scanCard(user, AVA_CARD);
+
+    release();
+    await waitFor(() =>
+      expect(screen.getByTestId('text-period-switch-status').textContent).toBe(
+        'Now taking attendance for Period 3',
+      ),
+    );
+    expect(await getActiveBodyId()).toBe(p3);
+    // Dropped, not deferred: no tap on the period switched to, nor the one left.
+    expect(await listTapsForBodies([p1, p3, p5, p6])).toEqual([]);
+    expect(screen.getByTestId('text-attendance-count').textContent).toBe('0');
+    expect((screen.getByTestId('input-scanner-hidden') as HTMLInputElement).value).toBe('');
+  });
+
+  it('drops a card read after the switch but before the new period is on screen', async () => {
+    const { p1, p3, p5, p6 } = await setUpClass();
+    const user = userEvent.setup();
+    renderScanner();
+    await waitForReady();
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const real = attendanceStore.listBodies;
+    let reads = 0;
+    // The chooser's own re-read passes; the one after the switch waits.
+    vi.spyOn(attendanceStore, 'listBodies').mockImplementation(async () => {
+      if ((await getActiveBodyId()) === p3 && reads++ === 0) await gate;
+      return real();
+    });
+
+    await user.click(await findTrigger());
+    await user.click(await screen.findByTestId(`button-period-option-${p3}`));
+    await waitFor(async () => expect(await getActiveBodyId()).toBe(p3));
+    expect(screen.getByTestId('text-period-current').textContent).toBe('Period 1');
+    await scanCard(user, AVA_CARD);
+
+    release();
+    await waitFor(() =>
+      expect(screen.getByTestId('text-period-current').textContent).toBe('Period 3'),
+    );
+    expect(await listTapsForBodies([p1, p3, p5, p6])).toEqual([]);
+  });
+
+  it('says the settings could not be read when it asks for the PIN because of that', async () => {
+    const { p1, p3 } = await setUpClass();
+    vi.spyOn(switchPin, 'isSwitchPinEnforced').mockRejectedValueOnce(new Error('blocked'));
+    const user = userEvent.setup();
+    renderScanner();
+    await waitForReady();
+    await user.click(await findTrigger());
+    await user.click(await screen.findByTestId(`button-period-option-${p3}`));
+
+    // Still fail-safe: the PIN is asked for.
+    await screen.findByTestId('dialog-pin');
+    expect(screen.getByTestId('text-period-switch-status').textContent).toBe(
+      "This device couldn't read its settings, so the teacher PIN is needed to switch.",
+    );
     expect(await getActiveBodyId()).toBe(p1);
   });
 

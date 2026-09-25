@@ -731,7 +731,9 @@ export function useAttendanceSession(mode: ScannerMode) {
    * was read: `processScan` resolves the active body more than once per tap,
    * and a switch landing between those reads would split one tap across two
    * bodies. The switcher is also disabled while `pendingTap` is set, which is
-   * what the operator sees; the queue is what makes it true.
+   * what the operator sees; the queue is what makes it true. The reverse — a
+   * card read once the switch has started — is refused by the scanner screen
+   * (`submitScan`), which drops reads until the new body is on screen.
    *
    * The old body's session is left exactly as it was. The new body joins its
    * own session for today if it has one, or starts a new one
