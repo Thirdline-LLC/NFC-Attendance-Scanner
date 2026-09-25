@@ -14,6 +14,9 @@ import {
   listPersons,
   listSessionTapRecords,
   recordSessionTap,
+  adoptSessionId,
+  findTodaysSessionForBody,
+  setActiveBody,
   updatePerson,
   type Person,
   type TapRecord,
@@ -67,6 +70,15 @@ export type SessionMetrics = {
   duplicateTaps: number;
   unknownCards: number;
 };
+
+/**
+ * Why a tap is still being dealt with, for the period switcher (Design 09 §3)
+ * to say why it is waiting. `scan`: a card was read and its write has not
+ * finished. `unknown-card`: the "Whose card is …?" prompt is open.
+ * `enroll`: the enrollment form is open. `saving`: an enroll or bind write
+ * is in flight.
+ */
+export type PendingTap = 'scan' | 'unknown-card' | 'enroll' | 'saving';
 
 export type SessionSummary = SessionMetrics & {
   sessionStartedAt: string;
@@ -122,6 +134,11 @@ export function useAttendanceSession(mode: ScannerMode) {
   // A save that failed for a reason storage cannot explain, phrased for the
   // enrollment form rather than the feedback panel the form is covering.
   const [saveErrorMessage, setSaveErrorMessage] = useState('');
+  // Scans handed to the queue whose processing has not finished — the
+  // "a scan is being resolved" half of the switcher's pending rule. A count,
+  // not a flag, because a reader can deliver the next card before the last
+  // one has landed.
+  const [scansInFlight, setScansInFlight] = useState(0);
   const feedbackTimer = useRef<number | undefined>(undefined);
   const mountedRef = useRef(true);
   const storageStatusRef = useRef<StorageStatus>('checking');
@@ -439,7 +456,12 @@ export function useAttendanceSession(mode: ScannerMode) {
 
   const handleScan = useCallback(
     (input: string) => {
-      const next = queue.current.then(() => processScan(input));
+      setScansInFlight((count) => count + 1);
+      const next = queue.current
+        .then(() => processScan(input))
+        .finally(() => {
+          if (mountedRef.current) setScansInFlight((count) => count - 1);
+        });
       queue.current = next.then(
         () => undefined,
         () => undefined,
@@ -682,6 +704,59 @@ export function useAttendanceSession(mode: ScannerMode) {
     announce('ready');
   }, [announce, applyStorageStatus]);
 
+  /**
+   * Points the desk at another body — the scanner's period switcher (Design
+   * 09 §3). Runs through the same queue as the scans, so a card read before
+   * the switch is always written against the body that was active when it
+   * was read: `processScan` resolves the active body more than once per tap,
+   * and a switch landing between those reads would split one tap across two
+   * bodies. The switcher is also disabled while `pendingTap` is set, which is
+   * what the operator sees; the queue is what makes it true.
+   *
+   * The old body's session is left exactly as it was. The new body joins its
+   * own session for today if it has one, or starts a new one
+   * (`findTodaysSessionForBody`), so no session ever holds two bodies' taps.
+   * The view is cleared and re-read for the new body: its roster, its
+   * session's taps and its count.
+   *
+   * Rejects, changing nothing — not the active body, not the current session
+   * id, not the screen — if the lookup fails or the store refuses the switch.
+   */
+  const switchBody = useCallback(
+    (bodyId: number) => {
+      const run = async () => {
+        const todays = await findTodaysSessionForBody(bodyId);
+        await setActiveBody(bodyId);
+        let nextSessionId: string;
+        if (todays) {
+          adoptSessionId(todays);
+          nextSessionId = todays;
+        } else {
+          nextSessionId = createNewSessionId();
+        }
+        sessionIdRef.current = nextSessionId;
+        setSessionId(nextSessionId);
+        setSessionStartedAt(getOrCreateSessionStartedAt(nextSessionId));
+        tapsRef.current = [];
+        setTaps([]);
+        setAttendanceCount(0);
+        setLastUid('');
+        setLastPerson(undefined);
+        setLastScannedAt('');
+        setLastCountedAt('');
+        announce('ready');
+        await loadSession();
+      };
+      const next = queue.current.then(run);
+      queue.current = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    },
+    [announce, loadSession],
+  );
+
   const cancelEnrollment = useCallback(() => {
     candidateRef.current = null;
     setEnrollmentCandidate(null);
@@ -703,6 +778,21 @@ export function useAttendanceSession(mode: ScannerMode) {
    */
   const storageError =
     storageStatus === 'unavailable' || storageStatus === 'save-failed';
+
+  /**
+   * The first reason a tap is still open, or null once the queue is empty
+   * and nothing is waiting on the operator. The period switcher is disabled
+   * while this is set (Design 09 §3, the D-T2 no-flip-mid-queue rule).
+   */
+  const pendingTap: PendingTap | null = enrollmentCandidate
+    ? 'enroll'
+    : bindCandidate
+      ? 'unknown-card'
+      : scansInFlight > 0
+        ? 'scan'
+        : isSaving
+          ? 'saving'
+          : null;
 
   return {
     sessionId,
@@ -730,6 +820,8 @@ export function useAttendanceSession(mode: ScannerMode) {
     storageError,
     saveErrorMessage,
     retryStorage: refreshFromStore,
+    pendingTap,
+    switchBody,
     handleScan,
     enrollPerson,
     cancelEnrollment,

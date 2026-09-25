@@ -205,3 +205,49 @@ export function childCountLabel(children: readonly BodyNode[]): string {
   if (!shared) return `${count} ${count === 1 ? 'child' : 'children'}`;
   return `${count} ${count === 1 ? shared : pluralizeTypeLabel(shared)}`;
 }
+
+/**
+ * What the scanner's period switcher offers (Design 09 §3), or `null` when
+ * it must not be shown at all.
+ *
+ * Shown only when the active body has a parent AND that parent has at least
+ * one other non-archived child. It lists exactly the non-archived children of
+ * that parent, in sibling order, the active body among them. A root never
+ * gets a switcher, so unrelated roots can never appear in one; the parent
+ * itself, cousins, deeper descendants and archived bodies are never offered.
+ * `parentId` of `undefined` (a body from before 08a) counts as a root.
+ */
+export function periodSwitchOptions<T extends BodyNode>(
+  activeBodyId: number | undefined,
+  bodies: readonly T[],
+): { parent: T; options: T[] } | null {
+  if (activeBodyId === undefined) return null;
+  const active = bodies.find((body) => body.id === activeBodyId);
+  const parentId = active?.parentId ?? null;
+  if (!active || parentId === null || isArchived(active)) return null;
+  const parent = bodies.find((body) => body.id === parentId);
+  if (!parent) return null;
+  const options = bodies
+    .filter(
+      (body) => body.id !== undefined && body.parentId === parentId && !isArchived(body),
+    )
+    .sort(compareSiblingOrder);
+  return options.length >= 2 ? { parent, options } : null;
+}
+
+/**
+ * The switcher's verb phrase, following the children's own type label:
+ * `Switch period`, `Switch team`. Siblings with mixed labels have no shared
+ * word, so it falls back to naming where they live: `Switch within English 11`.
+ */
+export function periodSwitchTitle(
+  parent: BodyNode,
+  options: readonly BodyNode[],
+): string {
+  const labels = options.map((body) => body.typeLabel.trim());
+  const shared =
+    labels.length > 0 &&
+    labels[0].length > 0 &&
+    labels.every((label) => label.toLowerCase() === labels[0].toLowerCase());
+  return shared ? `Switch ${labels[0].toLowerCase()}` : `Switch within ${parent.name}`;
+}

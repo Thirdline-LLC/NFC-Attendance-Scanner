@@ -144,4 +144,28 @@ describe('describeActivity', () => {
     });
     expect(`${wording.action} ${wording.detail}`).not.toMatch(/@|[0-9A-F]{14}/);
   });
+
+  it('names a scanner period switch by body names only', () => {
+    expect(
+      describeActivity({
+        at: AT,
+        kind: 'body-switch',
+        fromBodyId: 2,
+        fromBodyName: 'Period 1',
+        toBodyId: 3,
+        toBodyName: 'Period 3',
+      }),
+    ).toEqual({ action: 'Switched on the scanner', detail: 'Period 1 → Period 3' });
+  });
+
+  it('names the switch-PIN setting changes', () => {
+    expect(describeActivity({ at: AT, kind: 'switch-pin-enabled' })).toEqual({
+      action: 'PIN to switch periods turned on',
+      detail: '',
+    });
+    expect(describeActivity({ at: AT, kind: 'switch-pin-disabled' })).toEqual({
+      action: 'PIN to switch periods turned off',
+      detail: '',
+    });
+  });
 });
