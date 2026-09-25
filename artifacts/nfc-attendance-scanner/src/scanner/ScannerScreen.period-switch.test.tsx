@@ -351,4 +351,25 @@ describe('ScannerScreen period switcher (Design 09 §3)', () => {
     expect(screen.getByTestId('text-period-current').textContent).toBe('Period 1');
     expect((await listActivity()).filter((entry) => entry.kind === 'body-switch')).toEqual([]);
   });
+
+  it('says to finish the tap when a prompt opened between choosing and switching', async () => {
+    const { p1, p3 } = await setUpClass();
+    const hook = await import('./use-attendance-session');
+    const user = userEvent.setup();
+    renderScanner();
+    await waitForReady();
+    // Stand in for the race: the queue refuses the switch because a tap is open.
+    vi.spyOn(attendanceStore, 'findTodaysSessionForBody').mockRejectedValueOnce(
+      new hook.TapPendingError(),
+    );
+    await user.click(await findTrigger());
+    await user.click(await screen.findByTestId(`button-period-option-${p3}`));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('text-period-switch-status').textContent).toBe(
+        'Still on Period 1. Finish the current tap first, then switch.',
+      ),
+    );
+    expect(await getActiveBodyId()).toBe(p1);
+  });
 });

@@ -34,6 +34,7 @@ import { type ExportResult } from '@/ui/ExportNotice';
 import { ExportCancelledError } from '@/platform/desktop-bridge';
 import {
   useAttendanceSession,
+  TapPendingError,
   type ScannerMode,
 } from '@/scanner/use-attendance-session';
 import { PeriodChooserDialog, PeriodSwitchBar } from '@/scanner/PeriodSwitcher';
@@ -404,9 +405,11 @@ export function ScannerScreen() {
       setIsSwitching(true);
       try {
         await switchBody(bodyId);
-      } catch {
+      } catch (error) {
         setSwitchError(
-          `This device couldn't switch to ${to?.name ?? 'that'}. It is still on ${from?.name ?? 'the same body'}; try again.`,
+          error instanceof TapPendingError
+            ? `Still on ${from?.name ?? 'the same body'}. Finish the current tap first, then switch.`
+            : `This device couldn't switch to ${to?.name ?? 'that'}. It is still on ${from?.name ?? 'the same body'}; try again.`,
         );
         setIsSwitching(false);
         refocusReader();

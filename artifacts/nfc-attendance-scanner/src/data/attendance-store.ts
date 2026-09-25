@@ -212,6 +212,8 @@ export type ActivityEntry = {
 const DATABASE_NAME = 'attendance-scanner-local';
 const CURRENT_SESSION_KEY = 'attendance-scanner-current-session';
 const SESSION_STARTED_AT_PREFIX = 'attendance-scanner-session-started-at:';
+/** Per body: the session the desk was running when it last switched away. */
+const BODY_SESSION_PREFIX = 'attendance-scanner-body-session:';
 const database = new Dexie(DATABASE_NAME);
 database.version(1).stores({ scans: 'uid, scannedAt' });
 database.version(2).stores({
@@ -1875,12 +1877,48 @@ export function getOrCreateSessionStartedAt(sessionId: string): string {
 }
 
 /**
- * The session `bodyId` already has on today's meeting day, or null (Design
- * 09 §3). Sessions are per body, so the answer only ever comes from that
- * body's own taps: the session holding its most recent tap on today's local
- * date (the date the rest of the app files sessions under). Read-only — the
- * scanner's switch decides what to do with the answer, and only after the
- * switch itself has been accepted:
+ * Notes which session the desk was running for `bodyId` as it switches away
+ * (Design 09 §3), so coming back the same day rejoins that session even if
+ * it has no taps yet — a session a teacher just started must not lose to an
+ * older one that happens to hold the latest tap. localStorage only, beside
+ * the current-session key; a failed write just falls back to the taps.
+ */
+export function rememberBodySession(
+  bodyId: number,
+  sessionId: string,
+  now: Date = new Date(),
+): void {
+  try {
+    localStorage.setItem(
+      `${BODY_SESSION_PREFIX}${bodyId}`,
+      JSON.stringify({ sessionId, day: formatSessionDate(now.toISOString()) }),
+    );
+  } catch {
+    // See above.
+  }
+}
+
+function rememberedBodySession(bodyId: number, today: string): string | null {
+  try {
+    const raw = localStorage.getItem(`${BODY_SESSION_PREFIX}${bodyId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { sessionId?: unknown; day?: unknown };
+    return typeof parsed.sessionId === 'string' && parsed.day === today
+      ? parsed.sessionId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The session `bodyId` already has open on today's meeting day, or null
+ * (Design 09 §3). Sessions are per body, so the answer only ever concerns
+ * that body: the session the desk was running for it when it last switched
+ * away today (`rememberBodySession`), or failing that the session holding
+ * its most recent tap on today's local date (the date the rest of the app
+ * files sessions under). Read-only — the scanner's switch decides what to do
+ * with the answer, and only after the switch itself has been accepted:
  *
  * - an id comes back — the desk joins it (`adoptSessionId`), so a period it
  *   comes back to keeps counting where it left off;
@@ -1893,6 +1931,8 @@ export async function findTodaysSessionForBody(
   now: Date = new Date(),
 ): Promise<string | null> {
   const today = formatSessionDate(now.toISOString());
+  const remembered = rememberedBodySession(bodyId, today);
+  if (remembered) return remembered;
   const todays = await tapsTable
     .where('bodyId')
     .equals(bodyId)

@@ -16,6 +16,8 @@ import {
   recordSessionTap,
   adoptSessionId,
   findTodaysSessionForBody,
+  getActiveBodyId,
+  rememberBodySession,
   setActiveBody,
   updatePerson,
   type Person,
@@ -79,6 +81,19 @@ export type SessionMetrics = {
  * is in flight.
  */
 export type PendingTap = 'scan' | 'unknown-card' | 'enroll' | 'saving';
+
+/**
+ * `switchBody` found a tap still open when its turn in the queue came: a
+ * card read in the moment between choosing a period and the switch being
+ * queued can open the bind prompt or the enrollment form. That tap belongs
+ * to the body it was read on, so the switch is refused, not the tap.
+ */
+export class TapPendingError extends Error {
+  constructor() {
+    super('Finish the current tap first.');
+    this.name = 'TapPendingError';
+  }
+}
 
 export type SessionSummary = SessionMetrics & {
   sessionStartedAt: string;
@@ -725,8 +740,15 @@ export function useAttendanceSession(mode: ScannerMode) {
   const switchBody = useCallback(
     (bodyId: number) => {
       const run = async () => {
+        if (candidateRef.current || bindCandidateRef.current) {
+          throw new TapPendingError();
+        }
+        const fromBodyId = await getActiveBodyId();
         const todays = await findTodaysSessionForBody(bodyId);
         await setActiveBody(bodyId);
+        // The body being left keeps its session; noted so coming back today
+        // rejoins it, even before it has a tap.
+        rememberBodySession(fromBodyId, sessionIdRef.current);
         let nextSessionId: string;
         if (todays) {
           adoptSessionId(todays);
@@ -744,6 +766,11 @@ export function useAttendanceSession(mode: ScannerMode) {
         setLastPerson(undefined);
         setLastScannedAt('');
         setLastCountedAt('');
+        // As on Start New Session: a failed write belonged to the session
+        // just left; a store that cannot be opened at all still can't.
+        if (storageStatusRef.current === 'save-failed') {
+          applyStorageStatus('ready');
+        }
         announce('ready');
         await loadSession();
       };
@@ -754,7 +781,7 @@ export function useAttendanceSession(mode: ScannerMode) {
       );
       return next;
     },
-    [announce, loadSession],
+    [announce, applyStorageStatus, loadSession],
   );
 
   const cancelEnrollment = useCallback(() => {

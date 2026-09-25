@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as attendanceStore from '@/data/attendance-store';
 import {
   addPerson,
+  applyRosterImport,
   createClassWithPeriods,
   findTodaysSessionForBody,
   getActiveBodyId,
@@ -13,7 +14,7 @@ import {
   setActiveBody,
   type ClassWithPeriods,
 } from '@/data/attendance-store';
-import { useAttendanceSession } from './use-attendance-session';
+import { TapPendingError, useAttendanceSession } from './use-attendance-session';
 
 // Synthetic students and card UIDs; example.com addresses only.
 const AVA_CARD = '04AAAA00000001';
@@ -176,6 +177,47 @@ describe('useAttendanceSession.switchBody (Design 09 §3)', () => {
     expect(taps[0].bodyId).toBe(periods[0]);
     expect(await getActiveBodyId()).toBe(periods[1]);
     expect(result.current.pendingTap).toBeNull();
+  });
+
+  it('rejoins the session the desk was running for a body, even one with no taps yet', async () => {
+    const { periods } = await setUpClass();
+    const { result } = await renderReady();
+    await act(() => result.current.handleScan(AVA_CARD));
+    const morning = result.current.sessionId;
+    // The teacher starts a fresh session on Period 1, then the desk moves on.
+    await act(() => result.current.startNewSession());
+    const fresh = result.current.sessionId;
+    expect(fresh).not.toBe(morning);
+
+    await act(() => result.current.switchBody(periods[1]));
+    await act(() => result.current.switchBody(periods[0]));
+
+    // Not the older session that holds Period 1's latest tap.
+    expect(result.current.sessionId).toBe(fresh);
+    expect(result.current.count).toBe(0);
+  });
+
+  it('refuses the switch, keeping the tap, when an unknown card read just before it opened the prompt', async () => {
+    const { periods } = await setUpClass();
+    // Someone on Period 1's roster has no card yet, so an unknown card opens the prompt.
+    await applyRosterImport([{ firstName: 'Cal', lastName: 'Sample', gradYear: 2028, email: 'cal@example.com' }]);
+    const { result } = await renderReady();
+
+    let scan!: Promise<void>;
+    let switched!: Promise<void>;
+    act(() => {
+      // The card lands in the queue first; the switch is queued behind it.
+      scan = result.current.handleScan('04DEADBEEF1234');
+      switched = result.current.switchBody(periods[1]);
+    });
+    await act(async () => {
+      await scan;
+      await expect(switched).rejects.toBeInstanceOf(TapPendingError);
+    });
+
+    expect(await getActiveBodyId()).toBe(periods[0]);
+    expect(result.current.bindCandidate?.uid).toBe('04DEADBEEF1234');
+    expect(result.current.pendingTap).toBe('unknown-card');
   });
 
   it('changes nothing when the store refuses the switch', async () => {
