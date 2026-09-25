@@ -24,7 +24,11 @@ import {
 } from '@/data/body-vocabulary';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useModalFocusTrap } from '@/ui/use-modal-focus-trap';
-import { ClassSetupForm, ClassTemplateFollowUp } from '@/ui/ClassSetupForm';
+import {
+  ClassSetupForm,
+  ClassTemplateFollowUp,
+  type ClassSetupAttachment,
+} from '@/ui/ClassSetupForm';
 
 type BodySwitcherDialogProps = {
   bodies: AttendanceBody[];
@@ -57,7 +61,7 @@ type BodySwitcherDialogProps = {
    * Set once a class was just created: the dialog swaps to the "Add students
    * to each period" step for it. Done / Skip for now closes via `onCancel`.
    */
-  classSetup?: ClassWithPeriods | null;
+  classSetup?: (ClassWithPeriods & { attachment?: ClassSetupAttachment }) | null;
   onArchive: (bodyId: number) => void;
   onRestore: (bodyId: number) => void;
   /** Writes `customFields` for an existing body (08b). */
@@ -69,7 +73,8 @@ type BodySwitcherDialogProps = {
  * Reassignment and structure edits (D-T2). Picking a body only moves
  * `activeBodyId`. Creating, renaming, reparenting, or archiving does not
  * touch any roster or tap history. The scanner screen has no control that
- * reaches this dialog — the desk stays on the body it opened with.
+ * reaches this dialog; the most it can do is move between the active body's
+ * siblings (Design 09 §3, `periodSwitchOptions`).
  *
  * Type labels are free text. Theme `bodyTypePresets` are suggestions in the
  * datalist, not a closed set of modes.
@@ -103,6 +108,10 @@ export function BodySwitcherDialog({
   const [parentId, setParentId] = useState('');
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const [query, setQuery] = useState('');
+  // Which groups the teacher collapsed. Held here, not in the list: a search
+  // with no matches unmounts the list, and clearing it must bring the tree
+  // back the way it was left. Groups start open.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set());
   const [createMode, setCreateMode] = useState<'single' | 'class'>('single');
   const [structureId, setStructureId] = useState('');
   const [structureName, setStructureName] = useState('');
@@ -217,6 +226,7 @@ export function BodySwitcherDialog({
           <ClassTemplateFollowUp
             parent={classSetup.parent}
             periods={classSetup.periods}
+            attachment={classSetup.attachment}
             onDone={onCancel}
           />
         ) : (
@@ -233,7 +243,8 @@ export function BodySwitcherDialog({
             <p className="mt-2 text-sm leading-snug text-[hsl(var(--muted-foreground))]">
               Every body keeps its own roster and history. Switching only
               changes which one this device scans for — nothing is deleted.
-              The check-in screen stays on the body you pick here.
+              The check-in screen scans for the body you pick here; if it is
+              one period of a class, the desk can switch between its periods.
             </p>
           </div>
         </div>
@@ -263,6 +274,15 @@ export function BodySwitcherDialog({
             isWorking={isWorking}
             onSelect={onSelect}
             onRestore={onRestore}
+            collapsed={collapsed}
+            onToggle={(bodyId) =>
+              setCollapsed((current) => {
+                const next = new Set(current);
+                if (next.has(bodyId)) next.delete(bodyId);
+                else next.add(bodyId);
+                return next;
+              })
+            }
           />
         ) : (
           <p className="mt-4 text-sm text-[hsl(var(--muted-foreground))]" data-testid="text-body-search-empty">
@@ -600,13 +620,17 @@ type BodyTreeListProps = {
   isWorking: boolean;
   onSelect: (bodyId: number) => void;
   onRestore: (bodyId: number) => void;
+  /** Collapsed group ids, owned by the dialog (see there). */
+  collapsed: ReadonlySet<number>;
+  onToggle: (bodyId: number) => void;
 };
 
 /**
  * The 08a tree as collapsible groups (Design 09 §2). A parent row reads
  * `English 11 · 5 periods` and has its own disclosure button beside it;
  * children sit indented beneath in `sortOrder`. Every group starts open.
- * Which ones are closed is this component's state only — nothing is saved.
+ * Which ones are closed is the dialog's state only — nothing is saved. A
+ * collapsed group holding the active body says so on its own row.
  */
 function BodyTreeList({
   rows,
@@ -615,9 +639,9 @@ function BodyTreeList({
   isWorking,
   onSelect,
   onRestore,
+  collapsed,
+  onToggle,
 }: BodyTreeListProps) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set());
-
   // Each row's direct children, read off the preorder walk: a row's parent
   // is the nearest earlier row one level up.
   const childrenOf = useMemo(() => {
@@ -634,23 +658,33 @@ function BodyTreeList({
     return map;
   }, [rows]);
 
-  // Whether any root has a disclosure button, so leaf roots can keep their
-  // names in the same column.
-  const hasAnyGroup =
-    grouped &&
-    (childrenOf.get(null) ?? []).some(
+  // Whether any row in a branch has a disclosure button, so the leaves
+  // beside it keep their names in the same column, at every depth.
+  const branchHasGroup = (parentId: number | null) =>
+    (childrenOf.get(parentId) ?? []).some(
       (row) => row.body.id !== undefined && (childrenOf.get(row.body.id)?.length ?? 0) > 0,
     );
 
-  const toggle = (bodyId: number) =>
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (next.has(bodyId)) next.delete(bodyId);
-      else next.add(bodyId);
-      return next;
-    });
+  // The active body's ancestors, nearest first, from the preorder walk. A
+  // collapsed one of these is hiding the active body, so its row says so.
+  const activeAncestors = useMemo(() => {
+    const ids = new Set<number>();
+    const stack: BodyTreeRow[] = [];
+    for (const row of rows) {
+      while (stack.length >= row.depth) stack.pop();
+      if (row.body.id === activeBodyId) {
+        for (const ancestor of stack) {
+          if (ancestor.body.id !== undefined) ids.add(ancestor.body.id);
+        }
+        break;
+      }
+      stack.push(row);
+    }
+    return ids;
+  }, [rows, activeBodyId]);
+  const activeName = rows.find((row) => row.body.id === activeBodyId)?.body.name;
 
-  const renderRow = (row: BodyTreeRow, children: BodyTreeRow[]) => {
+  const renderRow = (row: BodyTreeRow, children: BodyTreeRow[], alignLeaf: boolean) => {
     const body = row.body;
     const archived = isArchived(body);
     const active = body.id === activeBodyId;
@@ -658,15 +692,20 @@ function BodyTreeList({
     const open = isGroup && !collapsed.has(body.id as number);
     const groupId = `body-children-${body.id}`;
     const indent = grouped ? 0 : (row.depth - 1) * 14;
+    // Collapsed over the active body: the check mark would otherwise vanish.
+    const hidesActive =
+      isGroup && !open && body.id !== undefined && activeAncestors.has(body.id);
     return (
       <div className="flex items-stretch gap-2">
         {isGroup ? (
           <button
             type="button"
-            onClick={() => toggle(body.id as number)}
+            onClick={() => onToggle(body.id as number)}
             aria-expanded={open}
             aria-controls={groupId}
-            aria-label={`${body.name}: ${childCountLabel(children.map((child) => child.body))}`}
+            aria-label={`${body.name}: ${childCountLabel(children.map((child) => child.body))}${
+              hidesActive ? ', includes the current body' : ''
+            }`}
             className="flex w-11 shrink-0 items-center justify-center rounded-xl border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
             data-testid={`button-toggle-body-${body.id}`}
           >
@@ -676,9 +715,9 @@ function BodyTreeList({
               className={`transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
             />
           </button>
-        ) : grouped && row.depth === 1 && hasAnyGroup ? (
-          // Keeps root names in one column whether or not the root has children.
-          <span aria-hidden="true" className="w-11 shrink-0" />
+        ) : grouped && alignLeaf ? (
+          // Keeps names in one column whether or not a sibling has children.
+          <span aria-hidden="true" className="w-11 shrink-0" data-testid={`spacer-body-${body.id}`} />
         ) : null}
         <button
           type="button"
@@ -705,7 +744,15 @@ function BodyTreeList({
                 <span className="text-[hsl(var(--muted-foreground))]"> · Archived</span>
               ) : null}
             </span>
-            {isGroup ? (
+            {hidesActive ? (
+              <span
+                className="mt-0.5 flex items-center gap-1 truncate text-xs font-semibold text-[hsl(var(--primary))]"
+                data-testid={`text-body-contains-active-${body.id}`}
+              >
+                <Check aria-hidden="true" size={12} className="shrink-0" />
+                Current: {activeName}
+              </span>
+            ) : isGroup ? (
               <span className="mt-0.5 block truncate text-xs text-[hsl(var(--muted-foreground))]">
                 {body.typeLabel}
               </span>
@@ -738,12 +785,13 @@ function BodyTreeList({
 
   const renderBranch = (parentId: number | null, nested: boolean): ReactNode => {
     const branch = childrenOf.get(parentId) ?? [];
+    const alignLeaves = branchHasGroup(parentId);
     return branch.map((row) => {
       const children = row.body.id === undefined ? [] : (childrenOf.get(row.body.id) ?? []);
       const isGroup = children.length > 0 && row.body.id !== undefined;
       return (
         <li key={row.body.id} className="grid gap-2">
-          {renderRow(row, children)}
+          {renderRow(row, children, alignLeaves)}
           {isGroup ? (
             <ul
               id={`body-children-${row.body.id}`}
@@ -763,7 +811,7 @@ function BodyTreeList({
     return (
       <ul className="mt-4 grid gap-2" data-testid="list-bodies">
         {rows.map((row) => (
-          <li key={row.body.id}>{renderRow(row, [])}</li>
+          <li key={row.body.id}>{renderRow(row, [], false)}</li>
         ))}
       </ul>
     );

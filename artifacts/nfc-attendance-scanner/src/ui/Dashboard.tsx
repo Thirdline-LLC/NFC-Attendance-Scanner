@@ -82,6 +82,13 @@ type DashboardProps = {
    */
   onTogglePinRequired?: (next: boolean) => void;
   /**
+   * "Require PIN to switch periods" (Design 09 §3). Optional, paired with
+   * its toggle — without the toggle the row is not shown. Like the switch
+   * above, a flip is a request: turning it off asks for the PIN first.
+   */
+  switchPinRequired?: boolean;
+  onToggleSwitchPinRequired?: (next: boolean) => void;
+  /**
    * The body this device is currently attached to (D-T2). Optional,
    * paired with `onChangeBody` — without both the card is not shown.
    */
@@ -154,6 +161,8 @@ export function Dashboard({
   pinRequired = true,
   hasPin = false,
   onTogglePinRequired,
+  switchPinRequired = false,
+  onToggleSwitchPinRequired,
   activeBody,
   activeBodyLabel,
   onChangeBody,
@@ -309,6 +318,8 @@ export function Dashboard({
             pinRequired={pinRequired}
             hasPin={hasPin}
             onTogglePinRequired={onTogglePinRequired}
+            switchPinRequired={switchPinRequired}
+            onToggleSwitchPinRequired={onToggleSwitchPinRequired}
           />
         ) : null}
 
@@ -897,11 +908,15 @@ function TeacherPinCard({
   pinRequired,
   hasPin,
   onTogglePinRequired,
+  switchPinRequired,
+  onToggleSwitchPinRequired,
 }: {
   onChangePin: () => void;
   pinRequired: boolean;
   hasPin: boolean;
   onTogglePinRequired?: (next: boolean) => void;
+  switchPinRequired: boolean;
+  onToggleSwitchPinRequired?: (next: boolean) => void;
 }) {
   // Ordinarily the switch only appears once a PIN exists — reaching the
   // dashboard at all normally means the LockedRoute gate already made the
@@ -957,6 +972,23 @@ function TeacherPinCard({
         </div>
       ) : null}
 
+      {onToggleSwitchPinRequired ? (
+        <SettingSwitch
+          label="Require PIN to switch periods"
+          description={
+            hasPin
+              ? 'Asks for the teacher PIN before the scanner switches between periods of a class. For an unattended kiosk; off lets whoever is at the desk switch.'
+              : 'Set a teacher PIN first: this asks for it before the scanner switches periods. Until then, periods switch without a PIN.'
+          }
+          checked={switchPinRequired}
+          // Turning it on needs a PIN to ask for. Turning it off stays
+          // possible either way, so a stuck "on" can always be cleared.
+          disabled={!hasPin && !switchPinRequired}
+          onToggle={() => onToggleSwitchPinRequired(!switchPinRequired)}
+          testId="switch-switch-pin-required"
+        />
+      ) : null}
+
       <button
         type="button"
         onClick={onChangePin}
@@ -967,6 +999,67 @@ function TeacherPinCard({
         Change PIN
       </button>
     </Card>
+  );
+}
+
+/** A labelled on/off row, as the teacher-PIN switch above draws it. */
+function SettingSwitch({
+  label,
+  description,
+  checked,
+  disabled = false,
+  onToggle,
+  testId,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+  testId: string;
+}) {
+  const descriptionId = `${testId}-description`;
+  return (
+    <div className="mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/.5)] p-3">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-[hsl(var(--foreground))]">{label}</p>
+        <p
+          id={descriptionId}
+          className="mt-0.5 text-xs leading-snug text-[hsl(var(--muted-foreground))]"
+        >
+          {description}
+        </p>
+      </div>
+      {/* The visible track stays the teacher-PIN switch's size; the button
+          around it is the 44px target. */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        aria-describedby={descriptionId}
+        onClick={onToggle}
+        disabled={disabled}
+        data-testid={testId}
+        className="group -m-2.5 flex size-16 shrink-0 items-center justify-center rounded-full focus-visible:outline-none disabled:cursor-not-allowed"
+      >
+        <span
+          className={`relative inline-flex h-6 w-11 items-center rounded-full border transition group-focus-visible:ring-2 group-focus-visible:ring-[hsl(var(--ring))] group-disabled:opacity-50 ${
+            checked
+              ? 'border-[hsl(var(--primary)/.6)] bg-[hsl(var(--primary))]'
+              : 'border-[hsl(var(--border))] bg-[hsl(var(--card))]'
+          }`}
+        >
+          <span
+            className={`inline-block size-[18px] transform rounded-full shadow transition ${
+              checked
+                ? 'translate-x-[22px] bg-[hsl(var(--primary-foreground))]'
+                : 'translate-x-1 bg-[hsl(var(--muted-foreground))]'
+            }`}
+          />
+        </span>
+      </button>
+    </div>
   );
 }
 

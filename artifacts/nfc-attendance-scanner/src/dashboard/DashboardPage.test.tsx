@@ -991,6 +991,29 @@ describe('DashboardPage attendance body', () => {
     expect(screen.getByTestId('text-active-body').textContent).toContain('section');
   });
 
+  it('says the device is still on the old body when attaching to a new class fails', async () => {
+    const before = await getActiveBody();
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByTestId('button-change-body'));
+    await user.click(await screen.findByTestId('button-add-mode-class'));
+    await user.type(screen.getByTestId('input-class-name'), 'English 11');
+    vi.spyOn(attendanceStore, 'setActiveBody').mockRejectedValueOnce(new Error('blocked'));
+    await user.click(screen.getByTestId('button-class-create'));
+
+    const heading = await screen.findByRole('heading', { name: 'Add students to each period' });
+    const step = heading.parentElement as HTMLElement;
+    expect(step.textContent).not.toContain('this device is now on');
+    expect(within(step).getByTestId('text-class-not-attached').textContent).toBe(
+      `This device couldn’t switch to English 11, so it is still on ${before.name}. To take attendance for English 11, open Change body and pick it or one of its periods.`,
+    );
+    // The class exists; the device really is where the step says.
+    expect((await getActiveBody()).id).toBe(before.id);
+    expect((await listBodies()).some((body) => body.name === 'English 11')).toBe(true);
+    // One message, not a contradicting error under it.
+    expect(screen.queryByTestId('text-body-error')).toBeNull();
+  });
+
   it('creates a class with periods, attaches to the class, and offers per-period templates', async () => {
     const delivered = vi
       .spyOn(rosterTemplate, 'deliverRosterTemplateWorkbook')

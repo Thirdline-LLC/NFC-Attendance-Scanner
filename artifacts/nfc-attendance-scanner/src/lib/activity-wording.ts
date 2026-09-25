@@ -80,5 +80,14 @@ export function describeActivity(entry: ActivityEntry): ActivityWording {
       return { action: 'Moved a body in the tree', detail: '' };
     case 'body-archive':
       return { action: 'Archived a body', detail: '' };
+    case 'body-switch':
+      return {
+        action: 'Switched on the scanner',
+        detail: `${entry.fromBodyName ?? 'Unknown'} → ${entry.toBodyName ?? 'Unknown'}`,
+      };
+    case 'switch-pin-enabled':
+      return { action: 'PIN to switch periods turned on', detail: '' };
+    case 'switch-pin-disabled':
+      return { action: 'PIN to switch periods turned off', detail: '' };
   }
 }

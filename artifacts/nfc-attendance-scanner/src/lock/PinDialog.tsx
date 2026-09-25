@@ -60,6 +60,12 @@ type PinDialogProps =
        */
       onPinMissing?: () => void;
       onCancel: () => void;
+      /**
+       * Wording for what this confirmation is for, e.g. the scanner's period
+       * switch. Without them the dialog reads as the teacher gate does.
+       */
+      title?: string;
+      helper?: string;
     };
 
 /**
@@ -390,11 +396,17 @@ export function PinDialog(props: PinDialogProps) {
               // for it then waits for the phase to be known, not for a placeholder.
               data-testid={formPhase ? 'text-pin-title' : undefined}
             >
-              {formPhase ? titles[formPhase] : genericTitle}
+              {formPhase === 'unlock' && props.mode === 'verify' && props.title
+              ? props.title
+              : formPhase
+                ? titles[formPhase]
+                : genericTitle}
             </h2>
             {formPhase ? (
               <p className="mt-2 text-sm leading-snug text-[hsl(var(--muted-foreground))]">
-                {HELPERS[formPhase]}
+                {formPhase === 'unlock' && props.mode === 'verify' && props.helper
+                  ? props.helper
+                  : HELPERS[formPhase]}
               </p>
             ) : null}
           </div>
