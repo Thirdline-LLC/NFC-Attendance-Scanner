@@ -7,7 +7,7 @@ import { scanForForbiddenFields } from '../src/verify';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(__dirname, '../fixtures');
-const FIXTURE = join(FIXTURES, 'tapin-sjc-v1.0.1.nfc-theme');
+const FIXTURE = join(FIXTURES, 'tapin-sjc-v1.0.2.nfc-theme');
 
 describe('tapin-sjc packed fixture', () => {
   it('fixture file exists', () => {
@@ -19,7 +19,7 @@ describe('tapin-sjc packed fixture', () => {
     const result = await loadThemePack(json);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.pack.meta.version).toBe('1.0.1');
+      expect(result.pack.meta.version).toBe('1.0.2');
     }
   });
 
