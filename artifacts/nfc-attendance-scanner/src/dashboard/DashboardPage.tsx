@@ -44,7 +44,9 @@ import {
   type HistoryPurge,
   type Person,
   type TapRecord,
+  getSwitchPinRequired,
 } from '@/data/attendance-store';
+import { setSwitchPinRequired } from '@/data/switch-pin';
 import { deriveGrade, exportAttendanceWorkbook } from '@/lib/attendance-export';
 import {
   computeDashboardMetrics,
@@ -149,6 +151,11 @@ export function DashboardPage() {
   // "Set PIN" from the missing-PIN alert: the existing set-PIN form, opened
   // without touching the requirement (which stayed on throughout).
   const [settingMissingPin, setSettingMissingPin] = useState(false);
+  // "Require PIN to switch periods" (Design 09 §3), a per-device setting
+  // under the same protection-toggle rule as the switch above: on is
+  // immediate, off asks for the current PIN.
+  const [switchPinRequired, setSwitchPinRequiredState] = useState(false);
+  const [disablingSwitchPin, setDisablingSwitchPin] = useState(false);
   // The two retention previews, read with the page so the buttons can say
   // what they would do before anyone presses them; the action being
   // confirmed, whether it is running, and what it said when it finished.
@@ -238,6 +245,7 @@ export function DashboardPage() {
         savedTypes,
         savedFields,
         pinExists,
+        switchPinOn,
       ] = await Promise.all([
         getActiveBody(),
         listBodies(),
@@ -248,6 +256,7 @@ export function DashboardPage() {
         listBodyTypeDefs(),
         listBodyFieldDefs(),
         hasOperatorPin(),
+        getSwitchPinRequired(),
       ]);
       const ids =
         body.id === undefined ? [] : subtreeBodyIds(body.id, allBodies);
@@ -271,6 +280,7 @@ export function DashboardPage() {
       setTypeDefs(savedTypes);
       setFieldDefs(savedFields);
       setHasPin(pinExists);
+      setSwitchPinRequiredState(switchPinOn);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -432,12 +442,85 @@ export function DashboardPage() {
     );
   }, []);
 
+  /**
+   * Same courtesy-row rule as `logPinRequiredChange`: the setting is saved
+   * before this runs, so a log that cannot be written stays silent.
+   */
+  const logSwitchPinChange = useCallback(
+    async (kind: 'switch-pin-enabled' | 'switch-pin-disabled') => {
+      try {
+        await recordActivity({ at: new Date().toISOString(), kind });
+        setActivity(await listActivity());
+      } catch {
+        // See above.
+      }
+    },
+    [],
+  );
+
+  /** The change is saved; say so, update the switch and log it. */
+  const finishSwitchPinChange = useCallback(
+    async (required: boolean) => {
+      setSwitchPinRequiredState(required);
+      setPinNotice(required ? 'PIN to switch periods turned on.' : 'PIN to switch periods turned off.');
+      await logSwitchPinChange(required ? 'switch-pin-enabled' : 'switch-pin-disabled');
+    },
+    [logSwitchPinChange],
+  );
+
+  /**
+   * The switch was flipped. On needs no PIN but does need one to exist (the
+   * card keeps the switch disabled without one, and `setSwitchPinRequired`
+   * refuses it anyway). Off asks for the current PIN through `PinDialog`,
+   * whose `verify` is the store call itself, so the rule is enforced there.
+   * With no PIN on the device there is nothing to verify: off goes straight
+   * through (see `setSwitchPinRequired`).
+   */
+  const requestSwitchPinChange = useCallback(
+    async (next: boolean) => {
+      setPinNotice(null);
+      setPinError(null);
+      if (!next && hasPin) {
+        setDisablingSwitchPin(true);
+        return;
+      }
+      let verdict;
+      try {
+        verdict = await setSwitchPinRequired(next);
+      } catch {
+        setPinError("Couldn't change the PIN to switch periods: this device isn't letting the app save its settings.");
+        return;
+      }
+      if (verdict.status !== 'ok') {
+        setHasPin(false);
+        setPinError('Set a teacher PIN first. Switching periods can only ask for a PIN that exists.');
+        return;
+      }
+      await finishSwitchPinChange(next);
+    },
+    [hasPin, finishSwitchPinChange],
+  );
+
+  /** The PIN vanished while the turn-off dialog was open: nothing to verify. */
+  const handlePinMissingOnSwitchPin = useCallback(async () => {
+    setDisablingSwitchPin(false);
+    setHasPin(false);
+    try {
+      await setSwitchPinRequired(false);
+    } catch {
+      setPinError("Couldn't change the PIN to switch periods: this device isn't letting the app save its settings.");
+      return;
+    }
+    await finishSwitchPinChange(false);
+  }, [finishSwitchPinChange]);
+
   // A stale switch error should not linger beside whatever the teacher does
   // next: any dialog opening on this page clears it.
   const anyDialogOpen =
     changingPin ||
     disablingPinRequired ||
     enablingPinSetup ||
+    disablingSwitchPin ||
     settingMissingPin ||
     retentionAction !== null ||
     switchingBody ||
@@ -1031,6 +1114,8 @@ export function DashboardPage() {
               pinRequired={pinRequired}
               hasPin={hasPin}
               onTogglePinRequired={requestPinRequiredChange}
+              switchPinRequired={switchPinRequired}
+              onToggleSwitchPinRequired={(next) => void requestSwitchPinChange(next)}
               retention={{
                 schoolYearStart: boundary,
                 history: historyPreview,
@@ -1184,6 +1269,21 @@ export function DashboardPage() {
           onVerified={() => void confirmDisablePinRequired()}
           onPinMissing={handlePinMissingOnDisable}
           onCancel={() => setDisablingPinRequired(false)}
+        />
+      ) : null}
+
+      {disablingSwitchPin ? (
+        <PinDialog
+          mode="verify"
+          title="Enter the teacher PIN to turn this off"
+          helper="Turning off the PIN to switch periods lets anyone at the scanner change which period taps count for."
+          verify={(pin) => setSwitchPinRequired(false, pin)}
+          onVerified={() => {
+            setDisablingSwitchPin(false);
+            void finishSwitchPinChange(false);
+          }}
+          onPinMissing={() => void handlePinMissingOnSwitchPin()}
+          onCancel={() => setDisablingSwitchPin(false)}
         />
       ) : null}
 
