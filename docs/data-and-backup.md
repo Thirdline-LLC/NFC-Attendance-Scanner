@@ -140,10 +140,13 @@ Both exports ask for the teacher PIN first.
 | macOS | The native Save dialog, then a write the main process confirms by size | **Yes.** And closing the dialog reports "Export cancelled", never "the export did not run". |
 
 Two exports, two scopes: **End Session** covers the session on screen;
-**Export all history** on the dashboard covers every tap ever recorded on the
+**Export** → **All time** on the dashboard covers every tap ever recorded on the
 device, including sessions that have rotated away and the taps the v3 upgrade
-stamped `'legacy'`, and adds a second sheet, *Activity*, with the device's
-activity log. The card column in both is the card's last four (`••••1F90`),
+stamped `'legacy'`. Its workbook has *Summary* (per-student meetings attended
+and held), *Attendance* (every tap), *By meeting*, and *Activity* (the device's
+activity log). The same dialog exports a shorter range — Today, a single day,
+the last 7 days, the past month or year, this school year, or custom dates —
+with the same sheets minus *Activity*; share only the range that is needed. The card column in both is the card's last four (`••••1F90`),
 never the full UID. Every export notice ends with *Send this file only to a
 school account* (a theme pack may reword this; the duty itself cannot be
 removed).
@@ -154,7 +157,7 @@ removed).
 somewhere off the device (email it to yourself, drop it in Drive). Two minutes,
 and it is the only thing standing between a broken tablet and a lost term.
 
-**Once a term.** Dashboard → **Export all history**. Keep it with the school's
+**Once a term.** Dashboard → **Export** → **All time**. Keep it with the school's
 records.
 
 **Export before you do any of these — no exceptions:**
@@ -168,7 +171,7 @@ records.
 
 ### Replacing a device
 
-1. On the **old** device: Dashboard → **Export all history**, and on Students
+1. On the **old** device: Dashboard → **Export** → **All time**, and on Students
    → **Export roster**. Confirm both files open and the rows look right.
 2. Copy those files into the school workbook / OneDrive folder (the SoR) —
    somewhere that is not either device.

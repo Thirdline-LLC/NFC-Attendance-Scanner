@@ -110,7 +110,7 @@ The scanner has no backend, accounts, analytics, API routes, or database server.
 - **Two exports, two scopes.** The scanner's End Session export covers the
   session on screen, which is what a meeting wants. Everything ever recorded —
   rotated-away sessions, and the taps the v3 upgrade stamped `'legacy'` — is
-  reachable only from the dashboard's "Export all history", because the
+  reachable only from the dashboard's Export (All time), because the
   scanner's `taps` come from `listSessionTapRecords(sessionId)` and no session
   id will ever equal `'legacy'`. The `.xlsx` is the system of record, so some
   route to the whole history has to exist. In a browser that export is a Blob

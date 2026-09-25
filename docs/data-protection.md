@@ -159,7 +159,7 @@ school account.**
 
 | Export | What's in it | Blast radius |
 |---|---|---|
-| **Attendance** (*Export this session* / *Export all history*) | For every tap: name, school email, grade level, **last four characters of the card** (never the full UID), timestamp. *Export all history* adds an *Activity* sheet of counts and filenames | Identifies who attended which meeting on **this device** |
+| **Attendance** (*Export this session* / *Export → All time*) | For every tap: name, school email, grade level, **last four characters of the card** (never the full UID), timestamp. *Export → All time* adds an *Activity* sheet of counts and filenames | Identifies who attended which meeting on **this device** |
 | **Roster** (*Export roster* on Students) | Every student on the device — **including students who have never tapped** — with name, school email, graduation year, derived grade, and masked card tail (or blank if no card yet) | Wider than attendance: it is the full on-device roll, not only people who showed up |
 
 **Import roster** is the reverse of the roster export: a club operator picks a
@@ -195,7 +195,7 @@ being a disclosure. It is how an operator answers "where did that file go?",
 "when was that class imported?", and "when was that student removed?", and it
 is the record of disclosures a FERPA-style policy expects. The last fifty rows
 are on the dashboard; the whole log (capped at five hundred rows) is the
-second sheet of *Export all history*.
+second sheet of *Export → All time*.
 
 If a log row cannot be written, the action it describes still completes and
 the notice on screen says the row is missing. A log that could fail an export
@@ -208,7 +208,7 @@ falls under the school's own records policy. The **device cache** keeps taps
 for the **current school year only**. At the start of each school year, the
 teacher or club operator:
 
-1. runs *Export all history* (and *Export roster* if the SoR needs a fresh
+1. runs *Export → All time* (and *Export roster* if the SoR needs a fresh
    roll), confirms the files open, and files them into the school workbook;
 2. presses **Delete attendance before {August 1}** on the dashboard, which
    deletes every tap recorded before the school-year boundary and nothing from
@@ -232,7 +232,7 @@ Students rather than adding a bulk "undo import" — see
 A parent, or the student, may ask to see what the device holds about them.
 No feature is needed: the Students page shows the roster row (name, class
 year, email, and either the card's last four or **No card yet**), and
-*Export all history* filtered on the student's name is their attendance.
+*Export → All time* filtered on the student's name is their attendance.
 Corrections are made in place on the Students page; erasure is the *Remove*
 button below.
 
